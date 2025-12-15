@@ -2,8 +2,6 @@
 
 ## 🎯 Obiettivo
 
-Creare un progetto di test isolato per sviluppare la funzionalità di acquisizione foto e invio tramite BLE.
-
 **Prerequisiti:**
 - ✅ Test BLE completati con successo (vedi `ROADMAP_TEST_BLE.md`)
 - ✅ Stack BLE validato e funzionante
