@@ -1,143 +1,176 @@
 #include <Arduino.h>
 #include <WiFi.h>
-#include <WebServer.h>
+#include <AsyncTCP.h>
+#include <ESPAsyncWebServer.h>
 #include <Update.h>
 #include <FastLED.h>
+#include "WebSocketLogger.h"
+#include "MinimalDashboard.h"
 
-// Configurazione WiFi
-const char* ssid = "FASTWEB-2";
-const char* password = "lemarmottediinvernofannolacaccaverde";
+// WiFi
+static const char* SSID = "FASTWEB-2";
+static const char* PASSWORD = "lemarmottediinvernofannolacaccaverde";
 
-// LED built-in per feedback visivo
-const int LED_PIN = 4;
+// GPIO
+static constexpr uint8_t LED_PIN = 4;
 
-// Configurazione striscia LED FastLED
-#define LED_STRIP_PIN 12
-#define NUM_LEDS 144
-#define LED_TYPE WS2812B
-#define COLOR_ORDER GRB
-
+// Striscia LED FastLED
+static constexpr uint8_t LED_STRIP_PIN = 12;
+static constexpr uint16_t NUM_LEDS = 144;
+static constexpr uint8_t LED_BRIGHTNESS = 30;
 CRGB leds[NUM_LEDS];
 
-// Web server sulla porta 80
-WebServer server(80);
+// Networking
+AsyncWebServer* server = nullptr;
+AsyncWebSocket ws("/ws");
+WebSocketLogger logger(&ws);
 
-// Pagina HTML per upload OTA
-const char* serverIndex =
-"<form method='POST' action='/update' enctype='multipart/form-data'>"
-"<h1>ESP32 OTA Update</h1>"
-"<input type='file' name='update'>"
-"<input type='submit' value='Update'>"
-"</form>";
-
-void setup() {
-  Serial.begin(115200);
-  Serial.println("\n\n========================================");
-  Serial.println("   FIRMWARE VERSIONE 2.0 - OTA TEST");
-  Serial.println("========================================\n");
-
-  pinMode(LED_PIN, OUTPUT);
-
-  // Inizializza striscia LED FastLED
-  FastLED.addLeds<LED_TYPE, LED_STRIP_PIN, COLOR_ORDER>(leds, NUM_LEDS);
-  FastLED.setBrightness(30); // Luminosità al 50% per test
-  Serial.println("Striscia LED FastLED inizializzata (144 LED sul pin 2)");
-
-  // Connessione WiFi
-  Serial.print("Connessione a ");
-  Serial.println(ssid);
-
+// Helper per attendere il WiFi con feedback visivo
+static void waitForWiFi() {
   WiFi.mode(WIFI_STA);
-  WiFi.begin(ssid, password);
-
+  WiFi.begin(SSID, PASSWORD);
+  Serial.printf("Connessione a %s", SSID);
   while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
+    delay(400);
     Serial.print(".");
     digitalWrite(LED_PIN, !digitalRead(LED_PIN));
   }
-
-  Serial.println("\nWiFi connesso!");
-  Serial.print("IP: ");
-  Serial.println(WiFi.localIP());
+  Serial.printf("\nWiFi connesso - IP: %s\n", WiFi.localIP().toString().c_str());
   digitalWrite(LED_PIN, HIGH);
+}
 
-  // Configura Web Server per OTA
-  server.on("/", HTTP_GET, []() {
-    server.sendHeader("Connection", "close");
-    server.send(200, "text/html", serverIndex);
-  });
+// Handler pagina principale (PROGMEM) con intestazioni base
+static void handleRoot(AsyncWebServerRequest* request) {
+  AsyncWebServerResponse* res = request->beginResponse_P(
+      200, "text/html",
+      reinterpret_cast<const uint8_t*>(MINIMAL_DASHBOARD),
+      strlen_P(MINIMAL_DASHBOARD));
+  res->addHeader("Cache-Control", "no-store");
+  request->send(res);
+}
 
-  server.on("/update", HTTP_POST, []() {
-    server.sendHeader("Connection", "close");
-    server.send(200, "text/plain", (Update.hasError()) ? "FAIL" : "OK");
-    ESP.restart();
-  }, []() {
-    HTTPUpload& upload = server.upload();
-    if (upload.status == UPLOAD_FILE_START) {
-      Serial.printf("Update: %s\n", upload.filename.c_str());
-      if (!Update.begin(UPDATE_SIZE_UNKNOWN)) {
-        Update.printError(Serial);
-      }
-    } else if (upload.status == UPLOAD_FILE_WRITE) {
-      if (Update.write(upload.buf, upload.currentSize) != upload.currentSize) {
-        Update.printError(Serial);
-      }
-    } else if (upload.status == UPLOAD_FILE_END) {
-      if (Update.end(true)) {
-        Serial.printf("Update Success: %u\nRebooting...\n", upload.totalSize);
-      } else {
-        Update.printError(Serial);
-      }
+// Handler OTA (POST /update)
+static void handleOtaUpload(AsyncWebServerRequest* request, String filename, size_t index,
+                            uint8_t* data, size_t len, bool final) {
+  if (index == 0) {
+    logger.logf("OTA start: %s", filename.c_str());
+    if (!Update.begin(UPDATE_SIZE_UNKNOWN)) {
+      Update.printError(Serial);
+      logger.log("OTA: begin fallita");
+      return;
     }
-  });
+  }
 
-  server.begin();
-  Serial.println("HTTP server avviato");
-  Serial.print("Vai su: http://");
+  if (Update.write(data, len) != len) {
+    Update.printError(Serial);
+    logger.log("OTA: write fallita");
+    return;
+  }
+
+  if (final) {
+    if (Update.end(true)) {
+      logger.logf("OTA ok: %u bytes", static_cast<unsigned>(index + len));
+    } else {
+      Update.printError(Serial);
+      logger.log("OTA: end fallita");
+    }
+  }
+}
+
+static void handleOtaCompleted(AsyncWebServerRequest* request) {
+  AsyncWebServerResponse* response =
+      request->beginResponse(200, "text/plain", Update.hasError() ? "FAIL" : "OK");
+  response->addHeader("Connection", "close");
+  request->send(response);
+
+  if (!Update.hasError()) {
+    logger.log("OTA completata, riavvio...");
+    delay(500);
+    ESP.restart();
+  }
+}
+
+// Inizializza periferiche e server
+static void initPeripherals() {
+  pinMode(LED_PIN, OUTPUT);
+  digitalWrite(LED_PIN, LOW);
+
+  FastLED.addLeds<WS2812B, LED_STRIP_PIN, GRB>(leds, NUM_LEDS);
+  FastLED.setBrightness(LED_BRIGHTNESS);
+}
+
+static void initServer() {
+  if (!server) {
+    Serial.println("ERRORE: server non allocato");
+    return;
+  }
+  logger.begin();
+
+  ws.onEvent([](AsyncWebSocket* s, AsyncWebSocketClient* c, AwsEventType t,
+                void* arg, uint8_t* data, size_t len) {
+    logger.handleWebSocketEvent(s, c, t, arg, data, len);
+  });
+  server->addHandler(&ws);
+
+  server->on("/", HTTP_GET, handleRoot);
+  server->on("/update", HTTP_POST, handleOtaCompleted, handleOtaUpload);
+  server->begin();
+
+  logger.logf("Pagina @ 0x%08x", reinterpret_cast<uint32_t>(MINIMAL_DASHBOARD));
+  logger.log("*** SISTEMA AVVIATO ***");
+}
+
+void setup() {
+  Serial.begin(115200);
+  Serial.println("\n=== BOOT LED DENSE ===");
+
+  // Instanzia server dinamicamente per evitare potenziali problemi di init statico
+  server = new AsyncWebServer(80);
+
+  initPeripherals();
+  waitForWiFi();
+  initServer();
+
+  Serial.println("Server pronto su porta 80");
+  Serial.print("Dashboard: http://");
   Serial.println(WiFi.localIP());
 }
 
 void loop() {
-  server.handleClient();
-
-  // CODICE APPLICATIVO - Pattern LED V2.0 (3 blink veloci + pausa)
-  static unsigned long lastAction = 0;
-  static int blinkCount = 0;
+  static unsigned long lastCleanup = 0;
+  static unsigned long lastPattern = 0;
+  static uint8_t blinkState = 0;
   static bool ledState = false;
-
-  unsigned long currentMillis = millis();
-
-  // Nuovo pattern: 3 blink veloci (100ms) poi pausa 2 secondi
-  if (blinkCount < 6) {  // 3 blink = 6 toggle (on/off)
-    if (currentMillis - lastAction > 100) {
-      ledState = !ledState;
-      digitalWrite(LED_PIN, ledState);
-      lastAction = currentMillis;
-      blinkCount++;
-
-      if (blinkCount == 6) {
-        Serial.println(">>> V2.0: Pattern completato - 3 BLINK VELOCI <<<");
-      }
-    }
-  } else {
-    // Pausa di 2 secondi prima di ripartire
-    if (currentMillis - lastAction > 2000) {
-      blinkCount = 0;
-      Serial.println("*** FIRMWARE V2.0 ATTIVO - OTA FUNZIONA! ***");
-    }
-  }
-
-  // TEST STRISCIA LED - Effetto arcobaleno rotante
-  static unsigned long lastStripUpdate = 0;
+  static unsigned long lastStrip = 0;
   static uint8_t hue = 0;
 
-  if (currentMillis - lastStripUpdate > 20) {  // Aggiorna ogni 20ms
-    // Riempie la striscia con un effetto arcobaleno rotante
+  const unsigned long now = millis();
+
+  // Cleanup WebSocket client ogni 2s
+  if (now - lastCleanup > 2000) {
+    ws.cleanupClients();
+    lastCleanup = now;
+  }
+
+  // Pattern LED: 3 blink veloci, pausa 2s
+  if (blinkState < 6) {
+    if (now - lastPattern > 100) {
+      ledState = !ledState;
+      digitalWrite(LED_PIN, ledState);
+      blinkState++;
+      lastPattern = now;
+    }
+  } else if (now - lastPattern > 2000) {
+    blinkState = 0;
+    lastPattern = now;
+  }
+
+  // Effetto arcobaleno striscia
+  if (now - lastStrip > 20) {
     fill_rainbow(leds, NUM_LEDS, hue, 256 / NUM_LEDS);
     FastLED.show();
-
-    hue++;  // Incrementa la tonalità per effetto rotante
-    lastStripUpdate = currentMillis;
+    hue++;
+    lastStrip = now;
   }
 
   yield();
