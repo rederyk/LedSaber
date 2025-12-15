@@ -2,6 +2,7 @@
 #include <WiFi.h>
 #include <WebServer.h>
 #include <Update.h>
+#include <FastLED.h>
 
 // Configurazione WiFi
 const char* ssid = "FASTWEB-2";
@@ -9,6 +10,14 @@ const char* password = "lemarmottediinvernofannolacaccaverde";
 
 // LED built-in per feedback visivo
 const int LED_PIN = 4;
+
+// Configurazione striscia LED FastLED
+#define LED_STRIP_PIN 12
+#define NUM_LEDS 144
+#define LED_TYPE WS2812B
+#define COLOR_ORDER GRB
+
+CRGB leds[NUM_LEDS];
 
 // Web server sulla porta 80
 WebServer server(80);
@@ -28,6 +37,11 @@ void setup() {
   Serial.println("========================================\n");
 
   pinMode(LED_PIN, OUTPUT);
+
+  // Inizializza striscia LED FastLED
+  FastLED.addLeds<LED_TYPE, LED_STRIP_PIN, COLOR_ORDER>(leds, NUM_LEDS);
+  FastLED.setBrightness(30); // Luminosità al 50% per test
+  Serial.println("Striscia LED FastLED inizializzata (144 LED sul pin 2)");
 
   // Connessione WiFi
   Serial.print("Connessione a ");
@@ -111,6 +125,19 @@ void loop() {
       blinkCount = 0;
       Serial.println("*** FIRMWARE V2.0 ATTIVO - OTA FUNZIONA! ***");
     }
+  }
+
+  // TEST STRISCIA LED - Effetto arcobaleno rotante
+  static unsigned long lastStripUpdate = 0;
+  static uint8_t hue = 0;
+
+  if (currentMillis - lastStripUpdate > 20) {  // Aggiorna ogni 20ms
+    // Riempie la striscia con un effetto arcobaleno rotante
+    fill_rainbow(leds, NUM_LEDS, hue, 256 / NUM_LEDS);
+    FastLED.show();
+
+    hue++;  // Incrementa la tonalità per effetto rotante
+    lastStripUpdate = currentMillis;
   }
 
   yield();
