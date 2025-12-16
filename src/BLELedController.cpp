@@ -27,7 +27,7 @@ public:
     void onWrite(BLECharacteristic *pChar) override {
         String value = pChar->getValue().c_str();
 
-        StaticJsonDocument<256> doc;
+        JsonDocument doc;
         DeserializationError error = deserializeJson(doc, value);
 
         if (!error) {
@@ -54,7 +54,7 @@ public:
     void onWrite(BLECharacteristic *pChar) override {
         String value = pChar->getValue().c_str();
 
-        StaticJsonDocument<256> doc;
+        JsonDocument doc;
         DeserializationError error = deserializeJson(doc, value);
 
         if (!error) {
@@ -77,7 +77,7 @@ public:
     void onWrite(BLECharacteristic *pChar) override {
         String value = pChar->getValue().c_str();
 
-        StaticJsonDocument<128> doc;
+        JsonDocument doc;
         DeserializationError error = deserializeJson(doc, value);
 
         if (!error) {
@@ -120,6 +120,9 @@ void BLELedController::begin(const char* deviceName) {
         BLECharacteristic::PROPERTY_NOTIFY
     );
     pCharState->addDescriptor(new BLE2902());  // Abilita notifiche
+    BLEDescriptor* descState = new BLEDescriptor(BLEUUID((uint16_t)0x2901));
+    descState->setValue("LED State");
+    pCharState->addDescriptor(descState);
 
     // Characteristic 2: Color (WRITE)
     pCharColor = pService->createCharacteristic(
@@ -127,6 +130,9 @@ void BLELedController::begin(const char* deviceName) {
         BLECharacteristic::PROPERTY_WRITE
     );
     pCharColor->setCallbacks(new ColorCallbacks(this));
+    BLEDescriptor* descColor = new BLEDescriptor(BLEUUID((uint16_t)0x2901));
+    descColor->setValue("LED Color");
+    pCharColor->addDescriptor(descColor);
 
     // Characteristic 3: Effect (WRITE)
     pCharEffect = pService->createCharacteristic(
@@ -134,6 +140,9 @@ void BLELedController::begin(const char* deviceName) {
         BLECharacteristic::PROPERTY_WRITE
     );
     pCharEffect->setCallbacks(new EffectCallbacks(this));
+    BLEDescriptor* descEffect = new BLEDescriptor(BLEUUID((uint16_t)0x2901));
+    descEffect->setValue("LED Effect");
+    pCharEffect->addDescriptor(descEffect);
 
     // Characteristic 4: Brightness (WRITE)
     pCharBrightness = pService->createCharacteristic(
@@ -141,6 +150,9 @@ void BLELedController::begin(const char* deviceName) {
         BLECharacteristic::PROPERTY_WRITE
     );
     pCharBrightness->setCallbacks(new BrightnessCallbacks(this));
+    BLEDescriptor* descBrightness = new BLEDescriptor(BLEUUID((uint16_t)0x2901));
+    descBrightness->setValue("LED Brightness");
+    pCharBrightness->addDescriptor(descBrightness);
 
     // Avvia service
     pService->start();
@@ -160,7 +172,7 @@ void BLELedController::begin(const char* deviceName) {
 void BLELedController::notifyState() {
     if (!deviceConnected) return;
 
-    StaticJsonDocument<256> doc;
+    JsonDocument doc;
     doc["r"] = ledState->r;
     doc["g"] = ledState->g;
     doc["b"] = ledState->b;

@@ -59,6 +59,11 @@ spiffs,   data, spiffs,  0x3D0000,192KB,     0x30000
 
 ---
 
+## ✅ Stato migrazione
+- Fase 1-3 completate: `platformio.ini` ripulito, logger BT Classic e controller BLE (main senza WiFi/WebServer).
+- Test in corso: controllo LED via BLE da BlueZ (`bluetoothctl`), log via SPP con `rfcomm` + `screen`.
+- Da completare: BLE OTA (FASE 5), rimozione definitiva asset web (`MinimalDashboard`, `WebSocketLogger` header), pulizia warning ArduinoJson (switch a `JsonDocument`).
+
 ## 🎯 FASE 1: Preparazione Ambiente Bluetooth
 
 ### 1.1 Modificare `platformio.ini`
@@ -673,7 +678,7 @@ pip install bleak
 
 **Uso:**
 ```bash
-python tools/ble_ota_upload.py "LedDense-BLE" .pio/build/esp32cam/firmware.bin
+python tools/ble_ota_upload.py "LedSaber-BLE" .pio/build/esp32cam/firmware.bin
 ```
 
 ---
@@ -693,7 +698,7 @@ BLEOTAController bleOTA;
 void setup() {
     // ... (codice precedente)
 
-    bleController.begin("LedDense-BLE");
+    bleController.begin("LedSaber-BLE");
     logger.log("*** BLE GATT Server avviato ***");
 
     // Aggiungi servizio OTA allo stesso server BLE
@@ -785,11 +790,11 @@ void setup() {
     initPeripherals();
 
     // Avvia Bluetooth Classic (Logging)
-    logger.begin("LedDense-Log");
+    logger.begin("LedSaber-Log");
     logger.log("*** Bluetooth Classic avviato ***");
 
     // Avvia BLE GATT (Controllo LED)
-    bleController.begin("LedDense-BLE");
+    bleController.begin("LedSaber-BLE");
     logger.log("*** BLE GATT Server avviato ***");
 
     // Avvia BLE OTA (Aggiornamento firmware)
@@ -909,7 +914,7 @@ screen /dev/rfcomm0 115200
 
 **Da Android:**
 - App: **Serial Bluetooth Terminal**
-- Cerca "LedDense-Log"
+- Cerca "LedSaber-Log"
 - Connect
 - Vedi log in tempo reale
 
@@ -920,7 +925,7 @@ screen /dev/rfcomm0 115200
 **App: nRF Connect (Nordic Semiconductor)** ⭐
 
 **Configurazione:**
-1. Scansiona → Trova "LedDense-BLE"
+1. Scansiona → Trova "LedSaber-BLE"
 2. Connect
 3. Naviga Service `4fafc201...`
 
@@ -961,12 +966,12 @@ screen /dev/rfcomm0 115200
 pio run
 
 # Upload via BLE
-python tools/ble_ota_upload.py "LedDense-BLE" .pio/build/esp32cam/firmware.bin
+python tools/ble_ota_upload.py "LedSaber-BLE" .pio/build/esp32cam/firmware.bin
 ```
 
 **Output atteso:**
 ```
-Scanning for LedDense-BLE...
+Scanning for LedSaber-BLE...
 Connecting to XX:XX:XX:XX:XX:XX...
 Connected!
 Firmware size: 813273 bytes
@@ -977,7 +982,7 @@ Upload complete! Device will reboot...
 **Tempo stimato:** ~40 secondi per 813KB
 
 **Monitoraggio log durante OTA:**
-- Connetti "Serial Bluetooth Terminal" a "LedDense-Log"
+- Connetti "Serial Bluetooth Terminal" a "LedSaber-Log"
 - Vedi messaggi `[OTA] Progress: XX%`
 - LED diventano blu fisso durante upload
 
@@ -986,18 +991,18 @@ Upload complete! Device will reboot...
 ### 6.4 Workflow Tipico
 
 1. LOGGING - Apri "Serial Bluetooth Terminal" (Android)
-   → Connetti a "LedDense-Log"
+   → Connetti a "LedSaber-Log"
    → Vedi log boot e messaggi debug
 
 2. CONTROLLO LED - Apri "nRF Connect" (Android)
-   → Connetti a "LedDense-BLE"
+   → Connetti a "LedSaber-BLE"
    → Imposta colore/effetto LED
 
 3. MONITOR - Monitora log su "Serial Bluetooth Terminal"
    → Vedi conferme "[BLE] Color set to RGB(...)"
 
 4. OTA - Aggiornamento firmware da PC
-   → python tools/ble_ota_upload.py "LedDense-BLE" firmware.bin
+   → python tools/ble_ota_upload.py "LedSaber-BLE" firmware.bin
    → Vedi progress su "Serial Bluetooth Terminal"
    → LED blu durante upload
    → Reboot automatico
@@ -1082,13 +1087,13 @@ pio run -t upload -t monitor
 ```
 
 ### Step 8: Test Connessioni
-- [ ] Android: "Serial Bluetooth Terminal" → "LedDense-Log"
-- [ ] Android: "nRF Connect" → "LedDense-BLE"
+- [ ] Android: "Serial Bluetooth Terminal" → "LedSaber-Log"
+- [ ] Android: "nRF Connect" → "LedSaber-BLE"
 - [ ] Verificare controllo LED via BLE
 - [ ] Verificare log via Bluetooth Classic
 
 ### Step 9: Test OTA
-- [ ] PC: `python tools/ble_ota_upload.py "LedDense-BLE" firmware.bin`
+- [ ] PC: `python tools/ble_ota_upload.py "LedSaber-BLE" firmware.bin`
 - [ ] Verificare LED blu durante upload
 - [ ] Verificare reboot automatico
 - [ ] Verificare log progress su Serial BT
@@ -1187,6 +1192,14 @@ pio run -t upload -t monitor
 ✅ Hai RAM disponibile (280 KB → 320 KB)
 ✅ Non vuoi usare WiFi ma vuoi comunque OTA
 ✅ Puoi aspettare ~40s per upload firmware
+
+---
+
+## 🧰 Tooling Linux (BlueZ) – sostituisce le app Android
+- SPP / RFCOMM per log: installa `bluez-deprecated-tools`, bind `sudo rfcomm bind 0 <MAC>`, poi `screen /dev/rfcomm0 115200` (o `release` per chiudere).
+- BLE / GATT: con `bluetoothctl` usa `connect <MAC>`, `list-attributes`, `select-attribute <UUID>`, `write <valore_hex>`.
+- Naming leggibile: aggiungere descrittore `0x2901` alle caratteristiche BLE (es. "LED State", "LED Color", "LED Effect", "LED Brightness") per facilitarne l’uso da BlueZ/nRF.
+- Automazione CLI: script bash con heredoc verso `bluetoothctl` per connect/write/disconnect (vedi esempio nel report).
 
 ---
 

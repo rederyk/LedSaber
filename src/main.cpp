@@ -119,11 +119,11 @@ void setup() {
     initPeripherals();
 
     // Avvia Bluetooth Classic per logging
-    logger.begin("LedDense-Log");
+    logger.begin("LedSaber-Log");
     logger.log("*** Bluetooth Classic pronto (logging) ***");
 
     // Avvia BLE GATT per controllo LED
-    bleController.begin("LedDense-BLE");
+    bleController.begin("LedSaber-BLE");
     logger.log("*** BLE GATT Server avviato ***");
 
     logger.logf("Free heap: %u bytes", ESP.getFreeHeap());

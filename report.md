@@ -1,9 +1,9 @@
 # 📝 Report Tecnico: Emulazione Bluetooth Toolchain su Linux
 ```bash
-[LedDense-BLE]> info
+[LedSaber-BLE]> info
 Device 10:52:1C:75:58:56 (public)
-	Name: LedDense-BLE
-	Alias: LedDense-BLE
+	Name: LedSaber-BLE
+	Alias: LedSaber-BLE
 	Class: 0x0002c110 (180496)
 	Icon: computer
 	Paired: yes
@@ -19,7 +19,7 @@ Device 10:52:1C:75:58:56 (public)
 	UUID: Vendor specific           (4fafc201-1fb5-459e-8fcc-c5c9c331914b)
 	AdvertisingFlags:
   06                                               .               
-[LedDense-BLE]> 
+[LedSaber-BLE]> 
 ```
 ## 🎯 Obiettivo
 
