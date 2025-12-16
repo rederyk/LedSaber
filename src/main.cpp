@@ -1,9 +1,7 @@
 #include <Arduino.h>
 #include <FastLED.h>
-#include <BluetoothSerial.h>
 #include <BLEDevice.h>
 
-#include "BluetoothLogger.h"
 #include "BLELedController.h"
 
 // GPIO
@@ -14,9 +12,7 @@ static constexpr uint8_t DEFAULT_BRIGHTNESS = 30;
 
 CRGB leds[NUM_LEDS];
 
-// Bluetooth
-BluetoothSerial SerialBT;
-BluetoothLogger logger(&SerialBT);
+// BLE GATT
 LedState ledState;
 BLELedController bleController(&ledState);
 
@@ -91,50 +87,18 @@ static void renderLedStrip() {
     lastUpdate = now;
 }
 
-static void handleBtCommands() {
-    if (!SerialBT.available()) {
-        return;
-    }
-
-    String cmd = SerialBT.readStringUntil('\n');
-    cmd.trim();
-
-    if (cmd == "ping") {
-        logger.log("pong");
-    } else if (cmd == "status") {
-        logger.logf("Uptime: %lu ms", millis());
-        logger.logf("Free heap: %u bytes", ESP.getFreeHeap());
-        logger.logf("BT connected: %s", logger.isConnected() ? "YES" : "NO");
-        logger.logf("BLE connected: %s", bleController.isConnected() ? "YES" : "NO");
-        logger.logf("LED Strip: R=%d G=%d B=%d Brightness=%d Effect=%s Enabled=%d",
-            ledState.r, ledState.g, ledState.b, ledState.brightness,
-            ledState.effect.c_str(), ledState.enabled);
-        logger.logf("Status LED (pin 4): %s", ledState.statusLedEnabled ? "ENABLED" : "DISABLED");
-    } else if (cmd == "reset") {
-        logger.log("Rebooting in 500ms...");
-        delay(500);
-        ESP.restart();
-    } else {
-        logger.logf("Unknown command: %s", cmd.c_str());
-    }
-}
-
 void setup() {
     Serial.begin(115200);
-    Serial.println("\n=== BOOT LED DENSE (BLE TEST) ===");
+    Serial.println("\n=== LEDSABER (BLE GATT) ===");
 
     initPeripherals();
 
-    // Avvia Bluetooth Classic per logging
-    logger.begin("LedSaber-Log");
-    logger.log("*** Bluetooth Classic pronto (logging) ***");
-
     // Avvia BLE GATT per controllo LED
     bleController.begin("LedSaber-BLE");
-    logger.log("*** BLE GATT Server avviato ***");
+    Serial.println("*** BLE GATT Server avviato ***");
 
-    logger.logf("Free heap: %u bytes", ESP.getFreeHeap());
-    logger.log("*** SISTEMA PRONTO (TEST BLE) ***");
+    Serial.printf("Free heap: %u bytes\n", ESP.getFreeHeap());
+    Serial.println("*** SISTEMA PRONTO ***");
 }
 
 void loop() {
@@ -142,9 +106,8 @@ void loop() {
     const unsigned long now = millis();
 
     const bool bleConnected = bleController.isConnected();
-    const bool btConnected = logger.isConnected();
 
-    updateStatusLed(bleConnected, btConnected);
+    updateStatusLed(bleConnected, false);
     renderLedStrip();
 
     // Notifica stato BLE ogni 500ms se c'è una connessione
@@ -153,6 +116,5 @@ void loop() {
         lastBleNotify = now;
     }
 
-    handleBtCommands();
     yield();
 }
