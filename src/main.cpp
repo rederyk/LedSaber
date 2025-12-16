@@ -1,177 +1,151 @@
 #include <Arduino.h>
-#include <WiFi.h>
-#include <AsyncTCP.h>
-#include <ESPAsyncWebServer.h>
-#include <Update.h>
 #include <FastLED.h>
-#include "WebSocketLogger.h"
-#include "MinimalDashboard.h"
+#include <BluetoothSerial.h>
+#include <BLEDevice.h>
 
-// WiFi
-static const char* SSID = "FASTWEB-2";
-static const char* PASSWORD = "lemarmottediinvernofannolacaccaverde";
+#include "BluetoothLogger.h"
+#include "BLELedController.h"
 
 // GPIO
-static constexpr uint8_t LED_PIN = 4;
-
-// Striscia LED FastLED
-static constexpr uint8_t LED_STRIP_PIN = 12;
+static constexpr uint8_t STATUS_LED_PIN = 4;   // LED integrato per stato connessione
+static constexpr uint8_t LED_STRIP_PIN = 12;   // Striscia WS2812B
 static constexpr uint16_t NUM_LEDS = 144;
-static constexpr uint8_t LED_BRIGHTNESS = 30;
+static constexpr uint8_t DEFAULT_BRIGHTNESS = 30;
+
 CRGB leds[NUM_LEDS];
 
-// Networking
-AsyncWebServer* server = nullptr;
-AsyncWebSocket ws("/ws");
-WebSocketLogger logger(&ws);
+// Bluetooth
+BluetoothSerial SerialBT;
+BluetoothLogger logger(&SerialBT);
+LedState ledState;
+BLELedController bleController(&ledState);
 
-// Helper per attendere il WiFi con feedback visivo
-static void waitForWiFi() {
-  WiFi.mode(WIFI_STA);
-  WiFi.begin(SSID, PASSWORD);
-  Serial.printf("Connessione a %s", SSID);
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(400);
-    Serial.print(".");
-    digitalWrite(LED_PIN, !digitalRead(LED_PIN));
-  }
-  Serial.printf("\nWiFi connesso - IP: %s\n", WiFi.localIP().toString().c_str());
-  digitalWrite(LED_PIN, HIGH);
-}
-
-// Handler pagina principale (PROGMEM) con intestazioni base
-static void handleRoot(AsyncWebServerRequest* request) {
-  AsyncWebServerResponse* res = request->beginResponse_P(
-      200, "text/html",
-      reinterpret_cast<const uint8_t*>(MINIMAL_DASHBOARD),
-      strlen_P(MINIMAL_DASHBOARD));
-  res->addHeader("Cache-Control", "no-store");
-  request->send(res);
-}
-
-// Handler OTA (POST /update)
-static void handleOtaUpload(AsyncWebServerRequest* request, String filename, size_t index,
-                            uint8_t* data, size_t len, bool final) {
-  if (index == 0) {
-    logger.logf("OTA start: %s", filename.c_str());
-    if (!Update.begin(UPDATE_SIZE_UNKNOWN)) {
-      Update.printError(Serial);
-      logger.log("OTA: begin fallita");
-      return;
-    }
-  }
-
-  if (Update.write(data, len) != len) {
-    Update.printError(Serial);
-    logger.log("OTA: write fallita");
-    return;
-  }
-
-  if (final) {
-    if (Update.end(true)) {
-      logger.logf("OTA ok: %u bytes", static_cast<unsigned>(index + len));
-    } else {
-      Update.printError(Serial);
-      logger.log("OTA: end fallita");
-    }
-  }
-}
-
-static void handleOtaCompleted(AsyncWebServerRequest* request) {
-  AsyncWebServerResponse* response =
-      request->beginResponse(200, "text/plain", Update.hasError() ? "FAIL" : "OK");
-  response->addHeader("Connection", "close");
-  request->send(response);
-
-  if (!Update.hasError()) {
-    logger.log("OTA completata, riavvio...");
-    delay(500);
-    ESP.restart();
-  }
-}
-
-// Inizializza periferiche e server
 static void initPeripherals() {
-  pinMode(LED_PIN, OUTPUT);
-  digitalWrite(LED_PIN, LOW);
+    pinMode(STATUS_LED_PIN, OUTPUT);
+    digitalWrite(STATUS_LED_PIN, LOW);
 
-  FastLED.addLeds<WS2812B, LED_STRIP_PIN, GRB>(leds, NUM_LEDS);
-  FastLED.setBrightness(LED_BRIGHTNESS);
+    FastLED.addLeds<WS2812B, LED_STRIP_PIN, GRB>(leds, NUM_LEDS);
+    FastLED.setBrightness(DEFAULT_BRIGHTNESS);
 }
 
-static void initServer() {
-  if (!server) {
-    Serial.println("ERRORE: server non allocato");
-    return;
-  }
-  logger.begin();
+static void updateStatusLed(bool bleConnected, bool btConnected) {
+    static unsigned long lastBlink = 0;
+    static bool ledOn = false;
+    unsigned long now = millis();
 
-  ws.onEvent([](AsyncWebSocket* s, AsyncWebSocketClient* c, AwsEventType t,
-                void* arg, uint8_t* data, size_t len) {
-    logger.handleWebSocketEvent(s, c, t, arg, data, len);
-  });
-  server->addHandler(&ws);
+    // LED fisso acceso se c'è almeno una connessione
+    if (bleConnected || btConnected) {
+        digitalWrite(STATUS_LED_PIN, HIGH);
+        ledOn = true;
+        return;
+    }
 
-  server->on("/", HTTP_GET, handleRoot);
-  server->on("/update", HTTP_POST, handleOtaCompleted, handleOtaUpload);
-  server->begin();
+    // Blink lento quando nessuna connessione è presente
+    if (now - lastBlink > 500) {
+        ledOn = !ledOn;
+        digitalWrite(STATUS_LED_PIN, ledOn ? HIGH : LOW);
+        lastBlink = now;
+    }
+}
 
-  logger.logf("Pagina @ 0x%08x", reinterpret_cast<uint32_t>(MINIMAL_DASHBOARD));
-  logger.log("*** SISTEMA AVVIATO ***");
+static void renderLedStrip() {
+    static unsigned long lastUpdate = 0;
+    static uint8_t hue = 0;
+    const unsigned long now = millis();
+
+    if (now - lastUpdate < 20) {
+        return;
+    }
+
+    if (ledState.enabled) {
+        if (ledState.effect == "solid") {
+            fill_solid(leds, NUM_LEDS, CRGB(ledState.r, ledState.g, ledState.b));
+        } else if (ledState.effect == "rainbow") {
+            uint8_t step = ledState.speed / 10;
+            if (step == 0) step = 1;
+            fill_rainbow(leds, NUM_LEDS, hue, 256 / NUM_LEDS);
+            hue += step;
+        } else if (ledState.effect == "breathe") {
+            uint8_t breath = beatsin8(ledState.speed, 0, 255);
+            fill_solid(leds, NUM_LEDS, CRGB(ledState.r, ledState.g, ledState.b));
+            FastLED.setBrightness(scale8(breath, ledState.brightness));
+            FastLED.show();
+            FastLED.setBrightness(ledState.brightness);
+            lastUpdate = now;
+            return;
+        }
+
+        FastLED.setBrightness(ledState.brightness);
+        FastLED.show();
+    } else {
+        fill_solid(leds, NUM_LEDS, CRGB::Black);
+        FastLED.show();
+    }
+
+    lastUpdate = now;
+}
+
+static void handleBtCommands() {
+    if (!SerialBT.available()) {
+        return;
+    }
+
+    String cmd = SerialBT.readStringUntil('\n');
+    cmd.trim();
+
+    if (cmd == "ping") {
+        logger.log("pong");
+    } else if (cmd == "status") {
+        logger.logf("Uptime: %lu ms", millis());
+        logger.logf("Free heap: %u bytes", ESP.getFreeHeap());
+        logger.logf("BT connected: %s", logger.isConnected() ? "YES" : "NO");
+        logger.logf("BLE connected: %s", bleController.isConnected() ? "YES" : "NO");
+        logger.logf("LED: R=%d G=%d B=%d Brightness=%d Effect=%s Enabled=%d",
+            ledState.r, ledState.g, ledState.b, ledState.brightness,
+            ledState.effect.c_str(), ledState.enabled);
+    } else if (cmd == "reset") {
+        logger.log("Rebooting in 500ms...");
+        delay(500);
+        ESP.restart();
+    } else {
+        logger.logf("Unknown command: %s", cmd.c_str());
+    }
 }
 
 void setup() {
-  Serial.begin(115200);
-  Serial.println("\n=== BOOT LED DENSE ===");
+    Serial.begin(115200);
+    Serial.println("\n=== BOOT LED DENSE (BLE TEST) ===");
 
-  // Instanzia server dinamicamente per evitare potenziali problemi di init statico
-  server = new AsyncWebServer(80);
+    initPeripherals();
 
-  initPeripherals();
-  waitForWiFi();
-  initServer();
+    // Avvia Bluetooth Classic per logging
+    logger.begin("LedDense-Log");
+    logger.log("*** Bluetooth Classic pronto (logging) ***");
 
-  Serial.println("Server pronto su porta 80");
-  Serial.print("Dashboard: http://");
-  Serial.println(WiFi.localIP());
+    // Avvia BLE GATT per controllo LED
+    bleController.begin("LedDense-BLE");
+    logger.log("*** BLE GATT Server avviato ***");
+
+    logger.logf("Free heap: %u bytes", ESP.getFreeHeap());
+    logger.log("*** SISTEMA PRONTO (TEST BLE) ***");
 }
 
 void loop() {
-  static unsigned long lastCleanup = 0;
-  static unsigned long lastPattern = 0;
-  static uint8_t blinkState = 0;
-  static bool ledState = false;
-  static unsigned long lastStrip = 0;
-  static uint8_t hue = 0;
+    static unsigned long lastBleNotify = 0;
+    const unsigned long now = millis();
 
-  const unsigned long now = millis();
+    const bool bleConnected = bleController.isConnected();
+    const bool btConnected = logger.isConnected();
 
-  // Cleanup WebSocket client ogni 2s
-  if (now - lastCleanup > 2000) {
-    ws.cleanupClients();
-    lastCleanup = now;
-  }
+    updateStatusLed(bleConnected, btConnected);
+    renderLedStrip();
 
-  // Pattern LED: 3 blink veloci, pausa 2s
-  if (blinkState < 6) {
-    if (now - lastPattern > 100) {
-      ledState = !ledState;
-      digitalWrite(LED_PIN, ledState);
-      blinkState++;
-      lastPattern = now;
+    // Notifica stato BLE ogni 500ms se c'è una connessione
+    if (bleConnected && now - lastBleNotify > 500) {
+        bleController.notifyState();
+        lastBleNotify = now;
     }
-  } else if (now - lastPattern > 2000) {
-    blinkState = 0;
-    lastPattern = now;
-  }
 
-  // Effetto arcobaleno striscia
-  if (now - lastStrip > 20) {
-    fill_rainbow(leds, NUM_LEDS, hue, 256 / NUM_LEDS);
-    FastLED.show();
-    hue++;
-    lastStrip = now;
-  }
-
-  yield();
+    handleBtCommands();
+    yield();
 }

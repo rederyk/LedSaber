@@ -1,0 +1,51 @@
+#ifndef BLE_LED_CONTROLLER_H
+#define BLE_LED_CONTROLLER_H
+
+#include <BLE2902.h>
+#include <BLEDevice.h>
+#include <BLEServer.h>
+#include <BLEUtils.h>
+#include <ArduinoJson.h>
+
+// UUIDs del servizio LED
+#define LED_SERVICE_UUID         "4fafc201-1fb5-459e-8fcc-c5c9c331914b"
+#define CHAR_LED_STATE_UUID      "beb5483e-36e1-4688-b7f5-ea07361b26a8"  // READ + NOTIFY
+#define CHAR_LED_COLOR_UUID      "d1e5a4c3-eb10-4a3e-8a4c-1234567890ab"  // WRITE
+#define CHAR_LED_EFFECT_UUID     "e2f6b5d4-fc21-5b4f-9b5d-2345678901bc"  // WRITE
+#define CHAR_LED_BRIGHTNESS_UUID "f3e7c6e5-0d32-4c5a-ac6e-3456789012cd"  // WRITE
+
+// Stato LED globale
+struct LedState {
+    uint8_t r = 255;
+    uint8_t g = 0;
+    uint8_t b = 0;
+    uint8_t brightness = 255;
+    String effect = "solid";
+    uint8_t speed = 50;
+    bool enabled = true;
+};
+
+class BLELedController {
+private:
+    BLEServer* pServer;
+    BLECharacteristic* pCharState;
+    BLECharacteristic* pCharColor;
+    BLECharacteristic* pCharEffect;
+    BLECharacteristic* pCharBrightness;
+    bool deviceConnected;
+    LedState* ledState;
+
+public:
+    explicit BLELedController(LedState* state);
+    void begin(const char* deviceName);
+    void notifyState();
+    bool isConnected();
+
+    // Callback classes (friend)
+    friend class ServerCallbacks;
+    friend class ColorCallbacks;
+    friend class EffectCallbacks;
+    friend class BrightnessCallbacks;
+};
+
+#endif

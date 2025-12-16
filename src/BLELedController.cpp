@@ -1,0 +1,181 @@
+#include "BLELedController.h"
+
+// Callback connessione BLE
+class ServerCallbacks: public BLEServerCallbacks {
+    BLELedController* controller;
+public:
+    explicit ServerCallbacks(BLELedController* ctrl) : controller(ctrl) {}
+
+    void onConnect(BLEServer* pServer) override {
+        controller->deviceConnected = true;
+        Serial.println("[BLE] Client connected!");
+    }
+
+    void onDisconnect(BLEServer* pServer) override {
+        controller->deviceConnected = false;
+        Serial.println("[BLE] Client disconnected!");
+        pServer->startAdvertising();  // Riprendi advertising
+    }
+};
+
+// Callback scrittura colore
+class ColorCallbacks: public BLECharacteristicCallbacks {
+    BLELedController* controller;
+public:
+    explicit ColorCallbacks(BLELedController* ctrl) : controller(ctrl) {}
+
+    void onWrite(BLECharacteristic *pChar) override {
+        String value = pChar->getValue().c_str();
+
+        StaticJsonDocument<256> doc;
+        DeserializationError error = deserializeJson(doc, value);
+
+        if (!error) {
+            controller->ledState->r = doc["r"] | controller->ledState->r;
+            controller->ledState->g = doc["g"] | controller->ledState->g;
+            controller->ledState->b = doc["b"] | controller->ledState->b;
+
+            Serial.printf("[BLE] Color set to RGB(%d,%d,%d)\n",
+                controller->ledState->r,
+                controller->ledState->g,
+                controller->ledState->b);
+        } else {
+            Serial.println("[BLE ERROR] Invalid JSON for color");
+        }
+    }
+};
+
+// Callback scrittura effetto
+class EffectCallbacks: public BLECharacteristicCallbacks {
+    BLELedController* controller;
+public:
+    explicit EffectCallbacks(BLELedController* ctrl) : controller(ctrl) {}
+
+    void onWrite(BLECharacteristic *pChar) override {
+        String value = pChar->getValue().c_str();
+
+        StaticJsonDocument<256> doc;
+        DeserializationError error = deserializeJson(doc, value);
+
+        if (!error) {
+            controller->ledState->effect = doc["mode"] | "solid";
+            controller->ledState->speed = doc["speed"] | 50;
+
+            Serial.printf("[BLE] Effect set to %s (speed: %d)\n",
+                controller->ledState->effect.c_str(),
+                controller->ledState->speed);
+        }
+    }
+};
+
+// Callback scrittura luminosità
+class BrightnessCallbacks: public BLECharacteristicCallbacks {
+    BLELedController* controller;
+public:
+    explicit BrightnessCallbacks(BLELedController* ctrl) : controller(ctrl) {}
+
+    void onWrite(BLECharacteristic *pChar) override {
+        String value = pChar->getValue().c_str();
+
+        StaticJsonDocument<128> doc;
+        DeserializationError error = deserializeJson(doc, value);
+
+        if (!error) {
+            controller->ledState->brightness = doc["brightness"] | 255;
+            controller->ledState->enabled = doc["enabled"] | true;
+
+            Serial.printf("[BLE] Brightness set to %d (enabled: %d)\n",
+                controller->ledState->brightness,
+                controller->ledState->enabled);
+        }
+    }
+};
+
+// Costruttore
+BLELedController::BLELedController(LedState* state) {
+    ledState = state;
+    deviceConnected = false;
+    pServer = nullptr;
+    pCharState = nullptr;
+    pCharColor = nullptr;
+    pCharEffect = nullptr;
+    pCharBrightness = nullptr;
+}
+
+// Inizializzazione BLE
+void BLELedController::begin(const char* deviceName) {
+    BLEDevice::init(deviceName);
+
+    // Crea server
+    pServer = BLEDevice::createServer();
+    pServer->setCallbacks(new ServerCallbacks(this));
+
+    // Crea service
+    BLEService *pService = pServer->createService(LED_SERVICE_UUID);
+
+    // Characteristic 1: State (READ + NOTIFY)
+    pCharState = pService->createCharacteristic(
+        CHAR_LED_STATE_UUID,
+        BLECharacteristic::PROPERTY_READ |
+        BLECharacteristic::PROPERTY_NOTIFY
+    );
+    pCharState->addDescriptor(new BLE2902());  // Abilita notifiche
+
+    // Characteristic 2: Color (WRITE)
+    pCharColor = pService->createCharacteristic(
+        CHAR_LED_COLOR_UUID,
+        BLECharacteristic::PROPERTY_WRITE
+    );
+    pCharColor->setCallbacks(new ColorCallbacks(this));
+
+    // Characteristic 3: Effect (WRITE)
+    pCharEffect = pService->createCharacteristic(
+        CHAR_LED_EFFECT_UUID,
+        BLECharacteristic::PROPERTY_WRITE
+    );
+    pCharEffect->setCallbacks(new EffectCallbacks(this));
+
+    // Characteristic 4: Brightness (WRITE)
+    pCharBrightness = pService->createCharacteristic(
+        CHAR_LED_BRIGHTNESS_UUID,
+        BLECharacteristic::PROPERTY_WRITE
+    );
+    pCharBrightness->setCallbacks(new BrightnessCallbacks(this));
+
+    // Avvia service
+    pService->start();
+
+    // Avvia advertising
+    BLEAdvertising *pAdvertising = BLEDevice::getAdvertising();
+    pAdvertising->addServiceUUID(LED_SERVICE_UUID);
+    pAdvertising->setScanResponse(true);
+    pAdvertising->setMinPreferred(0x06);  // iPhone compatibility
+    pAdvertising->setMinPreferred(0x12);
+    pAdvertising->start();
+
+    Serial.println("[BLE OK] BLE GATT Server started!");
+}
+
+// Notifica stato LED ai client connessi
+void BLELedController::notifyState() {
+    if (!deviceConnected) return;
+
+    StaticJsonDocument<256> doc;
+    doc["r"] = ledState->r;
+    doc["g"] = ledState->g;
+    doc["b"] = ledState->b;
+    doc["brightness"] = ledState->brightness;
+    doc["effect"] = ledState->effect;
+    doc["speed"] = ledState->speed;
+    doc["enabled"] = ledState->enabled;
+
+    String jsonString;
+    serializeJson(doc, jsonString);
+
+    pCharState->setValue(jsonString.c_str());
+    pCharState->notify();
+}
+
+bool BLELedController::isConnected() {
+    return deviceConnected;
+}
