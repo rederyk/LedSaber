@@ -37,7 +37,9 @@ class LedSaberClient:
         self.client: Optional[BleakClient] = None
         self.device_address: Optional[str] = None
         self.current_state = {}
+        self.previous_state = {}  # Stato precedente per rilevare cambiamenti
         self.state_callback: Optional[Callable] = None
+        self.first_state_received = False  # Flag per primo stato
 
     async def scan(self, timeout: float = 5.0) -> list:
         """Cerca dispositivi BLE nelle vicinanze"""
@@ -110,13 +112,40 @@ class LedSaberClient:
         """Gestisce notifiche di stato dal dispositivo"""
         try:
             state_json = data.decode('utf-8')
-            self.current_state = json.loads(state_json)
+            new_state = json.loads(state_json)
 
-            if self.state_callback:
-                self.state_callback(self.current_state)
+            # Primo stato ricevuto - sempre notifica
+            if not self.first_state_received:
+                self.first_state_received = True
+                self.current_state = new_state
+                self.previous_state = new_state.copy()
+                if self.state_callback:
+                    self.state_callback(self.current_state, is_first=True)
+                return
+
+            # Confronta con stato precedente - notifica solo se c'è un cambiamento
+            if new_state != self.previous_state:
+                # Calcola cosa è cambiato
+                changes = self._calculate_changes(self.previous_state, new_state)
+                self.current_state = new_state
+                self.previous_state = new_state.copy()
+
+                if self.state_callback:
+                    self.state_callback(self.current_state, is_first=False, changes=changes)
 
         except Exception as e:
             print(f"{Colors.RED}✗ Errore parsing notifica: {e}{Colors.RESET}")
+
+    def _calculate_changes(self, old_state: dict, new_state: dict) -> dict:
+        """Calcola le differenze tra due stati"""
+        changes = {}
+        for key in new_state:
+            if key not in old_state or old_state[key] != new_state[key]:
+                changes[key] = {
+                    'old': old_state.get(key),
+                    'new': new_state[key]
+                }
+        return changes
 
     async def set_color(self, r: int, g: int, b: int):
         """Imposta colore RGB (0-255)"""
@@ -178,6 +207,7 @@ class InteractiveCLI:
     def __init__(self):
         self.client = LedSaberClient()
         self.running = False
+        self.notifications_enabled = True  # Flag per abilitare/disabilitare notifiche
 
     def print_banner(self):
         """Stampa banner iniziale"""
@@ -206,6 +236,8 @@ class InteractiveCLI:
 
   {Colors.MAGENTA}presets{Colors.RESET}          - Mostra preset colori
   {Colors.MAGENTA}preset <name>{Colors.RESET}    - Applica preset
+
+  {Colors.YELLOW}notify{Colors.RESET}            - Toggle notifiche automatiche on/off
 
   {Colors.RED}quit{Colors.RESET}              - Esci
   {Colors.BLUE}help{Colors.RESET}              - Mostra questo menu
@@ -336,6 +368,11 @@ class InteractiveCLI:
                 else:
                     print(f"{Colors.RED}✗ Preset '{preset_name}' non trovato{Colors.RESET}")
 
+            elif cmd == "notify":
+                self.notifications_enabled = not self.notifications_enabled
+                status = f"{Colors.GREEN}ABILITATE{Colors.RESET}" if self.notifications_enabled else f"{Colors.RED}DISABILITATE{Colors.RESET}"
+                print(f"📢 Notifiche automatiche: {status}")
+
             elif cmd == "help":
                 self.print_menu()
 
@@ -358,11 +395,39 @@ class InteractiveCLI:
         self.print_banner()
         self.print_menu()
 
-        # Callback per notifiche stato
-        def on_state_update(state):
-            print(f"\n{Colors.CYAN}🔔 Aggiornamento stato ricevuto{Colors.RESET}")
-            self.print_state(state)
-            print(f"{Colors.BOLD}>{Colors.RESET} ", end="", flush=True)
+        # Callback per notifiche stato (solo cambiamenti effettivi)
+        def on_state_update(state, is_first=False, changes=None):
+            if not self.notifications_enabled:
+                return
+
+            if is_first:
+                # Primo stato: mostra tutto
+                print(f"\n{Colors.GREEN}✓ Stato iniziale ricevuto:{Colors.RESET}")
+                self.print_state(state)
+                print(f"{Colors.BOLD}>{Colors.RESET} ", end="", flush=True)
+            else:
+                # Cambiamento: mostra solo cosa è cambiato
+                print(f"\n{Colors.CYAN}📝 Stato aggiornato:{Colors.RESET}")
+                if changes:
+                    for key, change in changes.items():
+                        if key in ['r', 'g', 'b']:
+                            # Raggruppa RGB
+                            if 'r' in changes or 'g' in changes or 'b' in changes:
+                                if key == 'r':  # Mostra solo una volta
+                                    r = state.get('r', 0)
+                                    g = state.get('g', 0)
+                                    b = state.get('b', 0)
+                                    print(f"  Colore → RGB({r}, {g}, {b})")
+                        elif key == 'brightness':
+                            print(f"  Luminosità → {change['new']}/255")
+                        elif key == 'effect':
+                            print(f"  Effetto → {change['new']}")
+                        elif key == 'speed':
+                            print(f"  Velocità → {change['new']}")
+                        elif key == 'enabled':
+                            status = "ON" if change['new'] else "OFF"
+                            print(f"  Stato → {status}")
+                print(f"{Colors.BOLD}>{Colors.RESET} ", end="", flush=True)
 
         self.client.state_callback = on_state_update
 
