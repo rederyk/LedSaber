@@ -86,6 +86,15 @@ class OTAUpdater:
 
             if self.client.is_connected:
                 print(f"{Colors.GREEN}✓ Connesso!{Colors.RESET}")
+
+                # Negozia MTU massimo (517 bytes per ESP32)
+                try:
+                    # Bleak su Linux gestisce automaticamente MTU, ma possiamo richiedere il massimo
+                    mtu = self.client.mtu_size
+                    print(f"{Colors.CYAN}📊 MTU negociato: {mtu} bytes{Colors.RESET}")
+                except Exception as e:
+                    print(f"{Colors.YELLOW}⚠ Impossibile leggere MTU: {e}{Colors.RESET}")
+
                 await asyncio.sleep(0.5)
 
                 # Leggi versione firmware corrente
@@ -245,6 +254,9 @@ class OTAUpdater:
         self.start_time = time.time()
 
         offset = 0
+        chunk_count = 0
+        CHUNKS_PER_BATCH = 20  # Invia 20 chunk (10KB) prima di una piccola pausa
+
         while offset < firmware_size:
             chunk_size = min(CHUNK_SIZE, firmware_size - offset)
             chunk = firmware_data[offset:offset + chunk_size]
@@ -254,8 +266,11 @@ class OTAUpdater:
             await self.client.write_gatt_char(CHAR_OTA_DATA_UUID, chunk, response=False)
 
             offset += chunk_size
+            chunk_count += 1
 
-            # Il delay non è più necessario con write without response
+            # Controllo di flusso adattivo: piccola pausa ogni batch per evitare saturazione buffer BLE
+            if chunk_count % CHUNKS_PER_BATCH == 0:
+                await asyncio.sleep(0.01)  # 10ms di pausa ogni 20 chunk (10KB)
 
             # Verifica errori
             if self.ota_state == OTA_STATE_ERROR:
