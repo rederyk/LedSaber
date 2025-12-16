@@ -608,12 +608,12 @@ void OTAManager::handleDataChunk(const uint8_t* data, size_t length) {
     uint32_t chunkCrc = crc32Calculate(data, length);
     otaStatus.crc32 ^= chunkCrc;  // XOR per combinare CRC progressivi
 
-    // Calcola percentuale
-    otaStatus.progressPercent = (otaStatus.receivedBytes * 100) / otaStatus.totalBytes;
+    // Calcola percentuale (usa uint64_t per evitare overflow e ottenere precisione)
+    otaStatus.progressPercent = ((uint64_t)otaStatus.receivedBytes * 100) / otaStatus.totalBytes;
 
-    // Log solo ogni 10KB per ridurre overhead (logging rallenta ESP32)
+    // Log solo ogni 50KB per ridurre drasticamente l'overhead (logging rallenta molto ESP32)
     static uint32_t lastLogBytes = 0;
-    if (otaStatus.receivedBytes - lastLogBytes >= 10240 ||
+    if (otaStatus.receivedBytes - lastLogBytes >= 51200 ||
         otaStatus.receivedBytes == otaStatus.totalBytes) {
 
         uint32_t elapsed = millis() - otaStatus.startTime;
@@ -622,16 +622,16 @@ void OTAManager::handleDataChunk(const uint8_t* data, size_t length) {
             speed = (otaStatus.receivedBytes / 1024.0f) / (elapsed / 1000.0f);  // KB/s
         }
 
-        Serial.printf("[OTA] Chunk: %u bytes | Total: %u/%u (%.1f%%) | Speed: %.2f KB/s | CRC: 0x%08X\n",
-            length, otaStatus.receivedBytes, otaStatus.totalBytes,
-            otaStatus.progressPercent, speed, chunkCrc);
+        Serial.printf("[OTA] Total: %u/%u (%u%%) | Speed: %.2f KB/s\n",
+            otaStatus.receivedBytes, otaStatus.totalBytes,
+            otaStatus.progressPercent, speed);
 
         lastLogBytes = otaStatus.receivedBytes;
     }
 
-    // Notifica progresso ogni 10KB (ridotto overhead per velocizzare trasferimento)
+    // Notifica progresso ogni 50KB (ridotto overhead per velocizzare trasferimento)
     static uint32_t lastNotifyBytes = 0;
-    if (otaStatus.receivedBytes - lastNotifyBytes >= 10240 ||
+    if (otaStatus.receivedBytes - lastNotifyBytes >= 51200 ||
         otaStatus.receivedBytes == otaStatus.totalBytes) {
         notifyProgress();
         lastNotifyBytes = otaStatus.receivedBytes;
