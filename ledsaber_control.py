@@ -273,6 +273,11 @@ class InteractiveCLI:
         self.running = False
         self.notifications_enabled = True  # Flag per abilitare/disabilitare notifiche
 
+    async def prompt_user(self, prompt: str) -> str:
+        """Chiede input all'utente senza bloccare l'event loop"""
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, lambda: input(prompt))
+
     def print_banner(self):
         """Stampa banner iniziale"""
         print(f"""
@@ -288,6 +293,7 @@ class InteractiveCLI:
         print(f"""
 {Colors.BOLD}Comandi disponibili:{Colors.RESET}
   {Colors.YELLOW}scan{Colors.RESET}              - Cerca dispositivi LedSaber
+  {Colors.YELLOW}scan auto{Colors.RESET}        - Scansiona e collega automaticamente
   {Colors.YELLOW}connect <addr>{Colors.RESET}    - Connetti a dispositivo
   {Colors.YELLOW}disconnect{Colors.RESET}        - Disconnetti
   {Colors.YELLOW}status{Colors.RESET}            - Mostra stato corrente
@@ -367,9 +373,35 @@ class InteractiveCLI:
 
         try:
             if cmd == "scan":
+                auto_connect = bool(args and args[0].lower() == "auto")
                 devices = await self.client.scan()
                 if not devices:
                     print(f"{Colors.YELLOW}⚠ Nessun dispositivo LedSaber trovato{Colors.RESET}")
+                    return
+
+                if auto_connect:
+                    target_device = None
+                    if len(devices) == 1:
+                        target_device = devices[0]
+                        print(f"{Colors.CYAN}🔁 Connessione automatica a {target_device.name} ({target_device.address}){Colors.RESET}")
+                    else:
+                        print(f"\n{Colors.BOLD}Seleziona dispositivo da connettere:{Colors.RESET}")
+                        for idx, device in enumerate(devices, start=1):
+                            print(f"  {idx}. {device.name} ({device.address})")
+                        while True:
+                            selection = (await self.prompt_user(f"{Colors.BOLD}Numero dispositivo (Enter per annullare):{Colors.RESET} ")).strip()
+                            if not selection:
+                                print(f"{Colors.YELLOW}↩ Connessione automatica annullata{Colors.RESET}")
+                                break
+                            if selection.isdigit():
+                                index = int(selection)
+                                if 1 <= index <= len(devices):
+                                    target_device = devices[index - 1]
+                                    break
+                            print(f"{Colors.RED}✗ Selezione non valida. Inserisci un numero tra 1 e {len(devices)}{Colors.RESET}")
+
+                    if target_device:
+                        await self.client.connect(target_device.address)
 
             elif cmd == "connect":
                 if not args:
