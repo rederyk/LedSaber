@@ -91,6 +91,36 @@ public:
     }
 };
 
+// Callback controllo LED integrato (pin 4)
+class StatusLedCallbacks: public BLECharacteristicCallbacks {
+    BLELedController* controller;
+public:
+    explicit StatusLedCallbacks(BLELedController* ctrl) : controller(ctrl) {}
+
+    void onWrite(BLECharacteristic *pChar) override {
+        String value = pChar->getValue().c_str();
+
+        JsonDocument doc;
+        DeserializationError error = deserializeJson(doc, value);
+
+        if (!error) {
+            controller->ledState->statusLedEnabled = doc["enabled"] | true;
+
+            Serial.printf("[BLE] Status LED (pin 4) set to %s\n",
+                controller->ledState->statusLedEnabled ? "ON" : "OFF");
+        }
+    }
+
+    void onRead(BLECharacteristic *pChar) override {
+        JsonDocument doc;
+        doc["enabled"] = controller->ledState->statusLedEnabled;
+
+        String jsonString;
+        serializeJson(doc, jsonString);
+        pChar->setValue(jsonString.c_str());
+    }
+};
+
 // Costruttore
 BLELedController::BLELedController(LedState* state) {
     ledState = state;
@@ -100,6 +130,7 @@ BLELedController::BLELedController(LedState* state) {
     pCharColor = nullptr;
     pCharEffect = nullptr;
     pCharBrightness = nullptr;
+    pCharStatusLed = nullptr;
 }
 
 // Inizializzazione BLE
@@ -154,6 +185,17 @@ void BLELedController::begin(const char* deviceName) {
     descBrightness->setValue("LED Brightness");
     pCharBrightness->addDescriptor(descBrightness);
 
+    // Characteristic 5: Status LED integrato su pin 4 (READ + WRITE)
+    pCharStatusLed = pService->createCharacteristic(
+        CHAR_STATUS_LED_UUID,
+        BLECharacteristic::PROPERTY_READ |
+        BLECharacteristic::PROPERTY_WRITE
+    );
+    pCharStatusLed->setCallbacks(new StatusLedCallbacks(this));
+    BLEDescriptor* descStatusLed = new BLEDescriptor(BLEUUID((uint16_t)0x2901));
+    descStatusLed->setValue("Status LED Pin 4");
+    pCharStatusLed->addDescriptor(descStatusLed);
+
     // Avvia service
     pService->start();
 
@@ -180,6 +222,7 @@ void BLELedController::notifyState() {
     doc["effect"] = ledState->effect;
     doc["speed"] = ledState->speed;
     doc["enabled"] = ledState->enabled;
+    doc["statusLedEnabled"] = ledState->statusLedEnabled;
 
     String jsonString;
     serializeJson(doc, jsonString);

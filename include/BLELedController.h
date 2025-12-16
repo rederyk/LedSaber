@@ -13,6 +13,7 @@
 #define CHAR_LED_COLOR_UUID      "d1e5a4c3-eb10-4a3e-8a4c-1234567890ab"  // WRITE
 #define CHAR_LED_EFFECT_UUID     "e2f6b5d4-fc21-5b4f-9b5d-2345678901bc"  // WRITE
 #define CHAR_LED_BRIGHTNESS_UUID "f3e7c6e5-0d32-4c5a-ac6e-3456789012cd"  // WRITE
+#define CHAR_STATUS_LED_UUID     "a4b8d7f9-1e43-6c7d-ad8f-456789abcdef"  // WRITE + READ
 
 // Stato LED globale
 struct LedState {
@@ -23,6 +24,7 @@ struct LedState {
     String effect = "solid";
     uint8_t speed = 50;
     bool enabled = true;
+    bool statusLedEnabled = true;  // Stato del LED integrato sul pin 4
 };
 
 class BLELedController {
@@ -32,6 +34,7 @@ private:
     BLECharacteristic* pCharColor;
     BLECharacteristic* pCharEffect;
     BLECharacteristic* pCharBrightness;
+    BLECharacteristic* pCharStatusLed;
     bool deviceConnected;
     LedState* ledState;
 
@@ -46,6 +49,7 @@ public:
     friend class ColorCallbacks;
     friend class EffectCallbacks;
     friend class BrightnessCallbacks;
+    friend class StatusLedCallbacks;
 };
 
 #endif

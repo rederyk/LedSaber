@@ -33,6 +33,12 @@ static void updateStatusLed(bool bleConnected, bool btConnected) {
     static bool ledOn = false;
     unsigned long now = millis();
 
+    // Se il LED è disabilitato via BLE, lo spegniamo
+    if (!ledState.statusLedEnabled) {
+        digitalWrite(STATUS_LED_PIN, LOW);
+        return;
+    }
+
     // LED fisso acceso se c'è almeno una connessione
     if (bleConnected || btConnected) {
         digitalWrite(STATUS_LED_PIN, HIGH);
@@ -100,9 +106,10 @@ static void handleBtCommands() {
         logger.logf("Free heap: %u bytes", ESP.getFreeHeap());
         logger.logf("BT connected: %s", logger.isConnected() ? "YES" : "NO");
         logger.logf("BLE connected: %s", bleController.isConnected() ? "YES" : "NO");
-        logger.logf("LED: R=%d G=%d B=%d Brightness=%d Effect=%s Enabled=%d",
+        logger.logf("LED Strip: R=%d G=%d B=%d Brightness=%d Effect=%s Enabled=%d",
             ledState.r, ledState.g, ledState.b, ledState.brightness,
             ledState.effect.c_str(), ledState.enabled);
+        logger.logf("Status LED (pin 4): %s", ledState.statusLedEnabled ? "ENABLED" : "DISABLED");
     } else if (cmd == "reset") {
         logger.log("Rebooting in 500ms...");
         delay(500);

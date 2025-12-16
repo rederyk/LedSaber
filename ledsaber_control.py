@@ -17,6 +17,7 @@ CHAR_LED_STATE_UUID = "beb5483e-36e1-4688-b7f5-ea07361b26a8"
 CHAR_LED_COLOR_UUID = "d1e5a4c3-eb10-4a3e-8a4c-1234567890ab"
 CHAR_LED_EFFECT_UUID = "e2f6b5d4-fc21-5b4f-9b5d-2345678901bc"
 CHAR_LED_BRIGHTNESS_UUID = "f3e7c6e5-0d32-4c5a-ac6e-3456789012cd"
+CHAR_STATUS_LED_UUID = "a4b8d7f9-1e43-6c7d-ad8f-456789abcdef"
 
 # Colori ANSI per output colorato
 class Colors:
@@ -200,6 +201,33 @@ class LedSaberClient:
             print(f"{Colors.RED}✗ Errore lettura stato: {e}{Colors.RESET}")
             return {}
 
+    async def set_status_led(self, enabled: bool):
+        """Imposta stato LED integrato (pin 4)"""
+        if not self.client or not self.client.is_connected:
+            print(f"{Colors.RED}✗ Non connesso{Colors.RESET}")
+            return
+
+        status_data = json.dumps({"enabled": enabled})
+        await self.client.write_gatt_char(
+            CHAR_STATUS_LED_UUID,
+            status_data.encode('utf-8')
+        )
+        status = "ON" if enabled else "OFF"
+        print(f"{Colors.GREEN}✓ LED di stato (pin 4): {status}{Colors.RESET}")
+
+    async def get_status_led(self) -> dict:
+        """Legge stato LED integrato (pin 4)"""
+        if not self.client or not self.client.is_connected:
+            return {}
+
+        try:
+            status_data = await self.client.read_gatt_char(CHAR_STATUS_LED_UUID)
+            status_json = status_data.decode('utf-8')
+            return json.loads(status_json)
+        except Exception as e:
+            print(f"{Colors.RED}✗ Errore lettura LED di stato: {e}{Colors.RESET}")
+            return {}
+
 
 class InteractiveCLI:
     """Interfaccia CLI interattiva"""
@@ -234,6 +262,9 @@ class InteractiveCLI:
   {Colors.GREEN}on{Colors.RESET}                - Accendi LED
   {Colors.GREEN}off{Colors.RESET}               - Spegni LED
 
+  {Colors.CYAN}statusled on{Colors.RESET}      - Accendi LED integrato (pin 4)
+  {Colors.CYAN}statusled off{Colors.RESET}     - Spegni LED integrato (pin 4)
+
   {Colors.MAGENTA}presets{Colors.RESET}          - Mostra preset colori
   {Colors.MAGENTA}preset <name>{Colors.RESET}    - Applica preset
 
@@ -255,8 +286,10 @@ class InteractiveCLI:
         effect = state.get('effect', 'unknown')
         speed = state.get('speed', 0)
         enabled = state.get('enabled', False)
+        status_led_enabled = state.get('statusLedEnabled', True)
 
         status = f"{Colors.GREEN}ON{Colors.RESET}" if enabled else f"{Colors.RED}OFF{Colors.RESET}"
+        status_led_status = f"{Colors.GREEN}ENABLED{Colors.RESET}" if status_led_enabled else f"{Colors.RED}DISABLED{Colors.RESET}"
 
         print(f"""
 {Colors.BOLD}📊 Stato LED:{Colors.RESET}
@@ -264,6 +297,7 @@ class InteractiveCLI:
   Colore: RGB({r}, {g}, {b})
   Effetto: {effect} (speed: {speed})
   Luminosità: {brightness}/255
+  LED di stato (pin 4): {status_led_status}
         """)
 
     def print_presets(self):
@@ -341,6 +375,13 @@ class InteractiveCLI:
 
             elif cmd == "off":
                 await self.client.set_brightness(0, False)
+
+            elif cmd == "statusled":
+                if not args or args[0].lower() not in ['on', 'off']:
+                    print(f"{Colors.RED}✗ Uso: statusled <on|off>{Colors.RESET}")
+                    return
+                enabled = args[0].lower() == 'on'
+                await self.client.set_status_led(enabled)
 
             elif cmd == "presets":
                 self.print_presets()
@@ -427,6 +468,9 @@ class InteractiveCLI:
                         elif key == 'enabled':
                             status = "ON" if change['new'] else "OFF"
                             print(f"  Stato → {status}")
+                        elif key == 'statusLedEnabled':
+                            status = "ENABLED" if change['new'] else "DISABLED"
+                            print(f"  LED di stato (pin 4) → {status}")
                 print(f"{Colors.BOLD}>{Colors.RESET} ", end="", flush=True)
 
         self.client.state_callback = on_state_update
