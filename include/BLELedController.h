@@ -43,6 +43,7 @@ public:
     void begin(const char* deviceName);
     void notifyState();
     bool isConnected();
+    BLEServer* getServer() { return pServer; }
 
     // Callback classes (friend)
     friend class ServerCallbacks;
