@@ -228,6 +228,42 @@ class LedSaberClient:
             print(f"{Colors.RED}✗ Errore lettura LED di stato: {e}{Colors.RESET}")
             return {}
 
+    async def debug_services(self):
+        """Mostra servizi/characteristics noti per il dispositivo connesso"""
+        if not self.client or not self.client.is_connected:
+            print(f"{Colors.RED}✗ Non connesso{Colors.RESET}")
+            return
+
+        try:
+            services = None
+
+            if hasattr(self.client, "get_services"):
+                getter = getattr(self.client, "get_services")
+                if asyncio.iscoroutinefunction(getter):
+                    services = await getter()
+                else:
+                    services = getter()
+            else:
+                services = self.client.services
+
+            if services is None:
+                print(f"{Colors.YELLOW}⚠ Nessun servizio disponibile (Bleak non li ha ancora caricati){Colors.RESET}")
+                return
+
+        except Exception as e:
+            print(f"{Colors.RED}✗ Errore lettura servizi GATT: {e}{Colors.RESET}")
+            return
+
+        print(f"\n{Colors.BOLD}🔎 Servizi GATT rilevati:{Colors.RESET}")
+        for service in services:
+            print(f"  Service {service.uuid}")
+            for char in service.characteristics:
+                props = ','.join(sorted(char.properties))
+                print(f"    └─ Char {char.uuid} [{props}]")
+                for desc in char.descriptors:
+                    print(f"       └─ Desc {desc.uuid}")
+        print()
+
 
 class InteractiveCLI:
     """Interfaccia CLI interattiva"""
@@ -382,6 +418,12 @@ class InteractiveCLI:
                     return
                 enabled = args[0].lower() == 'on'
                 await self.client.set_status_led(enabled)
+
+            elif cmd == "debug":
+                if args and args[0] == "services":
+                    await self.client.debug_services()
+                else:
+                    print(f"{Colors.YELLOW}Uso: debug services{Colors.RESET}")
 
             elif cmd == "presets":
                 self.print_presets()

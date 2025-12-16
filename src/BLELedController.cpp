@@ -141,8 +141,8 @@ void BLELedController::begin(const char* deviceName) {
     pServer = BLEDevice::createServer();
     pServer->setCallbacks(new ServerCallbacks(this));
 
-    // Crea service
-    BLEService *pService = pServer->createService(LED_SERVICE_UUID);
+    // Crea service con handles sufficienti (5 char * 4 handles ciascuna = 20, +5 margine)
+    BLEService *pService = pServer->createService(BLEUUID(LED_SERVICE_UUID), 25);
 
     // Characteristic 1: State (READ + NOTIFY)
     pCharState = pService->createCharacteristic(
