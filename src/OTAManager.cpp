@@ -125,7 +125,8 @@ void OTAManager::begin(BLEServer* server) {
     // Characteristic 5: OTA_DATA (WRITE)
     pCharOTAData = pService->createCharacteristic(
         CHAR_OTA_DATA_UUID,
-        BLECharacteristic::PROPERTY_WRITE
+        BLECharacteristic::PROPERTY_WRITE |
+        BLECharacteristic::PROPERTY_WRITE_NR // Aggiungi Write Without Response
     );
     pCharOTAData->setCallbacks(new OTADataCallbacks(this));
     BLEDescriptor* descData = new BLEDescriptor(BLEUUID((uint16_t)0x2901));

@@ -99,6 +99,7 @@ class OTAUpdater:
                 # Abilita notifiche per stato e progresso
                 await self.client.start_notify(CHAR_OTA_STATUS_UUID, self._status_handler)
                 await self.client.start_notify(CHAR_OTA_PROGRESS_UUID, self._progress_handler)
+                await self.refresh_status()
                 print(f"{Colors.GREEN}✓ Notifiche OTA abilitate{Colors.RESET}")
 
                 return True
@@ -114,6 +115,17 @@ class OTAUpdater:
         if self.client and self.client.is_connected:
             await self.client.disconnect()
             print(f"{Colors.YELLOW}📡 Disconnesso{Colors.RESET}")
+
+    async def refresh_status(self):
+        """Legge manualmente lo stato OTA (fallback se mancano notifiche)"""
+        if not self.client or not self.client.is_connected:
+            return
+
+        try:
+            data = await self.client.read_gatt_char(CHAR_OTA_STATUS_UUID)
+            self._status_handler(None, bytearray(data))
+        except Exception as e:
+            print(f"{Colors.YELLOW}⚠ Impossibile leggere stato OTA: {e}{Colors.RESET}")
 
     def _status_handler(self, characteristic: BleakGATTCharacteristic, data: bytearray):
         """Handler per notifiche di stato OTA"""
@@ -186,27 +198,42 @@ class OTAUpdater:
         print(f"{Colors.YELLOW}📡 Invio comando START...{Colors.RESET}")
         size_bytes = struct.pack('<I', firmware_size)  # Little-endian uint32
         await self.send_command(OTA_CMD_START, size_bytes)
+        await self.refresh_status()
 
-        # Attendi che l'ESP32 esegua esp_ota_begin (operazione pesante)
-        # Lo stato passerà a WAITING immediatamente, ma dobbiamo aspettare
-        # che l'ESP32 completi l'inizializzazione nel loop principale
-        print(f"{Colors.CYAN}⏳ Attendo inizializzazione OTA sul dispositivo...{Colors.RESET}")
-
-        # Aspetta fino a 10 secondi per la risposta di stato
-        for i in range(20):
-            await asyncio.sleep(0.5)
-
-            if self.ota_state == OTA_STATE_ERROR:
-                print(f"{Colors.RED}✗ Errore avvio OTA: {self.ota_error}{Colors.RESET}")
-                return False
-
-            if self.ota_state == OTA_STATE_WAITING:
-                # Aspetta un altro po' per dare tempo a esp_ota_begin di completare
+        # L'operazione esp_ota_begin() sull'ESP32 è pesante e causa una disconnessione BLE.
+        # Attendiamo questa disconnessione per poi riconnetterci.
+        print(f"{Colors.CYAN}⏳ Attendo che il dispositivo inizi la sessione OTA (potrebbe disconnettersi)...{Colors.RESET}")
+        
+        try:
+            # Attendiamo fino a 10 secondi per la disconnessione
+            for _ in range(20):
                 await asyncio.sleep(0.5)
-                print(f"{Colors.GREEN}✓ Dispositivo pronto a ricevere{Colors.RESET}")
-                break
+                if not self.client.is_connected:
+                    print(f"{Colors.YELLOW}ⓘ Disconnessione rilevata come previsto.{Colors.RESET}")
+                    break
+            else:
+                print(f"{Colors.YELLOW}⚠ Il dispositivo non si è disconnesso. L'aggiornamento potrebbe fallire.{Colors.RESET}")
+
+        except Exception as e:
+            print(f"{Colors.RED}✗ Errore durante l'attesa della disconnessione: {e}{Colors.RESET}")
+            return False
+
+        # Breve pausa prima di tentare la riconnessione
+        await asyncio.sleep(2.0)
+
+        # Riconnessione
+        print(f"{Colors.YELLOW}📡 Riconnessione per l'upload...{Colors.RESET}")
+        address = self.client.address
+        if not await self.connect(address):
+            print(f"{Colors.RED}✗ Riconnessione fallita. Impossibile continuare.{Colors.RESET}")
+            return False
+
+        # Dopo la riconnessione, lo stato OTA dovrebbe essere WAITING.
+        await self.refresh_status()
+        if self.ota_state == OTA_STATE_WAITING:
+            print(f"{Colors.GREEN}✓ Dispositivo pronto a ricevere il firmware.{Colors.RESET}")
         else:
-            print(f"{Colors.RED}✗ Timeout attesa inizializzazione OTA{Colors.RESET}")
+            print(f"{Colors.RED}✗ Il dispositivo non è nello stato di attesa dopo la riconnessione (stato: {self.ota_state}).{Colors.RESET}")
             return False
 
         if self.ota_state == OTA_STATE_ERROR:
@@ -223,12 +250,12 @@ class OTAUpdater:
             chunk = firmware_data[offset:offset + chunk_size]
 
             # Invia chunk
-            await self.client.write_gatt_char(CHAR_OTA_DATA_UUID, chunk)
+            # Usa response=False per "Write Without Response", molto più veloce
+            await self.client.write_gatt_char(CHAR_OTA_DATA_UUID, chunk, response=False)
 
             offset += chunk_size
 
-            # Piccolo delay per non saturare BLE (opzionale)
-            await asyncio.sleep(0.01)
+            # Il delay non è più necessario con write without response
 
             # Verifica errori
             if self.ota_state == OTA_STATE_ERROR:
@@ -244,6 +271,8 @@ class OTAUpdater:
         # Attendi fino a 30 secondi per la verifica
         for _ in range(30):
             await asyncio.sleep(1.0)
+            if self.ota_state not in (OTA_STATE_READY, OTA_STATE_ERROR):
+                await self.refresh_status()
             if self.ota_state == OTA_STATE_READY:
                 return True
             elif self.ota_state == OTA_STATE_ERROR:
