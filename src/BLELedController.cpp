@@ -38,6 +38,11 @@ public:
         Serial.println("[BLE] Client disconnected!");
         pServer->startAdvertising();  // Riprendi advertising
     }
+
+    void onMtuChanged(BLEServer* pServer, esp_ble_gatts_cb_param_t* param) override {
+        (void)pServer;
+        Serial.printf("[BLE] MTU changed: %u\n", param->mtu.mtu);
+    }
 };
 
 // Callback scrittura colore

@@ -38,7 +38,7 @@ OTA_STATE_ERROR = 5
 OTA_STATE_RECOVERY = 6
 
 # Chunk size (512 bytes come da firmware)
-CHUNK_SIZE = 512
+CHUNK_SIZE = 512  # max (il chunk effettivo verrà adattato a MTU-3)
 
 # Colori ANSI
 class Colors:
@@ -63,6 +63,36 @@ class OTAUpdater:
         self.received_bytes = 0
         self.total_bytes = 0
         self.start_time = 0
+        self.negotiated_mtu: int = 0
+        self.mtu_acquired: bool = False
+
+    async def _try_acquire_mtu(self) -> None:
+        """Best-effort MTU acquisition for BlueZ (Bleak 2.x may report default 23 unless acquired)."""
+        if not self.client or not self.client.is_connected:
+            return
+
+        backend = getattr(self.client, "_backend", None)
+
+        # Ensure services are discovered (API differs across Bleak versions)
+        try:
+            if hasattr(self.client, "get_services"):
+                await self.client.get_services()
+            else:
+                get_services = getattr(backend, "get_services", None)
+                if get_services is not None:
+                    await get_services()
+        except Exception as e:
+            print(f"{Colors.YELLOW}⚠ Services discovery fallita (per MTU): {e}{Colors.RESET}")
+
+        # Acquire MTU if backend supports it (BlueZ)
+        try:
+            acquire_mtu = getattr(backend, "_acquire_mtu", None)
+            if acquire_mtu is not None:
+                await acquire_mtu()
+                self.mtu_acquired = True
+        except Exception as e:
+            self.mtu_acquired = False
+            print(f"{Colors.YELLOW}⚠ MTU acquire fallito: {e}{Colors.RESET}")
 
     async def scan(self, timeout: float = 5.0) -> list:
         """Cerca dispositivi LedSaber"""
@@ -90,16 +120,15 @@ class OTAUpdater:
                 # Attendi stabilizzazione connessione
                 await asyncio.sleep(1.0)
 
-                # Negozia MTU massimo (517 bytes per ESP32)
+                # Acquisisci MTU reale su BlueZ (altrimenti Bleak può restare a 23 "di default")
+                await self._try_acquire_mtu()
                 try:
-                    # Su Linux/BlueZ, il MTU viene negoziato automaticamente
-                    # ma Bleak potrebbe non riportarlo correttamente
-                    mtu = self.client.mtu_size
-                    print(f"{Colors.CYAN}📊 MTU riportato da Bleak: {mtu} bytes{Colors.RESET}")
-                    if mtu < 100:
-                        # Bleak non ha acquisito MTU - su Linux/BlueZ usa comunque MTU più grandi
-                        print(f"{Colors.YELLOW}⚠ MTU basso riportato - BlueZ usa comunque MTU negoziato (tipicamente 512+){Colors.RESET}")
+                    self.negotiated_mtu = int(self.client.mtu_size or 0)
+                    print(f"{Colors.CYAN}📊 MTU riportato da Bleak: {self.negotiated_mtu} bytes{Colors.RESET}")
+                    if self.negotiated_mtu <= 23 and not self.mtu_acquired:
+                        print(f"{Colors.YELLOW}⚠ MTU sembra default (23): Bleak/BlueZ potrebbe non aver fatto MTU exchange{Colors.RESET}")
                 except Exception as e:
+                    self.negotiated_mtu = 0
                     print(f"{Colors.YELLOW}⚠ Impossibile leggere MTU: {e}{Colors.RESET}")
 
                 await asyncio.sleep(0.5)
@@ -254,12 +283,19 @@ class OTAUpdater:
         print(f"{Colors.CYAN}📤 Invio firmware...{Colors.RESET}")
         self.start_time = time.time()
 
+        # Usa MTU-3 solo se abbiamo un MTU affidabile; se Bleak riporta 23 "default", NON ridurre a 20 bytes.
+        chunk_size_max = CHUNK_SIZE
+        if self.negotiated_mtu >= 64:
+            chunk_size_max = min(CHUNK_SIZE, self.negotiated_mtu - 3)
+        elif self.negotiated_mtu > 0 and self.negotiated_mtu != 23:
+            chunk_size_max = min(CHUNK_SIZE, max(20, self.negotiated_mtu - 3))
+
         offset = 0
         chunk_count = 0
         CHUNKS_PER_BATCH = 100  # Invia 100 chunk (50KB) prima di una pausa minima
 
         while offset < firmware_size:
-            chunk_size = min(CHUNK_SIZE, firmware_size - offset)
+            chunk_size = min(chunk_size_max, firmware_size - offset)
             chunk = firmware_data[offset:offset + chunk_size]
 
             # Invia chunk
