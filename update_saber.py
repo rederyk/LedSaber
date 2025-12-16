@@ -87,11 +87,18 @@ class OTAUpdater:
             if self.client.is_connected:
                 print(f"{Colors.GREEN}✓ Connesso!{Colors.RESET}")
 
+                # Attendi stabilizzazione connessione
+                await asyncio.sleep(1.0)
+
                 # Negozia MTU massimo (517 bytes per ESP32)
                 try:
-                    # Bleak su Linux gestisce automaticamente MTU, ma possiamo richiedere il massimo
+                    # Su Linux/BlueZ, il MTU viene negoziato automaticamente
+                    # ma Bleak potrebbe non riportarlo correttamente
                     mtu = self.client.mtu_size
-                    print(f"{Colors.CYAN}📊 MTU negociato: {mtu} bytes{Colors.RESET}")
+                    print(f"{Colors.CYAN}📊 MTU riportato da Bleak: {mtu} bytes{Colors.RESET}")
+                    if mtu < 100:
+                        # Bleak non ha acquisito MTU - su Linux/BlueZ usa comunque MTU più grandi
+                        print(f"{Colors.YELLOW}⚠ MTU basso riportato - BlueZ usa comunque MTU negoziato (tipicamente 512+){Colors.RESET}")
                 except Exception as e:
                     print(f"{Colors.YELLOW}⚠ Impossibile leggere MTU: {e}{Colors.RESET}")
 
@@ -209,44 +216,38 @@ class OTAUpdater:
         await self.send_command(OTA_CMD_START, size_bytes)
         await self.refresh_status()
 
-        # L'operazione esp_ota_begin() sull'ESP32 è pesante e causa una disconnessione BLE.
-        # Attendiamo questa disconnessione per poi riconnetterci.
-        print(f"{Colors.CYAN}⏳ Attendo che il dispositivo inizi la sessione OTA (potrebbe disconnettersi)...{Colors.RESET}")
-        
-        try:
-            # Attendiamo fino a 10 secondi per la disconnessione
-            for _ in range(20):
-                await asyncio.sleep(0.5)
-                if not self.client.is_connected:
-                    print(f"{Colors.YELLOW}ⓘ Disconnessione rilevata come previsto.{Colors.RESET}")
-                    break
-            else:
-                print(f"{Colors.YELLOW}⚠ Il dispositivo non si è disconnesso. L'aggiornamento potrebbe fallire.{Colors.RESET}")
+        # Con OTA_SIZE_UNKNOWN, esp_ota_begin() non causa più disconnessione BLE
+        # Attendiamo solo che il dispositivo elabori il comando START
+        print(f"{Colors.CYAN}⏳ Attendo che il dispositivo elabori il comando START...{Colors.RESET}")
 
-        except Exception as e:
-            print(f"{Colors.RED}✗ Errore durante l'attesa della disconnessione: {e}{Colors.RESET}")
-            return False
+        # Attendi che il dispositivo entri nello stato WAITING
+        max_wait = 10  # secondi
+        for i in range(max_wait * 2):  # Check ogni 0.5s
+            await asyncio.sleep(0.5)
 
-        # Breve pausa prima di tentare la riconnessione
-        await asyncio.sleep(2.0)
+            # Controlla se ancora connesso
+            if not self.client.is_connected:
+                print(f"{Colors.YELLOW}⚠ Disconnessione inaspettata durante START. Tento riconnessione...{Colors.RESET}")
+                await asyncio.sleep(2.0)
 
-        # Riconnessione
-        print(f"{Colors.YELLOW}📡 Riconnessione per l'upload...{Colors.RESET}")
-        address = self.client.address
-        if not await self.connect(address):
-            print(f"{Colors.RED}✗ Riconnessione fallita. Impossibile continuare.{Colors.RESET}")
-            return False
+                # Riconnessione
+                address = self.client.address
+                if not await self.connect(address):
+                    print(f"{Colors.RED}✗ Riconnessione fallita. Impossibile continuare.{Colors.RESET}")
+                    return False
+                break
 
-        # Dopo la riconnessione, lo stato OTA dovrebbe essere WAITING.
-        await self.refresh_status()
-        if self.ota_state == OTA_STATE_WAITING:
-            print(f"{Colors.GREEN}✓ Dispositivo pronto a ricevere il firmware.{Colors.RESET}")
+            # Verifica stato OTA
+            await self.refresh_status()
+            if self.ota_state == OTA_STATE_WAITING:
+                print(f"{Colors.GREEN}✓ Dispositivo pronto a ricevere il firmware (stato: WAITING).{Colors.RESET}")
+                break
+            elif self.ota_state == OTA_STATE_ERROR:
+                print(f"{Colors.RED}✗ Errore durante START: {self.ota_error}{Colors.RESET}")
+                return False
         else:
-            print(f"{Colors.RED}✗ Il dispositivo non è nello stato di attesa dopo la riconnessione (stato: {self.ota_state}).{Colors.RESET}")
-            return False
-
-        if self.ota_state == OTA_STATE_ERROR:
-            print(f"{Colors.RED}✗ Errore avvio OTA: {self.ota_error}{Colors.RESET}")
+            # Timeout - dispositivo non ha risposto
+            print(f"{Colors.RED}✗ Timeout: dispositivo non è entrato nello stato WAITING dopo {max_wait}s{Colors.RESET}")
             return False
 
         # Invio chunk
@@ -255,7 +256,7 @@ class OTAUpdater:
 
         offset = 0
         chunk_count = 0
-        CHUNKS_PER_BATCH = 20  # Invia 20 chunk (10KB) prima di una piccola pausa
+        CHUNKS_PER_BATCH = 100  # Invia 100 chunk (50KB) prima di una pausa minima
 
         while offset < firmware_size:
             chunk_size = min(CHUNK_SIZE, firmware_size - offset)
@@ -268,9 +269,9 @@ class OTAUpdater:
             offset += chunk_size
             chunk_count += 1
 
-            # Controllo di flusso adattivo: piccola pausa ogni batch per evitare saturazione buffer BLE
+            # Controllo di flusso minimo: solo per evitare saturazione completa del buffer
             if chunk_count % CHUNKS_PER_BATCH == 0:
-                await asyncio.sleep(0.01)  # 10ms di pausa ogni 20 chunk (10KB)
+                await asyncio.sleep(0.001)  # 1ms di pausa ogni 100 chunk (50KB)
 
             # Verifica errori
             if self.ota_state == OTA_STATE_ERROR:

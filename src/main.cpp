@@ -127,8 +127,8 @@ void loop() {
 
     const bool bleConnected = bleController.isConnected();
 
-    // Debug loop ogni 2 secondi
-    if (now - lastLoopDebug > 2000) {
+    // Debug loop ogni 2 secondi (disabilitato durante OTA per non rallentare)
+    if (!otaManager.isOTAInProgress() && now - lastLoopDebug > 2000) {
         Serial.printf("[LOOP] Running, OTA state: %d, heap: %u\n",
             (int)otaManager.getState(), ESP.getFreeHeap());
         lastLoopDebug = now;
@@ -140,9 +140,8 @@ void loop() {
     // Se OTA in corso: blocca LED strip e mostra status OTA
     if (otaManager.isOTAInProgress()) {
         updateStatusLed_OTAMode();  // Blink veloce per indicare OTA
-        // LED strip spento durante OTA per risparmiare RAM
-        fill_solid(leds, NUM_LEDS, CRGB::Black);
-        FastLED.show();
+        // LED strip spento durante OTA - NON chiamare FastLED.show() per non rallentare!
+        // FastLED.show() blocca per diversi ms e rallenta il trasferimento BLE
     } else {
         // Funzionamento normale
         updateStatusLed(bleConnected, false);
