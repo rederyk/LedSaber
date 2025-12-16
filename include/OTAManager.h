@@ -8,6 +8,8 @@
 #include <esp_ota_ops.h>
 #include <esp_partition.h>
 #include <Arduino.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/queue.h>
 
 // UUID del servizio OTA (diverso dal servizio LED)
 #define OTA_SERVICE_UUID         "4fafc202-1fb5-459e-8fcc-c5c9c331914b"
@@ -84,6 +86,15 @@ private:
     esp_ota_handle_t otaHandle;
     const esp_partition_t* updatePartition;
 
+    // Evita operazioni lente (flash write) nel callback BLE: accoda i chunk e processali nel loop principale
+    static constexpr size_t OTA_RX_QUEUE_DEPTH = 64; // 64 * 512 = 32KB buffer
+    struct OTAQueuedChunk {
+        uint16_t len;
+        uint8_t data[OTA_CHUNK_SIZE];
+    };
+    QueueHandle_t rxQueue = nullptr;
+    volatile uint8_t rxQueueError = 0; // 0=ok, 1=full, 2=oversize
+
     uint32_t crc32Calculate(const uint8_t* data, size_t length);
     void setState(OTAState newState);
     void setError(const String& errorMsg);
@@ -92,6 +103,7 @@ private:
     void resetOTAState();
     bool validateFirmwareSize(uint32_t size);
     bool checkTimeout();
+    void processRxQueue();
 
 public:
     OTAManager();
@@ -113,6 +125,7 @@ public:
 
     // Handler dati
     void handleDataChunk(const uint8_t* data, size_t length);
+    bool enqueueDataChunk(const uint8_t* data, size_t length);
 
     // Update loop (chiamato da main loop)
     void update();

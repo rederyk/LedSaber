@@ -1,4 +1,5 @@
 #include "OTAManager.h"
+#include <cstring>
 
 // ============================================================================
 // CALLBACK CLASSES
@@ -12,7 +13,8 @@ public:
     void onWrite(BLECharacteristic* pChar) override {
         std::string value = pChar->getValue();
         if (value.length() > 0) {
-            manager->handleDataChunk((const uint8_t*)value.data(), value.length());
+            // Non scrivere in flash nel callback BLE (blocca il task BLE e crolla la velocità)
+            manager->enqueueDataChunk((const uint8_t*)value.data(), value.length());
         }
     }
 };
@@ -144,6 +146,14 @@ void OTAManager::begin(BLEServer* server) {
     Serial.println("[OTA OK] OTA Manager initialized");
     Serial.printf("[OTA] Firmware version: %s\n", FIRMWARE_VERSION);
 
+    // Coda RX per chunk OTA (processati nel loop principale)
+    if (!rxQueue) {
+        rxQueue = xQueueCreate(OTA_RX_QUEUE_DEPTH, sizeof(OTAQueuedChunk));
+        if (!rxQueue) {
+            Serial.println("[OTA ERROR] Failed to create RX queue");
+        }
+    }
+
     // Verifica partizioni disponibili
     const esp_partition_t* runningPartition = esp_ota_get_running_partition();
     updatePartition = esp_ota_get_next_update_partition(nullptr);
@@ -225,6 +235,72 @@ void OTAManager::resetOTAState() {
     if (otaHandle) {
         esp_ota_end(otaHandle);
         otaHandle = 0;
+    }
+
+    if (rxQueue) {
+        xQueueReset(rxQueue);
+    }
+    rxQueueError = 0;
+}
+
+bool OTAManager::enqueueDataChunk(const uint8_t* data, size_t length) {
+    if (!rxQueue) {
+        return false;
+    }
+
+    if (length == 0) {
+        return true;
+    }
+
+    if (length > OTA_CHUNK_SIZE) {
+        if (rxQueueError == 0) rxQueueError = 2;
+        return false;
+    }
+
+    OTAQueuedChunk chunk;
+    chunk.len = static_cast<uint16_t>(length);
+    memcpy(chunk.data, data, length);
+
+    if (xQueueSend(rxQueue, &chunk, 0) != pdTRUE) {
+        if (rxQueueError == 0) rxQueueError = 1;
+        return false;
+    }
+
+    return true;
+}
+
+void OTAManager::processRxQueue() {
+    if (!rxQueue) return;
+
+    if (rxQueueError != 0 && otaStatus.state != OTAState::ERROR) {
+        if (rxQueueError == 1) {
+            setError("BLE RX queue full");
+        } else if (rxQueueError == 2) {
+            setError("OTA chunk oversize");
+        } else {
+            setError("BLE RX queue error");
+        }
+        executeAbortCommand();
+        return;
+    }
+
+    OTAQueuedChunk chunk;
+    uint32_t startMs = millis();
+    uint16_t processed = 0;
+
+    while (xQueueReceive(rxQueue, &chunk, 0) == pdTRUE) {
+        handleDataChunk(chunk.data, chunk.len);
+        processed++;
+
+        // Se lo stato cambia (errore/abort/verifica), svuota e smetti
+        if (otaStatus.state == OTAState::IDLE || otaStatus.state == OTAState::ERROR) {
+            xQueueReset(rxQueue);
+            break;
+        }
+
+        // Evita di bloccare troppo il loop principale
+        if (processed >= 32) break;
+        if (millis() - startMs >= 10) break;
     }
 }
 
@@ -541,7 +617,10 @@ void OTAManager::handleDataChunk(const uint8_t* data, size_t length) {
         otaStatus.receivedBytes == otaStatus.totalBytes) {
 
         uint32_t elapsed = millis() - otaStatus.startTime;
-        float speed = (otaStatus.receivedBytes / 1024.0f) / (elapsed / 1000.0f);  // KB/s
+        float speed = 0.0f;
+        if (elapsed > 0) {
+            speed = (otaStatus.receivedBytes / 1024.0f) / (elapsed / 1000.0f);  // KB/s
+        }
 
         Serial.printf("[OTA] Chunk: %u bytes | Total: %u/%u (%.1f%%) | Speed: %.2f KB/s | CRC: 0x%08X\n",
             length, otaStatus.receivedBytes, otaStatus.totalBytes,
@@ -572,6 +651,9 @@ void OTAManager::handleDataChunk(const uint8_t* data, size_t length) {
 void OTAManager::update() {
     // Processa comandi pendenti (eseguiti fuori dal callback BLE)
     processPendingCommands();
+
+    // Processa dati OTA ricevuti via BLE
+    processRxQueue();
 
     // Controlla timeout
     checkTimeout();
