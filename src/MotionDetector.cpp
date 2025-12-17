@@ -10,7 +10,7 @@ MotionDetector::MotionDetector()
     , _previousFrame(nullptr)
     , _flashIntensity(150)  // Intensità iniziale media per avvio immediato
     , _avgBrightness(0)
-    , _motionThreshold(50)
+    , _motionThreshold(35)  // Ridotto da 50 per maggiore sensibilità
     , _motionIntensity(0)
     , _motionActive(false)
     , _motionConfidence(0)

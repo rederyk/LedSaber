@@ -135,10 +135,10 @@ private:
     uint32_t _motionFrameCount;
 
     // Costanti
-    static constexpr uint8_t MIN_MOTION_INTENSITY = 40;
-    static constexpr uint8_t MOTION_CONFIRM_FRAMES = 3;
+    static constexpr uint8_t MIN_MOTION_INTENSITY = 25;   // Ridotto da 40 per maggiore sensibilità
+    static constexpr uint8_t MOTION_CONFIRM_FRAMES = 2;   // Ridotto da 3 per risposta più veloce
     static constexpr uint8_t STILL_CONFIRM_FRAMES = 5;
-    static constexpr float MIN_MOTION_AREA = 0.02f;  // 2% del frame minimo
+    static constexpr float MIN_MOTION_AREA = 0.015f;      // Ridotto da 0.02 (1.5% del frame)
 
     /**
      * @brief Calcola differenza tra frame corrente e precedente

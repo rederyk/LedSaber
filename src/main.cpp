@@ -187,17 +187,10 @@ static void updateStatusLed_OTAMode() {
     }
 }
 
-static void updateStatusLed(bool bleConnected, bool btConnected, bool cameraFlashMode, uint8_t flashIntensity) {
+static void updateStatusLed(bool bleConnected, bool btConnected) {
     static unsigned long lastBlink = 0;
     static bool ledOn = false;
     unsigned long now = millis();
-
-    // MODALITÀ CAMERA FLASH: ignora tutto e usa solo l'intensità flash
-    if (cameraFlashMode) {
-        // Scrivi direttamente l'intensità flash senza controlli
-        ledcWrite(STATUS_LED_PWM_CHANNEL, flashIntensity);
-        return;
-    }
 
     // Se il LED è disabilitato via BLE, lo spegniamo
     if (!ledState.statusLedEnabled || ledState.statusLedBrightness == 0) {
@@ -643,11 +636,18 @@ void loop() {
     } else {
         // Funzionamento normale
 
-        // Determina se il LED deve essere in modalità flash camera
-        bool cameraFlashMode = bleCameraService.isCameraActive();
-        uint8_t flashIntensity = motionDetectorInitialized ? motionDetector.getRecommendedFlashIntensity() : 0;
+        // LED FLASH CAMERA: priorità assoluta
+        if (bleCameraService.isCameraActive()) {
+            // Modalità FLASH: scrivi direttamente l'intensità del flash
+            uint8_t flashIntensity = motionDetectorInitialized ? motionDetector.getRecommendedFlashIntensity() : 150;
 
-        updateStatusLed(bleConnected, false, cameraFlashMode, flashIntensity);
+            // IMPORTANTE: Forza scrittura PWM anche se statusLed disabilitato
+            ledcWrite(STATUS_LED_PWM_CHANNEL, flashIntensity);
+        } else {
+            // Modalità NOTIFICA: LED normale solo quando camera spenta
+            updateStatusLed(bleConnected, false);
+        }
+
         renderLedStrip();
 
         // Notifica stato BLE ogni 500ms se c'è una connessione

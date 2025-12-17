@@ -68,6 +68,16 @@ void BLEMotionService::notifyStatus() {
         return;
     }
 
+    // Debouncing: evita notifiche troppo frequenti (max 1 ogni 500ms)
+    unsigned long now = millis();
+    static unsigned long lastNotifyTime = 0;
+
+    if (now - lastNotifyTime < 500) {
+        return;  // Troppo presto, skip
+    }
+
+    lastNotifyTime = now;
+
     String statusJson = _getStatusJson();
     _pCharStatus->setValue(statusJson.c_str());
     _pCharStatus->notify();
@@ -158,20 +168,8 @@ String BLEMotionService::_getStatusJson() {
     doc["totalFrames"] = metrics.totalFramesProcessed;
     doc["motionFrames"] = metrics.motionFrameCount;
 
-    // Aggiungi traiettoria se presente
-    if (metrics.trajectoryLength > 0) {
-        MotionDetector::TrajectoryPoint trajectory[MotionDetector::MAX_TRAJECTORY_POINTS];
-        uint8_t points = _motion->getTrajectory(trajectory);
-
-        JsonArray trajArray = doc["trajectory"].to<JsonArray>();
-        for (uint8_t i = 0; i < points; i++) {
-            JsonObject point = trajArray.add<JsonObject>();
-            point["x"] = trajectory[i].x;
-            point["y"] = trajectory[i].y;
-            point["t"] = trajectory[i].timestamp;
-            point["i"] = trajectory[i].intensity;
-        }
-    }
+    // NON includere trajectory nello status (troppo grande per BLE notification)
+    // La trajectory è disponibile solo tramite eventi
 
     String output;
     serializeJson(doc, output);
