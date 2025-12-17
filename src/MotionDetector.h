@@ -114,6 +114,16 @@ public:
     const char* getMotionDirectionName() const;
 
     /**
+     * @brief Ottiene stato del vettore movimento calcolato tramite centroidi
+     */
+    bool hasValidCentroid() const { return _centroidValid; }
+    float getCentroidX() const { return _currentCentroidX; }
+    float getCentroidY() const { return _currentCentroidY; }
+    float getMotionVectorX() const { return _motionVectorX; }
+    float getMotionVectorY() const { return _motionVectorY; }
+    uint8_t getVectorConfidence() const { return _vectorConfidence; }
+
+    /**
      * @brief Ottiene prossimità movimento (vicino/lontano)
      * @return Prossimità movimento
      */
@@ -183,6 +193,12 @@ public:
         uint8_t gestureConfidence;
         MotionProximity proximity;
         uint8_t proximityBrightness;  // Luminosità media frame con flash
+        bool centroidValid;
+        float centroidX;
+        float centroidY;
+        float motionVectorX;
+        float motionVectorY;
+        uint8_t vectorConfidence;
     };
 
     MotionMetrics getMetrics() const;
@@ -209,6 +225,7 @@ private:
 
     // Frame buffers
     uint8_t* _previousFrame;
+    uint8_t* _backgroundFrame;
 
     // Motion detection parameters
     uint8_t _motionThreshold;      // Soglia differenza pixel (default: 30)
@@ -217,15 +234,26 @@ private:
     // State
     uint8_t _motionIntensity;      // Intensità movimento corrente (0-255)
     uint32_t _changedPixels;       // Pixel cambiati ultimo frame
+    uint32_t _lastTotalDelta;      // Somma differenze per intensità
     bool _shakeDetected;           // Flag shake rilevato
     MotionDirection _motionDirection;  // Direzione movimento predominante (deprecated)
     MotionProximity _motionProximity;  // Prossimità movimento (near/far)
     bool _proximityTestRequested;      // Flag richiesta test con flash
     uint8_t _proximityBrightness;      // Luminosità media frame con flash
+    bool _backgroundInitialized;
+    uint16_t _backgroundWarmupFrames;
 
     // Gesture recognition
     GestureType _currentGesture;       // Gesture rilevata corrente
     uint8_t _gestureConfidence;        // Confidence score gesture (0-100)
+
+    // Motion centroid e vettore
+    bool _centroidValid;
+    float _currentCentroidX;
+    float _currentCentroidY;
+    float _motionVectorX;
+    float _motionVectorY;
+    uint8_t _vectorConfidence;
 
     // Zone detection (9x9 grid)
     static constexpr uint8_t GRID_ROWS = 9;
@@ -254,6 +282,9 @@ private:
     uint32_t _totalFramesProcessed;
     uint32_t _motionFrameCount;
     uint32_t _shakeCount;
+    static constexpr uint8_t BACKGROUND_WARMUP_FRAMES = 8;
+    static constexpr uint16_t MIN_CENTROID_WEIGHT = 1500;
+    static constexpr float CENTROID_SMOOTHING = 0.35f;
 
     /**
      * @brief Calcola differenza tra frame corrente e precedente
@@ -264,11 +295,10 @@ private:
 
     /**
      * @brief Calcola intensità movimento media dai pixel cambiati
-     * @param currentFrame Frame corrente
      * @param changedPixels Numero pixel cambiati
      * @return Intensità movimento (0-255)
      */
-    uint8_t _calculateMotionIntensity(const uint8_t* currentFrame, uint32_t changedPixels);
+    uint8_t _calculateMotionIntensity(uint32_t changedPixels);
 
     /**
      * @brief Calcola intensità movimento per zone (3x3 grid)
@@ -345,6 +375,18 @@ private:
      * @return Luminosità media (0-255)
      */
     uint8_t _calculateAverageBrightness(const uint8_t* frame) const;
+
+    /**
+     * @brief Aggiorna modello di background adattivo
+     * @param currentFrame Frame corrente
+     * @param motionDetected true se è presente movimento nel frame
+     */
+    void _updateBackgroundModel(const uint8_t* currentFrame, bool motionDetected);
+
+    /**
+     * @brief Determina la direzione del vettore movimento stimato
+     */
+    MotionDirection _directionFromVector(float vecX, float vecY) const;
 };
 
 #endif // MOTION_DETECTOR_H

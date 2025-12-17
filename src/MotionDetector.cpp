@@ -1,5 +1,6 @@
 #include "MotionDetector.h"
 #include <esp_heap_caps.h>
+#include <math.h>
 
 MotionDetector::MotionDetector()
     : _initialized(false)
@@ -7,10 +8,12 @@ MotionDetector::MotionDetector()
     , _frameHeight(0)
     , _frameSize(0)
     , _previousFrame(nullptr)
+    , _backgroundFrame(nullptr)
     , _motionThreshold(50)  // Aumentato da 30 a 50 per ridurre falsi positivi
     , _shakeThreshold(150)
     , _motionIntensity(0)
     , _changedPixels(0)
+    , _lastTotalDelta(0)
     , _shakeDetected(false)
     , _motionDirection(DIRECTION_NONE)
     , _motionProximity(PROXIMITY_UNKNOWN)
@@ -18,6 +21,14 @@ MotionDetector::MotionDetector()
     , _proximityBrightness(0)
     , _currentGesture(GESTURE_NONE)
     , _gestureConfidence(0)
+    , _backgroundInitialized(false)
+    , _backgroundWarmupFrames(0)
+    , _centroidValid(false)
+    , _currentCentroidX(0.0f)
+    , _currentCentroidY(0.0f)
+    , _motionVectorX(0.0f)
+    , _motionVectorY(0.0f)
+    , _vectorConfidence(0)
     , _trajectoryIndex(0)
     , _trajectoryFull(false)
     , _historyIndex(0)
@@ -39,6 +50,10 @@ MotionDetector::~MotionDetector() {
         heap_caps_free(_previousFrame);
         _previousFrame = nullptr;
     }
+    if (_backgroundFrame) {
+        heap_caps_free(_backgroundFrame);
+        _backgroundFrame = nullptr;
+    }
     _initialized = false;
 }
 
@@ -57,13 +72,25 @@ bool MotionDetector::begin(uint16_t frameWidth, uint16_t frameHeight) {
 
     // Alloca buffer frame precedente in PSRAM
     _previousFrame = (uint8_t*)heap_caps_malloc(_frameSize, MALLOC_CAP_SPIRAM);
-    if (!_previousFrame) {
-        Serial.println("[MOTION ERROR] Failed to allocate previous frame buffer!");
+    _backgroundFrame = (uint8_t*)heap_caps_malloc(_frameSize, MALLOC_CAP_SPIRAM);
+    if (!_previousFrame || !_backgroundFrame) {
+        Serial.println("[MOTION ERROR] Failed to allocate motion buffers!");
+        if (_previousFrame) {
+            heap_caps_free(_previousFrame);
+            _previousFrame = nullptr;
+        }
+        if (_backgroundFrame) {
+            heap_caps_free(_backgroundFrame);
+            _backgroundFrame = nullptr;
+        }
         return false;
     }
 
     // Inizializza a nero
     memset(_previousFrame, 0, _frameSize);
+    memset(_backgroundFrame, 0, _frameSize);
+    _backgroundInitialized = false;
+    _backgroundWarmupFrames = 0;
 
     _initialized = true;
     _lastStillTime = millis();
@@ -78,41 +105,50 @@ bool MotionDetector::begin(uint16_t frameWidth, uint16_t frameHeight) {
 
 uint32_t MotionDetector::_calculateFrameDifference(const uint8_t* currentFrame) {
     uint32_t changedPixels = 0;
+    uint32_t totalDelta = 0;
+    const uint8_t* referenceFrame = (_backgroundInitialized && _backgroundFrame) ?
+        _backgroundFrame : _previousFrame;
 
-    // Confronta ogni pixel con frame precedente
+    // Confronta ogni pixel con frame di riferimento (background adattivo)
     for (size_t i = 0; i < _frameSize; i++) {
-        int16_t diff = abs((int16_t)currentFrame[i] - (int16_t)_previousFrame[i]);
+        int16_t diff = abs((int16_t)currentFrame[i] - (int16_t)referenceFrame[i]);
         if (diff > _motionThreshold) {
             changedPixels++;
+            totalDelta += diff;
         }
     }
 
+    _lastTotalDelta = totalDelta;
     return changedPixels;
 }
 
-uint8_t MotionDetector::_calculateMotionIntensity(const uint8_t* currentFrame, uint32_t changedPixels) {
-    if (changedPixels == 0) {
+uint8_t MotionDetector::_calculateMotionIntensity(uint32_t changedPixels) {
+    if (changedPixels == 0 || _frameSize == 0) {
         return 0;
     }
 
-    // Calcola delta medio solo sui pixel cambiati
-    uint32_t totalDelta = 0;
-    uint32_t sampledPixels = 0;
-
-    // Campiona solo pixel cambiati per efficienza
-    for (size_t i = 0; i < _frameSize && sampledPixels < changedPixels; i++) {
-        int16_t diff = abs((int16_t)currentFrame[i] - (int16_t)_previousFrame[i]);
-        if (diff > _motionThreshold) {
-            totalDelta += diff;
-            sampledPixels++;
-        }
+    // Delta medio sui pixel variati
+    uint32_t avgDelta = (_lastTotalDelta > 0) ? (_lastTotalDelta / changedPixels) : 0;
+    if (avgDelta > 255) {
+        avgDelta = 255;
     }
 
-    // Media delta
-    uint8_t avgDelta = (sampledPixels > 0) ? (totalDelta / sampledPixels) : 0;
+    // Copertura: quanta parte del frame è interessata
+    uint32_t coverageNormalizer = _frameSize / 6;  // 16% pixel -> 255
+    if (coverageNormalizer == 0) {
+        coverageNormalizer = 1;
+    }
+    uint32_t coverageScore = (changedPixels * 255UL) / coverageNormalizer;
+    if (coverageScore > 255) {
+        coverageScore = 255;
+    }
 
-    // Normalizza a 0-255 (assumendo delta max ~100)
-    uint8_t intensity = min(avgDelta * 2, 255);
+    // Intensità finale come media pesata tra ampiezza e copertura
+    uint32_t amplitudeScore = avgDelta * 4;
+    if (amplitudeScore > 255) {
+        amplitudeScore = 255;
+    }
+    uint8_t intensity = static_cast<uint8_t>((coverageScore * 2 + amplitudeScore) / 3);
 
     return intensity;
 }
@@ -194,11 +230,29 @@ bool MotionDetector::processFrame(const uint8_t* frameBuffer, size_t frameLength
         return false;  // Frame con flash non conta come motion
     }
 
+    // Inizializza modello di background al primo frame utile
+    if (!_backgroundInitialized) {
+        memcpy(_backgroundFrame, frameBuffer, _frameSize);
+        memcpy(_previousFrame, frameBuffer, _frameSize);
+        _backgroundInitialized = true;
+        _backgroundWarmupFrames = 0;
+        _totalFramesProcessed++;
+        return false;
+    }
+
+    // Durante la fase di warmup accumuliamo frame per stabilizzare il background
+    if (_backgroundWarmupFrames < BACKGROUND_WARMUP_FRAMES) {
+        _backgroundWarmupFrames++;
+        memcpy(_previousFrame, frameBuffer, _frameSize);
+        _totalFramesProcessed++;
+        return false;
+    }
+
     // Calcola differenza frame
     _changedPixels = _calculateFrameDifference(frameBuffer);
 
     // Calcola intensità movimento
-    _motionIntensity = _calculateMotionIntensity(frameBuffer, _changedPixels);
+    _motionIntensity = _calculateMotionIntensity(_changedPixels);
 
     // Calcola intensità per zone e determina direzione
     _calculateZoneIntensities(frameBuffer);
@@ -231,6 +285,9 @@ bool MotionDetector::processFrame(const uint8_t* frameBuffer, size_t frameLength
         }
     }
 
+    // Aggiorna background quando scena è stabile
+    _updateBackgroundModel(frameBuffer, motionDetected);
+
     // Copia frame corrente in previous per prossimo ciclo
     memcpy(_previousFrame, frameBuffer, _frameSize);
 
@@ -252,6 +309,7 @@ void MotionDetector::setSensitivity(uint8_t sensitivity) {
 void MotionDetector::reset() {
     _motionIntensity = 0;
     _changedPixels = 0;
+    _lastTotalDelta = 0;
     _shakeDetected = false;
     _motionDirection = DIRECTION_NONE;
     _motionProximity = PROXIMITY_UNKNOWN;
@@ -259,6 +317,14 @@ void MotionDetector::reset() {
     _proximityBrightness = 0;
     _currentGesture = GESTURE_NONE;
     _gestureConfidence = 0;
+    _backgroundInitialized = false;
+    _backgroundWarmupFrames = 0;
+    _centroidValid = false;
+    _currentCentroidX = 0.0f;
+    _currentCentroidY = 0.0f;
+    _motionVectorX = 0.0f;
+    _motionVectorY = 0.0f;
+    _vectorConfidence = 0;
     _trajectoryIndex = 0;
     _trajectoryFull = false;
     _historyIndex = 0;
@@ -277,6 +343,9 @@ void MotionDetector::reset() {
     if (_previousFrame) {
         memset(_previousFrame, 0, _frameSize);
     }
+    if (_backgroundFrame) {
+        memset(_backgroundFrame, 0, _frameSize);
+    }
 
     Serial.println("[MOTION] State reset");
 }
@@ -293,6 +362,12 @@ MotionDetector::MotionMetrics MotionDetector::getMetrics() const {
     metrics.gestureConfidence = _gestureConfidence;
     metrics.proximity = _motionProximity;
     metrics.proximityBrightness = _proximityBrightness;
+    metrics.centroidValid = _centroidValid;
+    metrics.centroidX = _currentCentroidX;
+    metrics.centroidY = _currentCentroidY;
+    metrics.motionVectorX = _motionVectorX;
+    metrics.motionVectorY = _motionVectorY;
+    metrics.vectorConfidence = _vectorConfidence;
 
     _getHistoryMinMax(metrics.minIntensityRecent, metrics.maxIntensityRecent);
 
@@ -334,6 +409,10 @@ void MotionDetector::_calculateZoneIntensities(const uint8_t* currentFrame) {
     // Reset zone intensities
     memset(_zoneIntensities, 0, sizeof(_zoneIntensities));
 
+    uint64_t centroidWeightedX = 0;
+    uint64_t centroidWeightedY = 0;
+    uint32_t centroidWeight = 0;
+
     // Calcola dimensioni zone
     uint16_t zoneWidth = _frameWidth / GRID_COLS;
     uint16_t zoneHeight = _frameHeight / GRID_ROWS;
@@ -357,12 +436,21 @@ void MotionDetector::_calculateZoneIntensities(const uint8_t* currentFrame) {
                 for (uint16_t x = startX; x < endX; x++) {
                     size_t pixelIdx = y * _frameWidth + x;
 
-                    int16_t diff = abs((int16_t)currentFrame[pixelIdx] -
+                    int16_t diffPrev = abs((int16_t)currentFrame[pixelIdx] -
                                       (int16_t)_previousFrame[pixelIdx]);
+                    int16_t diffBg = 0;
+                    if (_backgroundFrame) {
+                        diffBg = abs((int16_t)currentFrame[pixelIdx] -
+                                     (int16_t)_backgroundFrame[pixelIdx]);
+                    }
+                    int16_t diff = max(diffPrev, diffBg);
 
                     if (diff > _motionThreshold) {
                         zoneDeltaSum += diff;
                         zoneChangedPixels++;
+                        centroidWeightedX += static_cast<uint64_t>(x) * diff;
+                        centroidWeightedY += static_cast<uint64_t>(y) * diff;
+                        centroidWeight += diff;
                     }
                 }
             }
@@ -376,9 +464,63 @@ void MotionDetector::_calculateZoneIntensities(const uint8_t* currentFrame) {
             }
         }
     }
+
+    // Aggiorna centroide e vettore movimento utilizzando i pesi calcolati
+    bool hadCentroid = _centroidValid;
+    float previousX = _currentCentroidX;
+    float previousY = _currentCentroidY;
+
+    if (centroidWeight > MIN_CENTROID_WEIGHT) {
+        float centroidX = static_cast<float>(centroidWeightedX) / centroidWeight;
+        float centroidY = static_cast<float>(centroidWeightedY) / centroidWeight;
+
+        if (hadCentroid) {
+            _currentCentroidX = previousX + (centroidX - previousX) * CENTROID_SMOOTHING;
+            _currentCentroidY = previousY + (centroidY - previousY) * CENTROID_SMOOTHING;
+        } else {
+            _currentCentroidX = centroidX;
+            _currentCentroidY = centroidY;
+        }
+        _centroidValid = true;
+    } else {
+        _centroidValid = false;
+    }
+
+    if (_centroidValid && hadCentroid) {
+        _motionVectorX = _currentCentroidX - previousX;
+        _motionVectorY = _currentCentroidY - previousY;
+
+        float magnitude = sqrtf((_motionVectorX * _motionVectorX) +
+                                (_motionVectorY * _motionVectorY));
+        float normFactor = (_frameWidth > _frameHeight) ?
+                           static_cast<float>(_frameWidth) :
+                           static_cast<float>(_frameHeight);
+        float normalizedMag = (normFactor > 0.0f) ? (magnitude / (normFactor / 4.0f)) : 0.0f;
+        if (normalizedMag > 1.0f) {
+            normalizedMag = 1.0f;
+        }
+        _vectorConfidence = static_cast<uint8_t>(normalizedMag * 100.0f);
+    } else {
+        // Decadimento graduale per evitare salti improvvisi
+        _motionVectorX *= 0.5f;
+        _motionVectorY *= 0.5f;
+        if (_vectorConfidence > 5) {
+            _vectorConfidence -= 5;
+        } else {
+            _vectorConfidence = 0;
+        }
+    }
 }
 
 MotionDetector::MotionDirection MotionDetector::_determineMotionDirection() {
+    // Se il vettore movimento è affidabile usiamo prioritariamente quello
+    if (_vectorConfidence >= 30) {
+        MotionDirection vectorDir = _directionFromVector(_motionVectorX, _motionVectorY);
+        if (vectorDir != DIRECTION_NONE) {
+            return vectorDir;
+        }
+    }
+
     // Mappa zone a indici (3x3 grid):
     // 0 1 2
     // 3 4 5
@@ -443,6 +585,37 @@ const char* MotionDetector::getMotionDirectionName() const {
         case DIRECTION_CENTER:     return "center";
         default:                   return "unknown";
     }
+}
+
+MotionDetector::MotionDirection MotionDetector::_directionFromVector(float vecX, float vecY) const {
+    const float MIN_COMPONENT = 0.15f;
+    const float DIAGONAL_THRESHOLD = 0.35f;
+
+    float absX = fabsf(vecX);
+    float absY = fabsf(vecY);
+
+    if (absX < MIN_COMPONENT && absY < MIN_COMPONENT) {
+        return DIRECTION_NONE;
+    }
+
+    bool horizontalStrong = absX >= absY;
+    bool verticalStrong = absY >= absX;
+
+    if (absX > DIAGONAL_THRESHOLD && absY > DIAGONAL_THRESHOLD) {
+        if (vecY < 0 && vecX < 0) return DIRECTION_UP_LEFT;
+        if (vecY < 0 && vecX > 0) return DIRECTION_UP_RIGHT;
+        if (vecY > 0 && vecX < 0) return DIRECTION_DOWN_LEFT;
+        if (vecY > 0 && vecX > 0) return DIRECTION_DOWN_RIGHT;
+    }
+
+    if (horizontalStrong) {
+        return (vecX < 0) ? DIRECTION_LEFT : DIRECTION_RIGHT;
+    }
+    if (verticalStrong) {
+        return (vecY < 0) ? DIRECTION_UP : DIRECTION_DOWN;
+    }
+
+    return DIRECTION_NONE;
 }
 
 const char* MotionDetector::getGestureName() const {
@@ -868,4 +1041,37 @@ uint8_t MotionDetector::_calculateAverageBrightness(const uint8_t* frame) const 
     }
 
     return (uint8_t)(totalBrightness / _frameSize);
+}
+
+void MotionDetector::_updateBackgroundModel(const uint8_t* currentFrame, bool motionDetected) {
+    if (!_backgroundFrame || !_backgroundInitialized) {
+        return;
+    }
+
+    if (!motionDetected) {
+        memcpy(_backgroundFrame, currentFrame, _frameSize);
+        return;
+    }
+
+    const uint8_t decayShift = 5;  // Aggiorna lentamente (1/32)
+    for (size_t i = 0; i < _frameSize; i++) {
+        int16_t diff = static_cast<int16_t>(currentFrame[i]) -
+                       static_cast<int16_t>(_backgroundFrame[i]);
+        if (diff == 0) {
+            continue;
+        }
+
+        uint8_t adjustment = (abs(diff) >> decayShift);
+        if (adjustment == 0) {
+            adjustment = 1;
+        }
+
+        if (diff > 0) {
+            uint16_t updated = static_cast<uint16_t>(_backgroundFrame[i]) + adjustment;
+            _backgroundFrame[i] = (updated > 255) ? 255 : updated;
+        } else {
+            _backgroundFrame[i] = (_backgroundFrame[i] > adjustment) ?
+                                  (_backgroundFrame[i] - adjustment) : 0;
+        }
+    }
 }

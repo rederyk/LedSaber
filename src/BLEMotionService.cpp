@@ -91,6 +91,13 @@ void BLEMotionService::notifyEvent(const String& eventType) {
     doc["intensity"] = _motion->getMotionIntensity();
     doc["changedPixels"] = _motion->getChangedPixels();
     doc["direction"] = _motion->getMotionDirectionName();
+    doc["motionVectorX"] = _motion->getMotionVectorX();
+    doc["motionVectorY"] = _motion->getMotionVectorY();
+    doc["centroidValid"] = _motion->hasValidCentroid();
+    if (_motion->hasValidCentroid()) {
+        doc["centroidX"] = _motion->getCentroidX();
+        doc["centroidY"] = _motion->getCentroidY();
+    }
 
     // Aggiungi gesture info
     doc["gesture"] = _motion->getGestureName();
@@ -171,6 +178,12 @@ String BLEMotionService::_getStatusJson() {
     doc["motionFrames"] = metrics.motionFrameCount;
     doc["shakeCount"] = metrics.shakeCount;
     doc["proximityBrightness"] = metrics.proximityBrightness;
+    doc["centroidValid"] = metrics.centroidValid;
+    doc["centroidX"] = metrics.centroidX;
+    doc["centroidY"] = metrics.centroidY;
+    doc["motionVectorX"] = metrics.motionVectorX;
+    doc["motionVectorY"] = metrics.motionVectorY;
+    doc["vectorConfidence"] = metrics.vectorConfidence;
 
     // Non inviamo zones via BLE (troppo pesante - 81 valori)
     // Se necessario, usare un comando separato per richiedere le zone
