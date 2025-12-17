@@ -303,11 +303,6 @@ class OTAUpdater:
             await self.client.write_gatt_char(CHAR_OTA_DATA_UUID, chunk, response=False)
 
             offset += chunk_size
-            chunk_count += 1
-
-            # Controllo di flusso minimo: solo per evitare saturazione completa del buffer
-            if chunk_count % CHUNKS_PER_BATCH == 0:
-                await asyncio.sleep(0.001)  # 1ms di pausa ogni 100 chunk (50KB)
 
             # Verifica errori
             if self.ota_state == OTA_STATE_ERROR:

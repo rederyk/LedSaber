@@ -143,6 +143,16 @@ void OTAManager::begin(BLEServer* server) {
     // Avvia servizio OTA
     pService->start();
 
+    // Ottimizzazione velocità OTA: Richiedi un connection interval più breve
+    // Valori in multipli di 1.25ms. 7.5ms min, 15ms max.
+    // Questo è il fattore più importante per la velocità di trasferimento.
+    BLEAdvertising* pAdvertising = BLEDevice::getAdvertising();
+    pAdvertising->addServiceUUID(pService->getUUID());
+    pAdvertising->setScanResponse(true);
+    pAdvertising->setMinPreferred(0x06); // per iOS: min conn interval: 7.5ms (6 * 1.25ms)
+    pAdvertising->setMaxPreferred(0x0C); // per iOS: max conn interval: 15ms (12 * 1.25ms)
+    // Non è necessario chiamare pAdvertising->start() qui, verrà gestito dal server BLE.
+
     Serial.println("[OTA OK] OTA Manager initialized");
     Serial.printf("[OTA] Firmware version: %s\n", FIRMWARE_VERSION);
 
