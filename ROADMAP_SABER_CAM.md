@@ -5,40 +5,42 @@ Implementare un sistema di motion detection leggero usando la camera ESP32-CAM p
 
 ---
 
-## 📋 Fase 1: Preparazione Hardware e Librerie
+## 📋 Fase 1: Preparazione Hardware e Librerie ✅ COMPLETATA
 
 ### 1.1 Verifica Hardware
-- [ ] Confermare pinout ESP32-CAM (camera OV2640)
-- [ ] Verificare connessione flash LED pin 4
-- [ ] Testare PSRAM disponibile (4MB)
-- [ ] Documentare GPIO utilizzati vs GPIO liberi
+- [x] Confermare pinout ESP32-CAM (camera OV2640)
+- [x] Verificare connessione flash LED pin 4
+- [x] Testare PSRAM disponibile (4MB)
+- [x] Documentare GPIO utilizzati vs GPIO liberi
 
 ### 1.2 Dipendenze Software
-- [ ] Aggiungere libreria `esp32-camera` a platformio.ini
-- [ ] Configurare build flags per PSRAM
-- [ ] Verificare compatibilità con FastLED e BLE stack
-- [ ] Testare heap disponibile dopo inclusione camera
+- [x] Aggiungere libreria `esp32-camera` a platformio.ini
+- [x] Configurare build flags per PSRAM
+- [x] Verificare compatibilità con FastLED e BLE stack
+- [x] Testare heap disponibile dopo inclusione camera
 
-**Deliverable**: platformio.ini aggiornato, test compilazione
+**Deliverable**: platformio.ini aggiornato, test compilazione ✅
 
 ---
 
-## 📋 Fase 2: Implementazione Base Camera
+## 📋 Fase 2: Implementazione Base Camera ✅ COMPLETATA
 
 ### 2.1 Driver Camera
-- [ ] Creare `CameraManager.h` / `CameraManager.cpp`
-- [ ] Implementare init camera QVGA grayscale
-- [ ] Configurare 2 frame buffer circolari
-- [ ] Testare cattura frame singolo
-- [ ] Implementare gestione errori camera
+- [x] Creare `CameraManager.h` / `CameraManager.cpp`
+- [x] Implementare init camera QVGA grayscale
+- [x] Configurare 2 frame buffer circolari
+- [x] Testare cattura frame singolo
+- [x] Implementare gestione errori camera
 
 ### 2.2 Frame Buffer Management
-- [ ] Allocare buffer PSRAM per frame precedente/corrente
-- [ ] Implementare frame capture senza blocco
-- [ ] Testare frame rate effettivo (target: 30 fps)
-- [ ] Monitorare consumo memoria e CPU
+- [x] Allocare buffer PSRAM per frame precedente/corrente
+- [x] Implementare frame capture senza blocco
+- [x] Testare frame rate effettivo (target: 30 fps) - **RAGGIUNTO 12.5 FPS QVGA**
+- [x] Monitorare consumo memoria e CPU
 
-**Deliverable**: Camera funzionante con cattura frame stabile
+**Deliverable**: Camera funzionante con cattura frame stabile ✅
+
+**Note**: FPS attuale: 12.5 fps con QVGA grayscale, memoria PSRAM: 4MB disponibile, ~4MB libera
 
 ---
 
@@ -77,21 +79,35 @@ Implementare un sistema di motion detection leggero usando la camera ESP32-CAM p
 
 ---
 
-## 📋 Fase 5: Integrazione BLE
+## 📋 Fase 5: Integrazione BLE (Parzialmente Completata)
 
-### 5.1 Servizio BLE Motion
+### 5.1 Servizio BLE Camera (Completato)
+- [x] Creare `BLECameraService.h` / `BLECameraService.cpp`
+- [x] Definire UUID servizio camera
+- [x] Implementare characteristic notify per status
+- [x] Creare payload JSON per status/metrics
+
+### 5.2 Comandi Camera Implementati
+- [x] Comando `init` - inizializza camera
+- [x] Comando `capture` - cattura frame singolo
+- [x] Comando `start` - avvia cattura continua
+- [x] Comando `stop` - ferma cattura continua
+- [x] Comando `reset_metrics` - reset statistiche
+- [x] Controllo flash LED via BLE
+
+### 5.3 Servizio BLE Motion (DA IMPLEMENTARE)
 - [ ] Creare `MotionDetector.h` / `MotionDetector.cpp`
-- [ ] Definire UUID servizio motion
-- [ ] Implementare characteristic notify per eventi
+- [ ] Definire UUID servizio motion detection
+- [ ] Implementare characteristic notify per eventi motion
 - [ ] Creare payload JSON eventi motion
 
-### 5.2 Eventi Motion
+### 5.4 Eventi Motion (DA IMPLEMENTARE)
 - [ ] Evento `motion_detected` (pixels, intensity)
 - [ ] Evento `motion_ended` (timeout based)
 - [ ] Evento `shake_detected` (shake specifico)
 - [ ] Implementare debouncing notifiche BLE
 
-**Deliverable**: Servizio BLE motion funzionante
+**Deliverable**: Servizio BLE camera completo ✅, servizio motion in sviluppo
 
 ---
 
@@ -132,21 +148,22 @@ Implementare un sistema di motion detection leggero usando la camera ESP32-CAM p
 
 ---
 
-## 📋 Fase 8: Flash LED Integration
+## 📋 Fase 8: Flash LED Integration ✅ COMPLETATA (Base)
 
 ### 8.1 Flash Control
-- [ ] Implementare PWM control flash pin 4
-- [ ] Configurare intensità flash (0-255)
+- [x] Implementare PWM control flash pin 4
+- [x] Configurare intensità flash (0-255)
+- [x] Implementare controllo flash via BLE
 - [ ] Implementare flash pulse per cattura frame
 - [ ] Testare consumo energetico flash
 
-### 8.2 Adaptive Lighting
+### 8.2 Adaptive Lighting (DA IMPLEMENTARE)
 - [ ] Rilevare condizioni luce ambiente
 - [ ] Attivare flash solo se necessario
 - [ ] Implementare auto-exposure rudimentale
 - [ ] Ottimizzare durata flash (500µs)
 
-**Deliverable**: Flash automatico per visione notturna
+**Deliverable**: Flash control base implementato ✅, adaptive lighting in roadmap
 
 ---
 
@@ -305,7 +322,36 @@ Implementare un sistema di motion detection leggero usando la camera ESP32-CAM p
 
 ---
 
-**Versione**: 1.0
+**Versione**: 1.1
 **Ultima modifica**: 2025-12-17
 **Autore**: LedSaber Team
-**Status**: Planning Phase
+**Status**: In Development - Fase 3 (Motion Detection Core)
+
+---
+
+## 📊 Stato Attuale (2025-12-17)
+
+### ✅ Completato
+- **Fase 1**: Hardware setup e dipendenze
+- **Fase 2**: CameraManager implementato e funzionante (12.5 FPS QVGA)
+- **Fase 5.1**: BLECameraService con comandi init/start/stop/capture
+- **Fase 8.1**: Flash LED control base
+
+### 🔨 In Sviluppo
+- **Fase 3**: Motion Detection Core (frame differencing)
+- **Fase 4**: Shake Detection
+- **Fase 5.3**: BLE Motion Service
+
+### 📈 Metriche Correnti
+- FPS: 12.5 (QVGA 320x240 grayscale)
+- Frame catturati: 229
+- Frame falliti: 0
+- Tempo cattura: ~76ms/frame
+- PSRAM libera: ~4MB/4MB
+- Heap libero: ~76KB
+
+### 🎯 Prossimi Step
+1. Implementare MotionDetector con frame differencing
+2. Calcolare intensità movimento
+3. Implementare shake detection
+4. Integrare con effetti LED esistenti

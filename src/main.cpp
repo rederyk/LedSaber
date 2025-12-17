@@ -8,6 +8,8 @@
 #include "ConfigManager.h"
 #include "CameraManager.h"
 #include "BLECameraService.h"
+#include "MotionDetector.h"
+#include "BLEMotionService.h"
 
 // GPIO
 static constexpr uint8_t STATUS_LED_PIN = 4;   // LED integrato per stato connessione
@@ -55,6 +57,10 @@ ConfigManager configManager(&ledState);
 // Camera Manager
 CameraManager cameraManager;
 BLECameraService bleCameraService(&cameraManager);
+
+// Motion Detector
+MotionDetector motionDetector;
+BLEMotionService bleMotionService(&motionDetector);
 
 // ============================================================================
 // CALLBACKS GLOBALI DEL SERVER BLE
@@ -582,11 +588,16 @@ void setup() {
     bleCameraService.begin(pServer);
     Serial.println("*** Camera Service avviato ***");
 
-    // 6. Configura e avvia l'advertising DOPO aver inizializzato tutti i servizi
+    // 6. Inizializza il servizio Motion, agganciandolo allo stesso server
+    bleMotionService.begin(pServer);
+    Serial.println("*** Motion Service avviato ***");
+
+    // 7. Configura e avvia l'advertising DOPO aver inizializzato tutti i servizi
     BLEAdvertising* pAdvertising = BLEDevice::getAdvertising();
     pAdvertising->addServiceUUID(LED_SERVICE_UUID);
     pAdvertising->addServiceUUID(OTA_SERVICE_UUID);
     pAdvertising->addServiceUUID(CAMERA_SERVICE_UUID);
+    pAdvertising->addServiceUUID(MOTION_SERVICE_UUID);
     pAdvertising->setScanResponse(true);
     pAdvertising->setMinPreferred(0x06);  // iPhone compatibility
     pAdvertising->setMinPreferred(0x12);
@@ -601,6 +612,8 @@ void loop() {
     static unsigned long lastLoopDebug = 0;
     static unsigned long lastConfigSave = 0;
     static unsigned long lastCameraUpdate = 0;
+    static unsigned long lastMotionUpdate = 0;
+    static bool motionDetectorInitialized = false;
     const unsigned long now = millis();
 
     const bool bleConnected = bleController.isConnected();
@@ -656,10 +669,34 @@ void loop() {
 
             if (cameraManager.captureFrame(&frameBuffer, &frameLength)) {
                 // Frame catturato con successo
-                // TODO: In futuro qui faremo motion detection
+
+                // Inizializza motion detector al primo frame (dimensioni note)
+                if (!motionDetectorInitialized && frameLength > 0) {
+                    // QVGA = 320x240 = 76800 bytes
+                    if (motionDetector.begin(320, 240)) {
+                        motionDetectorInitialized = true;
+                        Serial.println("[MAIN] Motion detector initialized");
+                    }
+                }
+
+                // Processa frame per motion detection se abilitato
+                if (motionDetectorInitialized && bleMotionService.isMotionEnabled()) {
+                    bool motionDetected = motionDetector.processFrame(frameBuffer, frameLength);
+                    bool shakeDetected = motionDetector.isShakeDetected();
+
+                    // Aggiorna BLE motion service con eventi
+                    bleMotionService.update(motionDetected, shakeDetected);
+                }
+
                 cameraManager.releaseFrame();
             }
             // Non aggiungiamo delay - lasciamo che la camera catturi al max FPS
+        }
+
+        // Aggiorna metriche motion ogni 1 secondo
+        if (motionDetectorInitialized && now - lastMotionUpdate > 1000) {
+            bleMotionService.notifyStatus();
+            lastMotionUpdate = now;
         }
     }
 

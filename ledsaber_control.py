@@ -28,6 +28,13 @@ CHAR_CAMERA_CONTROL_UUID = "7dc5a4c3-eb10-4a3e-8a4c-1234567890ab"
 CHAR_CAMERA_METRICS_UUID = "8ef6b5d4-fc21-5b4f-9b5d-2345678901bc"
 CHAR_CAMERA_FLASH_UUID = "9fe7c6e5-0d32-4c5a-ac6e-3456789012cd"
 
+# Motion Service UUIDs
+MOTION_SERVICE_UUID = "6fafc401-1fb5-459e-8fcc-c5c9c331914b"
+CHAR_MOTION_STATUS_UUID = "7eb5583e-36e1-4688-b7f5-ea07361b26a9"
+CHAR_MOTION_CONTROL_UUID = "8dc5b4c3-eb10-4a3e-8a4c-1234567890ac"
+CHAR_MOTION_EVENTS_UUID = "9ef6c5d4-fc21-5b4f-9b5d-2345678901bd"
+CHAR_MOTION_CONFIG_UUID = "aff7d6e5-0d32-4c5a-ac6e-3456789012ce"
+
 # Colori ANSI per output colorato
 class Colors:
     RESET = "\033[0m"
@@ -56,6 +63,13 @@ class LedSaberClient:
         self.camera_state = {}
         self.previous_camera_state = {}
         self.first_camera_state_received = False
+
+        # Motion state tracking
+        self.motion_state = {}
+        self.previous_motion_state = {}
+        self.first_motion_state_received = False
+        self.motion_callback: Optional[Callable] = None
+        self.motion_event_callback: Optional[Callable] = None
 
     async def scan(self, timeout: float = 5.0) -> list:
         """Cerca dispositivi BLE nelle vicinanze"""
@@ -109,6 +123,26 @@ class LedSaberClient:
                     print(f"{Colors.GREEN}✓ Notifiche Camera abilitate{Colors.RESET}")
                 except Exception as notify_error:
                     print(f"{Colors.YELLOW}⚠ Notifiche Camera non disponibili: {notify_error}{Colors.RESET}")
+
+                # Abilita notifiche per stato Motion
+                try:
+                    await self.client.start_notify(
+                        CHAR_MOTION_STATUS_UUID,
+                        self._motion_notification_handler
+                    )
+                    print(f"{Colors.GREEN}✓ Notifiche Motion abilitate{Colors.RESET}")
+                except Exception as notify_error:
+                    print(f"{Colors.YELLOW}⚠ Notifiche Motion non disponibili: {notify_error}{Colors.RESET}")
+
+                # Abilita notifiche per eventi Motion
+                try:
+                    await self.client.start_notify(
+                        CHAR_MOTION_EVENTS_UUID,
+                        self._motion_events_handler
+                    )
+                    print(f"{Colors.GREEN}✓ Eventi Motion abilitati{Colors.RESET}")
+                except Exception as notify_error:
+                    print(f"{Colors.YELLOW}⚠ Eventi Motion non disponibili: {notify_error}{Colors.RESET}")
 
                 return True
 
@@ -225,6 +259,103 @@ class LedSaberClient:
 
         except Exception as e:
             print(f"{Colors.RED}✗ Errore parsing notifica camera: {e}{Colors.RESET}")
+
+    def _motion_notification_handler(self, characteristic: BleakGATTCharacteristic, data: bytearray):
+        """Gestisce notifiche di stato Motion dal dispositivo"""
+        try:
+            status_json = data.decode('utf-8')
+            new_motion_state = json.loads(status_json)
+
+            # Primo stato motion ricevuto - mostra sempre
+            if not self.first_motion_state_received:
+                self.first_motion_state_received = True
+                self.motion_state = new_motion_state
+                self.previous_motion_state = new_motion_state.copy()
+                if self.motion_callback:
+                    self.motion_callback(self.motion_state, is_first=True)
+                else:
+                    print(f"\n{Colors.GREEN}✓ Motion stato iniziale ricevuto{Colors.RESET}")
+                return
+
+            # Calcola cambiamenti SIGNIFICATIVI
+            significant_changes = {}
+            for key in new_motion_state:
+                old_value = self.previous_motion_state.get(key)
+                new_value = new_motion_state[key]
+
+                # Ignora cambiamenti di intensity minori di 10 (riduce spam)
+                if key == 'intensity':
+                    if old_value is None or abs(new_value - old_value) >= 10:
+                        significant_changes[key] = {'old': old_value, 'new': new_value}
+                # Ignora totalFrames/motionFrames (troppo frequente)
+                elif key in ['totalFrames', 'motionFrames']:
+                    pass
+                # Altri cambiamenti: notifica sempre
+                elif old_value != new_value:
+                    significant_changes[key] = {'old': old_value, 'new': new_value}
+
+            # Mostra SOLO se ci sono cambiamenti significativi
+            if significant_changes:
+                self.motion_state = new_motion_state
+                self.previous_motion_state = new_motion_state.copy()
+
+                if self.motion_callback:
+                    self.motion_callback(self.motion_state, is_first=False, changes=significant_changes)
+                else:
+                    print(f"\n{Colors.MAGENTA}🔍 Motion Update:{Colors.RESET}")
+                    for key, change in significant_changes.items():
+                        if key == 'enabled':
+                            status = "ENABLED" if change['new'] else "DISABLED"
+                            print(f"  Motion Detection → {status}")
+                        elif key == 'motionDetected':
+                            status = "DETECTED" if change['new'] else "ENDED"
+                            print(f"  Motion → {status}")
+                        elif key == 'intensity':
+                            print(f"  Intensity → {change['new']}")
+                        elif key == 'shakeDetected':
+                            if change['new']:
+                                print(f"  {Colors.YELLOW}🔔 SHAKE DETECTED!{Colors.RESET}")
+
+                    print(f"{Colors.BOLD}>{Colors.RESET} ", end="", flush=True)
+            else:
+                # Aggiorna stato silenziosamente
+                self.motion_state = new_motion_state
+                self.previous_motion_state = new_motion_state.copy()
+
+        except Exception as e:
+            print(f"{Colors.RED}✗ Errore parsing notifica motion: {e}{Colors.RESET}")
+
+    def _motion_events_handler(self, characteristic: BleakGATTCharacteristic, data: bytearray):
+        """Gestisce eventi motion dal dispositivo"""
+        try:
+            event_json = data.decode('utf-8')
+            event = json.loads(event_json)
+
+            event_type = event.get('event', 'unknown')
+            intensity = event.get('intensity', 0)
+            pixels = event.get('changedPixels', 0)
+
+            if self.motion_event_callback:
+                self.motion_event_callback(event)
+            else:
+                # Visualizza evento con emoji appropriate
+                emoji = "🔔"
+                if event_type == "shake_detected":
+                    emoji = "⚡"
+                elif event_type == "motion_started":
+                    emoji = "▶️ "
+                elif event_type == "motion_ended":
+                    emoji = "⏹️ "
+                elif event_type == "still_detected":
+                    emoji = "😴"
+
+                print(f"\n{Colors.YELLOW}{emoji} Motion Event: {event_type.upper()}{Colors.RESET}")
+                print(f"  Intensity: {intensity}")
+                print(f"  Changed Pixels: {pixels}")
+                print(f"{Colors.BOLD}>{Colors.RESET} ", end="", flush=True)
+
+        except Exception as e:
+            print(f"{Colors.RED}✗ Errore parsing evento motion: {e}{Colors.RESET}")
 
     def _calculate_changes(self, old_state: dict, new_state: dict) -> dict:
         """Calcola le differenze tra due stati"""
@@ -427,6 +558,75 @@ class LedSaberClient:
         status = "ON" if enabled else "OFF"
         print(f"{Colors.GREEN}✓ Flash camera: {status} (brightness: {brightness}){Colors.RESET}")
 
+    # ========================================================================
+    # MOTION DETECTION METHODS
+    # ========================================================================
+
+    async def motion_send_command(self, command: str):
+        """Invia comando al motion detector (enable, disable, reset, sensitivity <val>)"""
+        if not self.client or not self.client.is_connected:
+            print(f"{Colors.RED}✗ Non connesso{Colors.RESET}")
+            return
+
+        await self.client.write_gatt_char(
+            CHAR_MOTION_CONTROL_UUID,
+            command.encode('utf-8')
+        )
+        print(f"{Colors.GREEN}✓ Comando motion inviato: {command}{Colors.RESET}")
+
+    async def get_motion_status(self) -> dict:
+        """Legge stato motion detector"""
+        if not self.client or not self.client.is_connected:
+            return {}
+
+        try:
+            status_data = await self.client.read_gatt_char(CHAR_MOTION_STATUS_UUID)
+            status_json = status_data.decode('utf-8')
+            return json.loads(status_json)
+        except Exception as e:
+            print(f"{Colors.RED}✗ Errore lettura motion status: {e}{Colors.RESET}")
+            return {}
+
+    async def get_motion_config(self) -> dict:
+        """Legge configurazione motion detector"""
+        if not self.client or not self.client.is_connected:
+            return {}
+
+        try:
+            config_data = await self.client.read_gatt_char(CHAR_MOTION_CONFIG_UUID)
+            config_json = config_data.decode('utf-8')
+            return json.loads(config_json)
+        except Exception as e:
+            print(f"{Colors.RED}✗ Errore lettura motion config: {e}{Colors.RESET}")
+            return {}
+
+    async def set_motion_config(self, enabled: bool = None, sensitivity: int = None):
+        """Imposta configurazione motion detector"""
+        if not self.client or not self.client.is_connected:
+            print(f"{Colors.RED}✗ Non connesso{Colors.RESET}")
+            return
+
+        config = {}
+        if enabled is not None:
+            config["enabled"] = enabled
+        if sensitivity is not None:
+            config["sensitivity"] = max(0, min(255, int(sensitivity)))
+
+        if not config:
+            print(f"{Colors.YELLOW}⚠ Nessun parametro per motion config{Colors.RESET}")
+            return
+
+        config_data = json.dumps(config)
+        await self.client.write_gatt_char(
+            CHAR_MOTION_CONFIG_UUID,
+            config_data.encode('utf-8')
+        )
+        print(f"{Colors.GREEN}✓ Motion config aggiornata: {config}{Colors.RESET}")
+
+    # ========================================================================
+    # DEBUG & UTILITIES
+    # ========================================================================
+
     async def debug_services(self):
         """Mostra servizi/characteristics noti per il dispositivo connesso"""
         if not self.client or not self.client.is_connected:
@@ -523,6 +723,14 @@ class InteractiveCLI:
   {Colors.CYAN}cam reset{Colors.RESET}         - Reset metriche
   {Colors.CYAN}cam flash on/off{Colors.RESET}  - Accendi/spegni flash
   {Colors.CYAN}cam flash <0-255>{Colors.RESET} - Imposta intensità flash
+
+  {Colors.BOLD}🔍 MOTION DETECTION COMMANDS:{Colors.RESET}
+  {Colors.MAGENTA}motion enable{Colors.RESET}        - Abilita motion detection
+  {Colors.MAGENTA}motion disable{Colors.RESET}       - Disabilita motion detection
+  {Colors.MAGENTA}motion status{Colors.RESET}        - Mostra stato motion detector
+  {Colors.MAGENTA}motion config{Colors.RESET}        - Mostra configurazione
+  {Colors.MAGENTA}motion sensitivity <0-255>{Colors.RESET} - Imposta sensibilità
+  {Colors.MAGENTA}motion reset{Colors.RESET}         - Reset statistiche motion
 
   {Colors.RED}quit{Colors.RESET}              - Esci
   {Colors.BLUE}help{Colors.RESET}              - Mostra questo menu
@@ -850,6 +1058,80 @@ class InteractiveCLI:
                 else:
                     print(f"{Colors.RED}✗ Comando camera sconosciuto: {subcmd}{Colors.RESET}")
                     print(f"{Colors.YELLOW}💡 Comandi: init, capture, start, stop, status, metrics, reset, flash{Colors.RESET}")
+
+            elif cmd == "motion":
+                # Gestione comandi motion detection
+                if not args:
+                    print(f"{Colors.RED}✗ Uso: motion <comando>{Colors.RESET}")
+                    print(f"{Colors.YELLOW}💡 Comandi: enable, disable, status, config, sensitivity, reset{Colors.RESET}")
+                    return
+
+                subcmd = args[0].lower()
+
+                if subcmd == "enable":
+                    await self.client.motion_send_command("enable")
+                    await asyncio.sleep(0.5)
+                    status = await self.client.get_motion_status()
+                    if status:
+                        print(f"\n{Colors.BOLD}🔍 Motion Status:{Colors.RESET}")
+                        print(f"  Enabled: {status.get('enabled', False)}")
+
+                elif subcmd == "disable":
+                    await self.client.motion_send_command("disable")
+                    await asyncio.sleep(0.5)
+                    status = await self.client.get_motion_status()
+                    if status:
+                        print(f"\n{Colors.BOLD}🔍 Motion Status:{Colors.RESET}")
+                        print(f"  Enabled: {status.get('enabled', False)}")
+
+                elif subcmd == "status":
+                    status = await self.client.get_motion_status()
+                    if status:
+                        print(f"\n{Colors.BOLD}🔍 Motion Status:{Colors.RESET}")
+                        print(f"  Enabled: {status.get('enabled', False)}")
+                        print(f"  Motion Detected: {status.get('motionDetected', False)}")
+                        print(f"  Intensity: {status.get('intensity', 0)}")
+                        print(f"  Changed Pixels: {status.get('changedPixels', 0)}")
+                        print(f"  Shake Detected: {status.get('shakeDetected', False)}")
+                        print(f"  Total Frames: {status.get('totalFrames', 0)}")
+                        print(f"  Motion Frames: {status.get('motionFrames', 0)}")
+                        print(f"  Shake Count: {status.get('shakeCount', 0)}")
+                    else:
+                        print(f"{Colors.YELLOW}⚠ Nessun dato disponibile{Colors.RESET}")
+
+                elif subcmd == "config":
+                    config = await self.client.get_motion_config()
+                    if config:
+                        print(f"\n{Colors.BOLD}⚙️  Motion Config:{Colors.RESET}")
+                        print(f"  Enabled: {config.get('enabled', False)}")
+                        print(f"  Sensitivity: {config.get('sensitivity', 128)}")
+                    else:
+                        print(f"{Colors.YELLOW}⚠ Nessun dato disponibile{Colors.RESET}")
+
+                elif subcmd == "sensitivity":
+                    if len(args) < 2:
+                        print(f"{Colors.RED}✗ Uso: motion sensitivity <0-255>{Colors.RESET}")
+                        return
+
+                    try:
+                        sensitivity = int(args[1])
+                        if 0 <= sensitivity <= 255:
+                            await self.client.motion_send_command(f"sensitivity {sensitivity}")
+                            await asyncio.sleep(0.5)
+                            print(f"{Colors.GREEN}✓ Sensitivity impostata: {sensitivity}{Colors.RESET}")
+                        else:
+                            print(f"{Colors.RED}✗ Valore deve essere tra 0 e 255{Colors.RESET}")
+                    except ValueError:
+                        print(f"{Colors.RED}✗ Valore non valido{Colors.RESET}")
+
+                elif subcmd == "reset":
+                    await self.client.motion_send_command("reset")
+                    await asyncio.sleep(0.5)
+                    print(f"{Colors.GREEN}✓ Motion statistiche resettate{Colors.RESET}")
+
+                else:
+                    print(f"{Colors.RED}✗ Comando motion sconosciuto: {subcmd}{Colors.RESET}")
+                    print(f"{Colors.YELLOW}💡 Comandi: enable, disable, status, config, sensitivity, reset{Colors.RESET}")
 
             elif cmd == "help":
                 self.print_menu()
