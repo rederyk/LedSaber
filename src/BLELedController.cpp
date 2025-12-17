@@ -68,10 +68,17 @@ public:
 
         if (!error) {
             uint8_t requestedBrightness = doc["brightness"] | 255;
-            controller->ledState->brightness = requestedBrightness;
+            // IMPORTANTE: Limita brightness a MAX_SAFE_BRIGHTNESS (60) per sicurezza alimentatore
+            static constexpr uint8_t MAX_SAFE_BRIGHTNESS = 60;
+            controller->ledState->brightness = min(requestedBrightness, MAX_SAFE_BRIGHTNESS);
             controller->ledState->enabled = doc["enabled"] | true;
 
-            Serial.printf("[BLE] Brightness requested: %d (enabled: %d)\n",
+            if (requestedBrightness > MAX_SAFE_BRIGHTNESS) {
+                Serial.printf("[BLE] Brightness clamped: %d -> %d (max safe limit)\n",
+                    requestedBrightness, MAX_SAFE_BRIGHTNESS);
+            }
+
+            Serial.printf("[BLE] Brightness set: %d (enabled: %d)\n",
                 controller->ledState->brightness,
                 controller->ledState->enabled);
 

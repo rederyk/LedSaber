@@ -90,32 +90,44 @@ class MainServerCallbacks: public BLEServerCallbacks {
 };
 
 // ============================================================================
-// MAPPING LED FISICI PER STRISCIA PIEGATA
+// MAPPING LED FISICI PER STRISCIA PIEGATA E ACCOPPIATA
 // ============================================================================
 
 /**
- * Mappa un indice logico (dalla base alla punta della spada) all'indice fisico
- * sulla striscia LED piegata.
+ * Imposta il colore di una COPPIA di LED accoppiati sulla striscia piegata.
+ *
+ * IMPORTANTE: La striscia LED è PIEGATA e i LED sono ACCOPPIATI con i LED rivolti
+ * verso l'esterno su entrambi i lati. Questo significa che ogni posizione logica
+ * corrisponde a DUE LED fisici che devono essere accesi insieme.
  *
  * ESEMPIO con NUM_LEDS=144 e foldPoint=72:
- * - Indici logici 0-71   -> LED fisici 0-71    (prima metà: base verso piega)
- * - Indici logici 72-143 -> LED fisici 143-72  (seconda metà: dalla piega alla punta)
+ * - Posizione logica 0   -> accende LED fisici 0 E 143 (base della spada, entrambi i lati)
+ * - Posizione logica 1   -> accende LED fisici 1 E 142
+ * - Posizione logica 35  -> accende LED fisici 35 E 108
+ * - Posizione logica 71  -> accende LED fisici 71 E 72  (punta della spada)
  *
- * @param logicalIndex Indice logico (0 = base spada, NUM_LEDS-1 = punta)
- * @param foldPoint Punto di piegatura della striscia
- * @return Indice fisico del LED sulla striscia
+ * @param logicalIndex Posizione logica dalla base (0) alla punta (foldPoint-1)
+ * @param foldPoint Punto di piegatura della striscia (tipicamente NUM_LEDS/2)
+ * @param color Colore da impostare per entrambi i LED
  */
-static uint16_t mapLedIndex(uint16_t logicalIndex, uint16_t foldPoint) {
-    if (logicalIndex < foldPoint) {
-        // Prima metà: mappatura diretta (0->0, 1->1, ..., foldPoint-1->foldPoint-1)
-        return logicalIndex;
-    } else {
-        // Seconda metà: mappatura invertita
-        // logicalIndex=72 -> physicalIndex=143 (ultimo LED fisico)
-        // logicalIndex=143 -> physicalIndex=72 (LED al punto di piega)
-        uint16_t offset = logicalIndex - foldPoint;
-        return (NUM_LEDS - 1) - offset;
+static void setLedPair(uint16_t logicalIndex, uint16_t foldPoint, CRGB color) {
+    // Limita logicalIndex al range valido (0 a foldPoint-1)
+    if (logicalIndex >= foldPoint) {
+        return;
     }
+
+    // LED del primo lato (mappatura diretta)
+    uint16_t led1 = logicalIndex;
+
+    // LED del secondo lato (mappatura invertita)
+    // logicalIndex=0 -> led2=143 (NUM_LEDS-1)
+    // logicalIndex=1 -> led2=142 (NUM_LEDS-2)
+    // logicalIndex=71 -> led2=72 (foldPoint)
+    uint16_t led2 = (NUM_LEDS - 1) - logicalIndex;
+
+    // Imposta entrambi i LED
+    leds[led1] = color;
+    leds[led2] = color;
 }
 
 // ============================================================================
@@ -210,7 +222,7 @@ static void renderLedStrip() {
 
             // Aggiorna progressione ogni N millisecondi
             if (now - lastIgnitionUpdate > ignitionSpeed) {
-                if (ignitionProgress < NUM_LEDS) {
+                if (ignitionProgress < ledState.foldPoint) {
                     ignitionProgress++;
                 } else {
                     ignitionProgress = 0;  // Riavvia animazione
@@ -221,33 +233,37 @@ static void renderLedStrip() {
             // Spegni tutti i LED
             fill_solid(leds, NUM_LEDS, CRGB::Black);
 
-            // Accendi progressivamente dalla base (0) alla punta (NUM_LEDS-1)
+            // Accendi progressivamente dalla base (0) alla punta (foldPoint-1)
             CRGB color = CRGB(ledState.r, ledState.g, ledState.b);
             for (uint16_t i = 0; i < ignitionProgress; i++) {
-                uint16_t physicalIndex = mapLedIndex(i, ledState.foldPoint);
-
                 // Effetto "glow" alla punta: ultimi 5 LED più luminosi
                 if (i >= ignitionProgress - 5 && i < ignitionProgress) {
                     uint8_t fade = map(i, ignitionProgress - 5, ignitionProgress - 1, 100, 255);
-                    leds[physicalIndex] = color;
-                    leds[physicalIndex].fadeToBlackBy(255 - fade);
+                    CRGB fadedColor = color;
+                    fadedColor.fadeToBlackBy(255 - fade);
+                    setLedPair(i, ledState.foldPoint, fadedColor);
                 } else {
-                    leds[physicalIndex] = color;
+                    setLedPair(i, ledState.foldPoint, color);
                 }
             }
 
         } else if (ledState.effect == "retraction") {
             // EFFETTO: Spegnimento progressivo dalla punta alla base
-            static uint16_t retractionProgress = NUM_LEDS;
+            static uint16_t retractionProgress = 0;
             static unsigned long lastRetractionUpdate = 0;
 
             uint16_t retractionSpeed = map(ledState.speed, 1, 255, 50, 5);
+
+            // Inizializza retractionProgress alla prima esecuzione
+            if (retractionProgress == 0) {
+                retractionProgress = ledState.foldPoint;
+            }
 
             if (now - lastRetractionUpdate > retractionSpeed) {
                 if (retractionProgress > 0) {
                     retractionProgress--;
                 } else {
-                    retractionProgress = NUM_LEDS;  // Riavvia
+                    retractionProgress = ledState.foldPoint;  // Riavvia
                 }
                 lastRetractionUpdate = now;
             }
@@ -256,15 +272,14 @@ static void renderLedStrip() {
             CRGB color = CRGB(ledState.r, ledState.g, ledState.b);
 
             for (uint16_t i = 0; i < retractionProgress; i++) {
-                uint16_t physicalIndex = mapLedIndex(i, ledState.foldPoint);
-
                 // Effetto fade alla "punta" che si ritrae
                 if (i >= retractionProgress - 5 && i < retractionProgress) {
                     uint8_t fade = map(i, retractionProgress - 5, retractionProgress - 1, 100, 255);
-                    leds[physicalIndex] = color;
-                    leds[physicalIndex].fadeToBlackBy(255 - fade);
+                    CRGB fadedColor = color;
+                    fadedColor.fadeToBlackBy(255 - fade);
+                    setLedPair(i, ledState.foldPoint, fadedColor);
                 } else {
-                    leds[physicalIndex] = color;
+                    setLedPair(i, ledState.foldPoint, color);
                 }
             }
         } else if (ledState.effect == "flicker") {
@@ -275,41 +290,43 @@ static void renderLedStrip() {
             // speed basso = flicker leggero, speed alto = molto instabile
             uint8_t flickerIntensity = ledState.speed;
 
-            for (uint16_t i = 0; i < NUM_LEDS; i++) {
-                uint16_t physicalIndex = mapLedIndex(i, ledState.foldPoint);
-
-                // Rumore casuale per ogni LED
+            for (uint16_t i = 0; i < ledState.foldPoint; i++) {
+                // Rumore casuale per ogni coppia di LED
                 uint8_t noise = random8(flickerIntensity);
                 uint8_t brightness = 255 - (noise / 2);  // Non scendere troppo
 
-                leds[physicalIndex] = baseColor;
-                leds[physicalIndex].fadeToBlackBy(255 - brightness);
+                CRGB flickeredColor = baseColor;
+                flickeredColor.fadeToBlackBy(255 - brightness);
+                setLedPair(i, ledState.foldPoint, flickeredColor);
             }
 
         } else if (ledState.effect == "unstable") {
             // EFFETTO: Combinazione flicker + pulses casuali (Kylo Ren avanzato)
-            static uint8_t unstableHeat[NUM_LEDS];
+            // Nota: usiamo buffer di dimensione foldPoint per risparmiare RAM
+            static uint8_t unstableHeat[72];  // Buffer per metà striscia (max foldPoint tipico)
             CRGB baseColor = CRGB(ledState.r, ledState.g, ledState.b);
 
+            // Limita dimensione buffer a foldPoint effettivo
+            uint16_t maxIndex = min((uint16_t)ledState.foldPoint, (uint16_t)72);
+
             // Decay del "calore"
-            for (uint16_t i = 0; i < NUM_LEDS; i++) {
+            for (uint16_t i = 0; i < maxIndex; i++) {
                 unstableHeat[i] = qsub8(unstableHeat[i], random8(5, 15));
             }
 
             // Aggiungi nuovi "spark" casuali
             if (random8() < ledState.speed / 2) {
-                uint16_t pos = random16(NUM_LEDS);
+                uint16_t pos = random16(maxIndex);
                 unstableHeat[pos] = qadd8(unstableHeat[pos], random8(100, 200));
             }
 
             // Rendering
-            for (uint16_t i = 0; i < NUM_LEDS; i++) {
-                uint16_t physicalIndex = mapLedIndex(i, ledState.foldPoint);
-
+            for (uint16_t i = 0; i < maxIndex; i++) {
                 // Base colore + heat map
                 uint8_t brightness = scale8(255, 200 + (unstableHeat[i] / 4));
-                leds[physicalIndex] = baseColor;
-                leds[physicalIndex].fadeToBlackBy(255 - brightness);
+                CRGB unstableColor = baseColor;
+                unstableColor.fadeToBlackBy(255 - brightness);
+                setLedPair(i, ledState.foldPoint, unstableColor);
             }
         } else if (ledState.effect == "pulse") {
             // EFFETTO: Onde di energia che percorrono la lama
@@ -320,53 +337,58 @@ static void renderLedStrip() {
             uint16_t pulseSpeed = map(ledState.speed, 1, 255, 100, 5);
 
             if (now - lastPulseUpdate > pulseSpeed) {
-                pulsePosition = (pulsePosition + 1) % NUM_LEDS;
+                pulsePosition = (pulsePosition + 1) % ledState.foldPoint;
                 lastPulseUpdate = now;
             }
 
             // Riempimento base
             CRGB baseColor = CRGB(ledState.r, ledState.g, ledState.b);
-            fill_solid(leds, NUM_LEDS, baseColor);
 
             // Crea "onda" di luminosità
             const uint8_t pulseWidth = 15;  // Larghezza dell'onda
 
-            for (uint16_t i = 0; i < NUM_LEDS; i++) {
-                uint16_t physicalIndex = mapLedIndex(i, ledState.foldPoint);
-
+            for (uint16_t i = 0; i < ledState.foldPoint; i++) {
                 // Calcola distanza dal centro del pulse
                 int16_t distance = abs((int16_t)i - (int16_t)pulsePosition);
 
                 if (distance < pulseWidth) {
                     // Dentro il pulse: aumenta luminosità
                     uint8_t brightness = map(distance, 0, pulseWidth, 255, 150);
-                    leds[physicalIndex] = baseColor;
-                    leds[physicalIndex].fadeToBlackBy(255 - brightness);
+                    CRGB pulseColor = baseColor;
+                    pulseColor.fadeToBlackBy(255 - brightness);
+                    setLedPair(i, ledState.foldPoint, pulseColor);
+                } else {
+                    // Fuori dal pulse: luminosità base
+                    CRGB dimColor = baseColor;
+                    dimColor.fadeToBlackBy(255 - 150);
+                    setLedPair(i, ledState.foldPoint, dimColor);
                 }
             }
 
         } else if (ledState.effect == "dual_pulse") {
             // EFFETTO: Due pulse che si muovono in direzioni opposte
             static uint16_t pulse1Pos = 0;
-            static uint16_t pulse2Pos = NUM_LEDS / 2;
+            static uint16_t pulse2Pos = 0;
             static unsigned long lastDualPulseUpdate = 0;
+
+            // Inizializza pulse2Pos alla prima esecuzione
+            if (pulse2Pos == 0 && pulse1Pos == 0) {
+                pulse2Pos = ledState.foldPoint / 2;
+            }
 
             uint16_t pulseSpeed = map(ledState.speed, 1, 255, 80, 5);
 
             if (now - lastDualPulseUpdate > pulseSpeed) {
-                pulse1Pos = (pulse1Pos + 1) % NUM_LEDS;
-                pulse2Pos = (pulse2Pos > 0) ? (pulse2Pos - 1) : (NUM_LEDS - 1);
+                pulse1Pos = (pulse1Pos + 1) % ledState.foldPoint;
+                pulse2Pos = (pulse2Pos > 0) ? (pulse2Pos - 1) : (ledState.foldPoint - 1);
                 lastDualPulseUpdate = now;
             }
 
             CRGB baseColor = CRGB(ledState.r, ledState.g, ledState.b);
-            fill_solid(leds, NUM_LEDS, baseColor);
 
             const uint8_t pulseWidth = 10;
 
-            for (uint16_t i = 0; i < NUM_LEDS; i++) {
-                uint16_t physicalIndex = mapLedIndex(i, ledState.foldPoint);
-
+            for (uint16_t i = 0; i < ledState.foldPoint; i++) {
                 int16_t dist1 = abs((int16_t)i - (int16_t)pulse1Pos);
                 int16_t dist2 = abs((int16_t)i - (int16_t)pulse2Pos);
 
@@ -378,8 +400,9 @@ static void renderLedStrip() {
                     brightness = max(brightness, (uint8_t)map(dist2, 0, pulseWidth, 255, 150));
                 }
 
-                leds[physicalIndex] = baseColor;
-                leds[physicalIndex].fadeToBlackBy(255 - brightness);
+                CRGB dualPulseColor = baseColor;
+                dualPulseColor.fadeToBlackBy(255 - brightness);
+                setLedPair(i, ledState.foldPoint, dualPulseColor);
             }
         } else if (ledState.effect == "clash") {
             // EFFETTO: Flash bianco che si dissipa (simula impatto)
@@ -402,18 +425,15 @@ static void renderLedStrip() {
                 if (clashBrightness == 0) {
                     clashActive = false;
                 }
+            }
 
-                // Flash bianco che sovrappone il colore base
-                CRGB baseColor = CRGB(ledState.r, ledState.g, ledState.b);
-                CRGB flashColor = CRGB(255, 255, 255);
+            // Flash bianco che sovrappone il colore base
+            CRGB baseColor = CRGB(ledState.r, ledState.g, ledState.b);
+            CRGB flashColor = CRGB(255, 255, 255);
 
-                for (uint16_t i = 0; i < NUM_LEDS; i++) {
-                    uint16_t physicalIndex = mapLedIndex(i, ledState.foldPoint);
-                    leds[physicalIndex] = blend(baseColor, flashColor, clashBrightness);
-                }
-            } else {
-                // Colore base quando non c'è clash
-                fill_solid(leds, NUM_LEDS, CRGB(ledState.r, ledState.g, ledState.b));
+            for (uint16_t i = 0; i < ledState.foldPoint; i++) {
+                CRGB clashColor = blend(baseColor, flashColor, clashBrightness);
+                setLedPair(i, ledState.foldPoint, clashColor);
             }
 
         } else if (ledState.effect == "rainbow_blade") {
@@ -423,12 +443,11 @@ static void renderLedStrip() {
             uint8_t hueStep = ledState.speed / 10;
             if (hueStep == 0) hueStep = 1;
 
-            for (uint16_t i = 0; i < NUM_LEDS; i++) {
-                uint16_t physicalIndex = mapLedIndex(i, ledState.foldPoint);
-
+            for (uint16_t i = 0; i < ledState.foldPoint; i++) {
                 // Calcola hue basato sulla posizione logica (non fisica!)
-                uint8_t hue = rainbowHue + (i * 256 / NUM_LEDS);
-                leds[physicalIndex] = CHSV(hue, 255, 255);
+                uint8_t hue = rainbowHue + (i * 256 / ledState.foldPoint);
+                CRGB rainbowColor = CHSV(hue, 255, 255);
+                setLedPair(i, ledState.foldPoint, rainbowColor);
             }
 
             rainbowHue += hueStep;
