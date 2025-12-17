@@ -46,6 +46,12 @@ public:
     void setFlash(bool enabled, uint8_t brightness = 255);
 
     /**
+     * @brief Verifica se il flash è attualmente acceso
+     * @return true se flash abilitato
+     */
+    bool isFlashEnabled() const { return _flashEnabled; }
+
+    /**
      * @brief Stato inizializzazione camera
      */
     bool isInitialized() const { return _initialized; }
@@ -71,6 +77,7 @@ public:
 private:
     bool _initialized;
     uint8_t _flashPin;
+    bool _flashEnabled;
     camera_fb_t* _currentFrameBuffer;
 
     CameraMetrics _metrics;

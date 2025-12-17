@@ -22,6 +22,7 @@
 CameraManager::CameraManager()
     : _initialized(false)
     , _flashPin(4)
+    , _flashEnabled(false)
     , _currentFrameBuffer(nullptr)
     , _lastFrameTime(0)
     , _frameCount(0)
@@ -191,6 +192,8 @@ void CameraManager::releaseFrame() {
 }
 
 void CameraManager::setFlash(bool enabled, uint8_t brightness) {
+    _flashEnabled = enabled;
+
     if (enabled && brightness > 0) {
         // PWM per controllo intensità flash
         ledcSetup(1, 5000, 8);  // Channel 1, 5kHz, 8-bit resolution

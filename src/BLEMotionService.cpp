@@ -163,16 +163,17 @@ String BLEMotionService::_getStatusJson() {
     doc["gesture"] = _motion->getGestureName();
     doc["gestureConfidence"] = _motion->getGestureConfidence();
 
+    // Proximity detection
+    doc["proximity"] = _motion->getMotionProximityName();
+
     MotionDetector::MotionMetrics metrics = _motion->getMetrics();
     doc["totalFrames"] = metrics.totalFramesProcessed;
     doc["motionFrames"] = metrics.motionFrameCount;
     doc["shakeCount"] = metrics.shakeCount;
+    doc["proximityBrightness"] = metrics.proximityBrightness;
 
-    // Aggiungi intensità zone (9x9 grid = 81 celle)
-    JsonArray zones = doc["zones"].to<JsonArray>();
-    for (uint8_t i = 0; i < 81; i++) {
-        zones.add(metrics.zoneIntensities[i]);
-    }
+    // Non inviamo zones via BLE (troppo pesante - 81 valori)
+    // Se necessario, usare un comando separato per richiedere le zone
 
     String output;
     serializeJson(doc, output);

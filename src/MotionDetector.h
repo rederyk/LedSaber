@@ -75,6 +75,15 @@ public:
     };
 
     /**
+     * @brief Prossimità movimento (vicino vs lontano)
+     */
+    enum MotionProximity {
+        PROXIMITY_UNKNOWN = 0,  // Non ancora testato
+        PROXIMITY_NEAR,         // Movimento vicino (mano davanti)
+        PROXIMITY_FAR           // Movimento lontano (sfondo)
+    };
+
+    /**
      * @brief Ottiene gesture rilevata corrente
      * @return Tipo di gesture
      */
@@ -103,6 +112,30 @@ public:
      * @return Nome direzione
      */
     const char* getMotionDirectionName() const;
+
+    /**
+     * @brief Ottiene prossimità movimento (vicino/lontano)
+     * @return Prossimità movimento
+     */
+    MotionProximity getMotionProximity() const { return _motionProximity; }
+
+    /**
+     * @brief Ottiene nome prossimità movimento
+     * @return Nome prossimità ("unknown", "near", "far")
+     */
+    const char* getMotionProximityName() const;
+
+    /**
+     * @brief Richiede test prossimità con flash nel prossimo frame
+     * Deve essere chiamato PRIMA di processFrame() per catturare frame con flash
+     */
+    void requestProximityTest();
+
+    /**
+     * @brief Verifica se è richiesto test prossimità
+     * @return true se il prossimo frame deve avere flash acceso
+     */
+    bool isProximityTestRequested() const { return _proximityTestRequested; }
 
     /**
      * @brief Ottiene numero pixel cambiati ultimo frame
@@ -148,6 +181,8 @@ public:
         uint8_t zoneIntensities[81];  // Intensità per ogni zona (9x9)
         GestureType gesture;
         uint8_t gestureConfidence;
+        MotionProximity proximity;
+        uint8_t proximityBrightness;  // Luminosità media frame con flash
     };
 
     MotionMetrics getMetrics() const;
@@ -184,6 +219,9 @@ private:
     uint32_t _changedPixels;       // Pixel cambiati ultimo frame
     bool _shakeDetected;           // Flag shake rilevato
     MotionDirection _motionDirection;  // Direzione movimento predominante (deprecated)
+    MotionProximity _motionProximity;  // Prossimità movimento (near/far)
+    bool _proximityTestRequested;      // Flag richiesta test con flash
+    uint8_t _proximityBrightness;      // Luminosità media frame con flash
 
     // Gesture recognition
     GestureType _currentGesture;       // Gesture rilevata corrente
@@ -293,6 +331,20 @@ private:
      * @brief Ottiene min/max intensità da history buffer
      */
     void _getHistoryMinMax(uint8_t& outMin, uint8_t& outMax) const;
+
+    /**
+     * @brief Analizza frame con flash per determinare prossimità
+     * @param flashFrame Frame catturato con flash acceso
+     * @return Prossimità rilevata (NEAR o FAR)
+     */
+    MotionProximity _analyzeProximity(const uint8_t* flashFrame);
+
+    /**
+     * @brief Calcola luminosità media di un frame
+     * @param frame Frame da analizzare
+     * @return Luminosità media (0-255)
+     */
+    uint8_t _calculateAverageBrightness(const uint8_t* frame) const;
 };
 
 #endif // MOTION_DETECTOR_H

@@ -7,12 +7,15 @@ MotionDetector::MotionDetector()
     , _frameHeight(0)
     , _frameSize(0)
     , _previousFrame(nullptr)
-    , _motionThreshold(30)
+    , _motionThreshold(50)  // Aumentato da 30 a 50 per ridurre falsi positivi
     , _shakeThreshold(150)
     , _motionIntensity(0)
     , _changedPixels(0)
     , _shakeDetected(false)
     , _motionDirection(DIRECTION_NONE)
+    , _motionProximity(PROXIMITY_UNKNOWN)
+    , _proximityTestRequested(false)
+    , _proximityBrightness(0)
     , _currentGesture(GESTURE_NONE)
     , _gestureConfidence(0)
     , _trajectoryIndex(0)
@@ -177,6 +180,20 @@ bool MotionDetector::processFrame(const uint8_t* frameBuffer, size_t frameLength
 
     unsigned long now = millis();
 
+    // Se richiesto test prossimità, analizza frame con flash
+    if (_proximityTestRequested) {
+        _motionProximity = _analyzeProximity(frameBuffer);
+        _proximityTestRequested = false;
+
+        Serial.printf("[MOTION] Proximity test result: %s (brightness: %u)\n",
+                      getMotionProximityName(), _proximityBrightness);
+
+        // Copia frame corrente in previous e termina (questo frame non è valido per motion detection)
+        memcpy(_previousFrame, frameBuffer, _frameSize);
+        _totalFramesProcessed++;
+        return false;  // Frame con flash non conta come motion
+    }
+
     // Calcola differenza frame
     _changedPixels = _calculateFrameDifference(frameBuffer);
 
@@ -197,7 +214,10 @@ bool MotionDetector::processFrame(const uint8_t* frameBuffer, size_t frameLength
     _updateHistoryAndDetectShake(_motionIntensity);
 
     // Aggiorna timing
-    bool motionDetected = (_motionIntensity > 0);
+    // Richiedi almeno 2% di pixel cambiati per considerarlo movimento valido
+    // (es: 320x240 = 76800 pixels, 2% = 1536 pixels)
+    const uint32_t MIN_CHANGED_PIXELS = _frameSize / 50;  // 2% del frame
+    bool motionDetected = (_motionIntensity > 0 && _changedPixels > MIN_CHANGED_PIXELS);
 
     if (motionDetected) {
         if (_lastMotionTime == 0) {
@@ -234,6 +254,9 @@ void MotionDetector::reset() {
     _changedPixels = 0;
     _shakeDetected = false;
     _motionDirection = DIRECTION_NONE;
+    _motionProximity = PROXIMITY_UNKNOWN;
+    _proximityTestRequested = false;
+    _proximityBrightness = 0;
     _currentGesture = GESTURE_NONE;
     _gestureConfidence = 0;
     _trajectoryIndex = 0;
@@ -268,6 +291,8 @@ MotionDetector::MotionMetrics MotionDetector::getMetrics() const {
     metrics.direction = _motionDirection;
     metrics.gesture = _currentGesture;
     metrics.gestureConfidence = _gestureConfidence;
+    metrics.proximity = _motionProximity;
+    metrics.proximityBrightness = _proximityBrightness;
 
     _getHistoryMinMax(metrics.minIntensityRecent, metrics.maxIntensityRecent);
 
@@ -771,4 +796,76 @@ bool MotionDetector::_detectThrust(uint8_t& outConfidence) {
     outConfidence = min((uint8_t)confCalc, (uint8_t)100);
 
     return (outConfidence > 50);
+}
+
+// ============================================================================
+// PROXIMITY DETECTION
+// ============================================================================
+
+void MotionDetector::requestProximityTest() {
+    _proximityTestRequested = true;
+}
+
+const char* MotionDetector::getMotionProximityName() const {
+    switch (_motionProximity) {
+        case PROXIMITY_UNKNOWN: return "unknown";
+        case PROXIMITY_NEAR:    return "near";
+        case PROXIMITY_FAR:     return "far";
+        default:                return "invalid";
+    }
+}
+
+MotionDetector::MotionProximity MotionDetector::_analyzeProximity(const uint8_t* flashFrame) {
+    // Calcola luminosità media frame con flash
+    _proximityBrightness = _calculateAverageBrightness(flashFrame);
+
+    // Calcola anche il numero di pixel "molto luminosi" (hot spots)
+    uint32_t brightPixelCount = 0;
+    uint32_t maxBrightness = 0;
+    const uint8_t HOT_SPOT_THRESHOLD = 200;  // Pixel molto luminosi
+
+    for (size_t i = 0; i < _frameSize; i++) {
+        if (flashFrame[i] > HOT_SPOT_THRESHOLD) {
+            brightPixelCount++;
+        }
+        if (flashFrame[i] > maxBrightness) {
+            maxBrightness = flashFrame[i];
+        }
+    }
+
+    float brightPixelPercentage = (brightPixelCount * 100.0f) / _frameSize;
+
+    Serial.printf("[PROXIMITY] Analysis - Avg brightness: %u, Max: %u, Hot pixels: %.2f%%\n",
+                  _proximityBrightness, maxBrightness, brightPixelPercentage);
+
+    // Logica decisione:
+    // - NEAR: molti pixel molto luminosi (oggetto riflette direttamente il flash)
+    // - FAR: luminosità diffusa, pochi hot spots (flash illumina sfondo)
+
+    // Se ci sono molti hot pixels e/o picco massimo molto alto = NEAR
+    if (brightPixelPercentage > 5.0f || maxBrightness > 240) {
+        return PROXIMITY_NEAR;
+    }
+
+    // Se luminosità media alta ma diffusa = FAR
+    if (_proximityBrightness > 80) {
+        return PROXIMITY_FAR;
+    }
+
+    // Se tutto troppo scuro = movimento molto lontano o assente
+    return PROXIMITY_FAR;
+}
+
+uint8_t MotionDetector::_calculateAverageBrightness(const uint8_t* frame) const {
+    if (!frame || _frameSize == 0) {
+        return 0;
+    }
+
+    // Calcola luminosità media
+    uint64_t totalBrightness = 0;
+    for (size_t i = 0; i < _frameSize; i++) {
+        totalBrightness += frame[i];
+    }
+
+    return (uint8_t)(totalBrightness / _frameSize);
 }

@@ -667,6 +667,17 @@ void loop() {
             uint8_t* frameBuffer = nullptr;
             size_t frameLength = 0;
 
+            // Accendi flash se richiesto test prossimità
+            static bool wasMotionDetected = false;
+            if (motionDetectorInitialized && bleMotionService.isMotionEnabled()) {
+                bool needsProximityTest = motionDetector.isProximityTestRequested();
+                if (needsProximityTest) {
+                    Serial.println("[MAIN] Proximity test requested - enabling flash");
+                    cameraManager.setFlash(true, 255);  // Flash al massimo
+                    delay(50);  // Piccolo delay per stabilizzare il flash
+                }
+            }
+
             if (cameraManager.captureFrame(&frameBuffer, &frameLength)) {
                 // Frame catturato con successo
 
@@ -684,8 +695,22 @@ void loop() {
                     bool motionDetected = motionDetector.processFrame(frameBuffer, frameLength);
                     bool shakeDetected = motionDetector.isShakeDetected();
 
+                    // Se movimento appena iniziato (transizione da fermo a movimento)
+                    // richiedi test prossimità per il prossimo frame
+                    if (motionDetected && !wasMotionDetected) {
+                        Serial.println("[MAIN] Motion started - requesting proximity test");
+                        motionDetector.requestProximityTest();
+                    }
+
+                    wasMotionDetected = motionDetected;
+
                     // Aggiorna BLE motion service con eventi
                     bleMotionService.update(motionDetected, shakeDetected);
+                }
+
+                // Spegni flash se era acceso
+                if (cameraManager.isFlashEnabled()) {
+                    cameraManager.setFlash(false, 0);
                 }
 
                 cameraManager.releaseFrame();
