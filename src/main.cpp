@@ -94,6 +94,22 @@ class MainServerCallbacks: public BLEServerCallbacks {
 // ============================================================================
 
 /**
+ * Scala un colore applicando la brightness globale PRIMA di scriverlo nel buffer.
+ * Questo preserva il contrasto relativo negli effetti con fading/dimming interno.
+ *
+ * @param color Colore da scalare
+ * @param brightness Brightness globale (0-255)
+ * @return Colore scalato
+ */
+static inline CRGB scaleColorByBrightness(CRGB color, uint8_t brightness) {
+    return CRGB(
+        scale8(color.r, brightness),
+        scale8(color.g, brightness),
+        scale8(color.b, brightness)
+    );
+}
+
+/**
  * Imposta il colore di una COPPIA di LED accoppiati sulla striscia piegata.
  *
  * IMPORTANTE: La striscia LED è PIEGATA e i LED sono ACCOPPIATI con i LED rivolti
@@ -285,6 +301,7 @@ static void renderLedStrip() {
         } else if (ledState.effect == "flicker") {
             // EFFETTO: Instabilità del plasma (tipo Kylo Ren)
             CRGB baseColor = CRGB(ledState.r, ledState.g, ledState.b);
+            uint8_t safeBrightness = min(ledState.brightness, MAX_SAFE_BRIGHTNESS);
 
             // 'speed' controlla l'intensità delle fluttuazioni (1-255)
             // speed basso = flicker leggero, speed alto = molto instabile
@@ -297,14 +314,26 @@ static void renderLedStrip() {
 
                 CRGB flickeredColor = baseColor;
                 flickeredColor.fadeToBlackBy(255 - brightness);
+
+                // Applica brightness globale DOPO il fading per preservare il contrasto
+                flickeredColor = scaleColorByBrightness(flickeredColor, safeBrightness);
                 setLedPair(i, ledState.foldPoint, flickeredColor);
             }
+
+            // Disabilita brightness globale FastLED perché l'abbiamo già applicata manualmente
+            FastLED.setBrightness(255);
+            FastLED.show();
+            // Ripristina brightness per altri effetti
+            FastLED.setBrightness(safeBrightness);
+            lastUpdate = now;
+            return;
 
         } else if (ledState.effect == "unstable") {
             // EFFETTO: Combinazione flicker + pulses casuali (Kylo Ren avanzato)
             // Nota: usiamo buffer di dimensione foldPoint per risparmiare RAM
             static uint8_t unstableHeat[72];  // Buffer per metà striscia (max foldPoint tipico)
             CRGB baseColor = CRGB(ledState.r, ledState.g, ledState.b);
+            uint8_t safeBrightness = min(ledState.brightness, MAX_SAFE_BRIGHTNESS);
 
             // Limita dimensione buffer a foldPoint effettivo
             uint16_t maxIndex = min((uint16_t)ledState.foldPoint, (uint16_t)72);
@@ -326,8 +355,20 @@ static void renderLedStrip() {
                 uint8_t brightness = scale8(255, 200 + (unstableHeat[i] / 4));
                 CRGB unstableColor = baseColor;
                 unstableColor.fadeToBlackBy(255 - brightness);
+
+                // Applica brightness globale DOPO il fading per preservare il contrasto
+                unstableColor = scaleColorByBrightness(unstableColor, safeBrightness);
                 setLedPair(i, ledState.foldPoint, unstableColor);
             }
+
+            // Disabilita brightness globale FastLED perché l'abbiamo già applicata manualmente
+            FastLED.setBrightness(255);
+            FastLED.show();
+            // Ripristina brightness per altri effetti
+            FastLED.setBrightness(safeBrightness);
+            lastUpdate = now;
+            return;
+
         } else if (ledState.effect == "pulse") {
             // EFFETTO: Onde di energia che percorrono la lama
             static uint16_t pulsePosition = 0;
@@ -343,6 +384,7 @@ static void renderLedStrip() {
 
             // Riempimento base
             CRGB baseColor = CRGB(ledState.r, ledState.g, ledState.b);
+            uint8_t safeBrightness = min(ledState.brightness, MAX_SAFE_BRIGHTNESS);
 
             // Crea "onda" di luminosità
             const uint8_t pulseWidth = 15;  // Larghezza dell'onda
@@ -356,14 +398,28 @@ static void renderLedStrip() {
                     uint8_t brightness = map(distance, 0, pulseWidth, 255, 150);
                     CRGB pulseColor = baseColor;
                     pulseColor.fadeToBlackBy(255 - brightness);
+
+                    // Applica brightness globale DOPO il fading per preservare il contrasto
+                    pulseColor = scaleColorByBrightness(pulseColor, safeBrightness);
                     setLedPair(i, ledState.foldPoint, pulseColor);
                 } else {
                     // Fuori dal pulse: luminosità base
                     CRGB dimColor = baseColor;
                     dimColor.fadeToBlackBy(255 - 150);
+
+                    // Applica brightness globale DOPO il fading per preservare il contrasto
+                    dimColor = scaleColorByBrightness(dimColor, safeBrightness);
                     setLedPair(i, ledState.foldPoint, dimColor);
                 }
             }
+
+            // Disabilita brightness globale FastLED perché l'abbiamo già applicata manualmente
+            FastLED.setBrightness(255);
+            FastLED.show();
+            // Ripristina brightness per altri effetti
+            FastLED.setBrightness(safeBrightness);
+            lastUpdate = now;
+            return;
 
         } else if (ledState.effect == "dual_pulse") {
             // EFFETTO: Due pulse che si muovono in direzioni opposte
@@ -385,6 +441,7 @@ static void renderLedStrip() {
             }
 
             CRGB baseColor = CRGB(ledState.r, ledState.g, ledState.b);
+            uint8_t safeBrightness = min(ledState.brightness, MAX_SAFE_BRIGHTNESS);
 
             const uint8_t pulseWidth = 10;
 
@@ -402,8 +459,20 @@ static void renderLedStrip() {
 
                 CRGB dualPulseColor = baseColor;
                 dualPulseColor.fadeToBlackBy(255 - brightness);
+
+                // Applica brightness globale DOPO il fading per preservare il contrasto
+                dualPulseColor = scaleColorByBrightness(dualPulseColor, safeBrightness);
                 setLedPair(i, ledState.foldPoint, dualPulseColor);
             }
+
+            // Disabilita brightness globale FastLED perché l'abbiamo già applicata manualmente
+            FastLED.setBrightness(255);
+            FastLED.show();
+            // Ripristina brightness per altri effetti
+            FastLED.setBrightness(safeBrightness);
+            lastUpdate = now;
+            return;
+
         } else if (ledState.effect == "clash") {
             // EFFETTO: Flash bianco che si dissipa (simula impatto)
             // Nota: ideale da triggerare con accelerometro in futuro
@@ -430,11 +499,23 @@ static void renderLedStrip() {
             // Flash bianco che sovrappone il colore base
             CRGB baseColor = CRGB(ledState.r, ledState.g, ledState.b);
             CRGB flashColor = CRGB(255, 255, 255);
+            uint8_t safeBrightness = min(ledState.brightness, MAX_SAFE_BRIGHTNESS);
 
             for (uint16_t i = 0; i < ledState.foldPoint; i++) {
                 CRGB clashColor = blend(baseColor, flashColor, clashBrightness);
+
+                // Applica brightness globale per mantenere la luminosità corretta
+                clashColor = scaleColorByBrightness(clashColor, safeBrightness);
                 setLedPair(i, ledState.foldPoint, clashColor);
             }
+
+            // Disabilita brightness globale FastLED perché l'abbiamo già applicata manualmente
+            FastLED.setBrightness(255);
+            FastLED.show();
+            // Ripristina brightness per altri effetti
+            FastLED.setBrightness(safeBrightness);
+            lastUpdate = now;
+            return;
 
         } else if (ledState.effect == "rainbow_blade") {
             // EFFETTO: Arcobaleno che percorre la lama linearmente (rispetta piegatura)
