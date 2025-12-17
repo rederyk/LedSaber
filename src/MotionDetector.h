@@ -187,6 +187,7 @@ public:
         uint32_t changedPixels;
         uint8_t minIntensityRecent;
         uint8_t maxIntensityRecent;
+        uint8_t intensityFloor;
         MotionDirection direction;
         uint8_t zoneIntensities[81];  // Intensità per ogni zona (9x9)
         GestureType gesture;
@@ -235,6 +236,7 @@ private:
     uint8_t _motionIntensity;      // Intensità movimento corrente (0-255)
     uint32_t _changedPixels;       // Pixel cambiati ultimo frame
     uint32_t _lastTotalDelta;      // Somma differenze per intensità
+    bool _motionActive;            // Stato confermato movimento
     bool _shakeDetected;           // Flag shake rilevato
     MotionDirection _motionDirection;  // Direzione movimento predominante (deprecated)
     MotionProximity _motionProximity;  // Prossimità movimento (near/far)
@@ -254,6 +256,11 @@ private:
     float _motionVectorX;
     float _motionVectorY;
     uint8_t _vectorConfidence;
+    uint8_t _motionConfidence;
+    uint8_t _stillConfidence;
+    uint8_t _lightingCooldown;
+    uint8_t _lastFrameBrightness;
+    bool _brightnessInitialized;
 
     // Zone detection (9x9 grid)
     static constexpr uint8_t GRID_ROWS = 9;
@@ -285,6 +292,14 @@ private:
     static constexpr uint8_t BACKGROUND_WARMUP_FRAMES = 8;
     static constexpr uint16_t MIN_CENTROID_WEIGHT = 1500;
     static constexpr float CENTROID_SMOOTHING = 0.35f;
+    static constexpr uint8_t MOTION_CONFIRM_FRAMES = 3;
+    static constexpr uint8_t STILL_CONFIRM_FRAMES = 4;
+    static constexpr uint8_t LIGHTING_SUPPRESSION_FRAMES = 5;
+    static constexpr uint8_t BASE_MIN_INTENSITY = 30;
+    static constexpr uint8_t NOISE_MARGIN = 12;
+    static constexpr uint8_t MAX_INTENSITY_FLOOR = 150;
+    static constexpr uint8_t NOISE_SPIKE_LIMIT = 4;
+    static constexpr uint16_t NOISE_SPIKE_WINDOW_MS = 1500;
 
     /**
      * @brief Calcola differenza tra frame corrente e precedente
@@ -387,6 +402,21 @@ private:
      * @brief Determina la direzione del vettore movimento stimato
      */
     MotionDirection _directionFromVector(float vecX, float vecY) const;
+
+    /**
+     * @brief Aggiorna il modello di rumore e il floor dinamico dell'intensità
+     * @param intensity Intensità corrente misurata
+     * @param rawMotionCandidate true se sopra la soglia minima di base
+     */
+    void _updateNoiseModel(uint8_t intensity, bool rawMotionCandidate);
+
+    // Noise auto-regulation state
+    uint8_t _ambientNoiseEstimate;
+    uint8_t _dynamicIntensityFloor;
+    bool _noiseModelInitialized;
+    uint8_t _noiseSpikeCounter;
+    unsigned long _lastNoiseSpikeTime;
+    unsigned long _lastNoiseSampleTime;
 };
 
 #endif // MOTION_DETECTOR_H

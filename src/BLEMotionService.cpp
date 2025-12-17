@@ -158,11 +158,13 @@ void BLEMotionService::update(bool motionDetected, bool shakeDetected) {
 
 String BLEMotionService::_getStatusJson() {
     JsonDocument doc;
+    MotionDetector::MotionMetrics metrics = _motion->getMetrics();
 
     doc["enabled"] = _motionEnabled;
     doc["motionDetected"] = _wasMotionActive;
     doc["intensity"] = _motion->getMotionIntensity();
     doc["changedPixels"] = _motion->getChangedPixels();
+    doc["intensityFloor"] = metrics.intensityFloor;
     doc["shakeDetected"] = _motion->isShakeDetected();
     doc["direction"] = _motion->getMotionDirectionName();
 
@@ -173,7 +175,6 @@ String BLEMotionService::_getStatusJson() {
     // Proximity detection
     doc["proximity"] = _motion->getMotionProximityName();
 
-    MotionDetector::MotionMetrics metrics = _motion->getMetrics();
     doc["totalFrames"] = metrics.totalFramesProcessed;
     doc["motionFrames"] = metrics.motionFrameCount;
     doc["shakeCount"] = metrics.shakeCount;

@@ -14,6 +14,7 @@ MotionDetector::MotionDetector()
     , _motionIntensity(0)
     , _changedPixels(0)
     , _lastTotalDelta(0)
+    , _motionActive(false)
     , _shakeDetected(false)
     , _motionDirection(DIRECTION_NONE)
     , _motionProximity(PROXIMITY_UNKNOWN)
@@ -29,6 +30,11 @@ MotionDetector::MotionDetector()
     , _motionVectorX(0.0f)
     , _motionVectorY(0.0f)
     , _vectorConfidence(0)
+    , _motionConfidence(0)
+    , _stillConfidence(0)
+    , _lightingCooldown(0)
+    , _lastFrameBrightness(0)
+    , _brightnessInitialized(false)
     , _trajectoryIndex(0)
     , _trajectoryFull(false)
     , _historyIndex(0)
@@ -39,6 +45,12 @@ MotionDetector::MotionDetector()
     , _totalFramesProcessed(0)
     , _motionFrameCount(0)
     , _shakeCount(0)
+    , _ambientNoiseEstimate(0)
+    , _dynamicIntensityFloor(BASE_MIN_INTENSITY)
+    , _noiseModelInitialized(false)
+    , _noiseSpikeCounter(0)
+    , _lastNoiseSpikeTime(0)
+    , _lastNoiseSampleTime(0)
 {
     memset(_intensityHistory, 0, sizeof(_intensityHistory));
     memset(_zoneIntensities, 0, sizeof(_zoneIntensities));
@@ -202,6 +214,72 @@ void MotionDetector::_getHistoryMinMax(uint8_t& outMin, uint8_t& outMax) const {
     }
 }
 
+void MotionDetector::_updateNoiseModel(uint8_t intensity, bool rawMotionCandidate) {
+    const uint8_t STILL_SMOOTHING = 8;
+    const uint8_t STILL_MARGIN = 5;
+    const uint8_t NOISE_SPIKE_MARGIN = 18;
+    const uint8_t NOISE_RAISE_STEP = 6;
+
+    unsigned long now = millis();
+    bool treatAsStill = (!rawMotionCandidate) ||
+                        (intensity + STILL_MARGIN < _dynamicIntensityFloor);
+
+    if (treatAsStill) {
+        if (!_noiseModelInitialized) {
+            _ambientNoiseEstimate = intensity;
+            _noiseModelInitialized = true;
+            Serial.printf("[MOTION] Noise baseline initialized at %u\n", _ambientNoiseEstimate);
+        } else {
+            _ambientNoiseEstimate =
+                ((_ambientNoiseEstimate * (STILL_SMOOTHING - 1)) + intensity) / STILL_SMOOTHING;
+        }
+        _noiseSpikeCounter = 0;
+        _lastNoiseSampleTime = now;
+    } else if (_noiseModelInitialized && intensity < (_dynamicIntensityFloor + NOISE_SPIKE_MARGIN)) {
+        if (now - _lastNoiseSpikeTime > NOISE_SPIKE_WINDOW_MS) {
+            _noiseSpikeCounter = 0;
+            _lastNoiseSpikeTime = now;
+        }
+        _noiseSpikeCounter++;
+        if (_noiseSpikeCounter >= NOISE_SPIKE_LIMIT) {
+            uint8_t previousFloor = _dynamicIntensityFloor;
+            uint16_t increased = _ambientNoiseEstimate + NOISE_RAISE_STEP;
+            if (increased > MAX_INTENSITY_FLOOR) {
+                increased = MAX_INTENSITY_FLOOR;
+            }
+            _ambientNoiseEstimate = static_cast<uint8_t>(increased);
+            _noiseSpikeCounter = 0;
+            _lastNoiseSpikeTime = now;
+            uint16_t floorTarget = _ambientNoiseEstimate + NOISE_MARGIN;
+            if (floorTarget > MAX_INTENSITY_FLOOR) {
+                floorTarget = MAX_INTENSITY_FLOOR;
+            }
+            uint8_t newFloorTarget = static_cast<uint8_t>(floorTarget);
+            Serial.printf("[MOTION] Auto-sensitivity reduced (floor %u -> %u)\n",
+                          previousFloor, newFloorTarget);
+        }
+    }
+
+    uint8_t targetFloor = BASE_MIN_INTENSITY;
+    if (_noiseModelInitialized) {
+        uint16_t candidate = _ambientNoiseEstimate + NOISE_MARGIN;
+        if (candidate > MAX_INTENSITY_FLOOR) {
+            candidate = MAX_INTENSITY_FLOOR;
+        }
+        targetFloor = static_cast<uint8_t>(candidate);
+    }
+
+    if (targetFloor > _dynamicIntensityFloor) {
+        _dynamicIntensityFloor = targetFloor;
+    } else if (_dynamicIntensityFloor > targetFloor) {
+        uint8_t delta = _dynamicIntensityFloor - targetFloor;
+        if (delta > 1) {
+            delta = 1;
+        }
+        _dynamicIntensityFloor -= delta;
+    }
+}
+
 bool MotionDetector::processFrame(const uint8_t* frameBuffer, size_t frameLength) {
     if (!_initialized) {
         Serial.println("[MOTION ERROR] Not initialized!");
@@ -224,8 +302,8 @@ bool MotionDetector::processFrame(const uint8_t* frameBuffer, size_t frameLength
         Serial.printf("[MOTION] Proximity test result: %s (brightness: %u)\n",
                       getMotionProximityName(), _proximityBrightness);
 
-        // Copia frame corrente in previous e termina (questo frame non è valido per motion detection)
-        memcpy(_previousFrame, frameBuffer, _frameSize);
+        // Ignora frame con flash e imposta un breve cooldown per le variazioni di luce
+        _lightingCooldown = LIGHTING_SUPPRESSION_FRAMES;
         _totalFramesProcessed++;
         return false;  // Frame con flash non conta come motion
     }
@@ -236,6 +314,8 @@ bool MotionDetector::processFrame(const uint8_t* frameBuffer, size_t frameLength
         memcpy(_previousFrame, frameBuffer, _frameSize);
         _backgroundInitialized = true;
         _backgroundWarmupFrames = 0;
+        _lastFrameBrightness = _calculateAverageBrightness(frameBuffer);
+        _brightnessInitialized = true;
         _totalFramesProcessed++;
         return false;
     }
@@ -244,6 +324,10 @@ bool MotionDetector::processFrame(const uint8_t* frameBuffer, size_t frameLength
     if (_backgroundWarmupFrames < BACKGROUND_WARMUP_FRAMES) {
         _backgroundWarmupFrames++;
         memcpy(_previousFrame, frameBuffer, _frameSize);
+        if (!_brightnessInitialized) {
+            _lastFrameBrightness = _calculateAverageBrightness(frameBuffer);
+            _brightnessInitialized = true;
+        }
         _totalFramesProcessed++;
         return false;
     }
@@ -254,9 +338,37 @@ bool MotionDetector::processFrame(const uint8_t* frameBuffer, size_t frameLength
     // Calcola intensità movimento
     _motionIntensity = _calculateMotionIntensity(_changedPixels);
 
+    uint32_t minChangedPixels = _frameSize / 50;
+    if (minChangedPixels < 1500) {
+        minChangedPixels = 1500;
+    }
+    const uint32_t MIN_CHANGED_PIXELS = minChangedPixels;
+
+    bool rawMotionCandidate =
+        (_motionIntensity > BASE_MIN_INTENSITY && _changedPixels > MIN_CHANGED_PIXELS);
+
+    // Aggiorna metrica luminosità media frame
+    uint8_t frameBrightness = _calculateAverageBrightness(frameBuffer);
+    if (!_brightnessInitialized) {
+        _lastFrameBrightness = frameBrightness;
+        _brightnessInitialized = true;
+    }
+
     // Calcola intensità per zone e determina direzione
     _calculateZoneIntensities(frameBuffer);
     _motionDirection = _determineMotionDirection();
+
+    // Rileva variazioni globali di illuminazione (es. auto exposure)
+    float changedRatio = (_frameSize > 0) ? (float)_changedPixels / (float)_frameSize : 0.0f;
+    uint8_t brightnessDelta = abs((int)frameBrightness - (int)_lastFrameBrightness);
+    bool lightingChange = (changedRatio > 0.60f && brightnessDelta > 4);
+    _lastFrameBrightness = frameBrightness;
+
+    if (lightingChange) {
+        _lightingCooldown = LIGHTING_SUPPRESSION_FRAMES;
+        Serial.printf("[MOTION] Lighting change suppressed (ratio=%.2f, delta=%u)\n",
+                      changedRatio, brightnessDelta);
+    }
 
     // Aggiorna trajectory buffer con heatmap corrente
     _updateTrajectoryBuffer();
@@ -267,33 +379,68 @@ bool MotionDetector::processFrame(const uint8_t* frameBuffer, size_t frameLength
     // Aggiorna history e rileva shake
     _updateHistoryAndDetectShake(_motionIntensity);
 
+    // Aggiorna modello dinamico del rumore per auto-regolazione
+    _updateNoiseModel(_motionIntensity, rawMotionCandidate);
+
     // Aggiorna timing
     // Richiedi almeno 2% di pixel cambiati per considerarlo movimento valido
     // (es: 320x240 = 76800 pixels, 2% = 1536 pixels)
-    const uint32_t MIN_CHANGED_PIXELS = _frameSize / 50;  // 2% del frame
-    bool motionDetected = (_motionIntensity > 0 && _changedPixels > MIN_CHANGED_PIXELS);
+    uint8_t effectiveMinIntensity = max<uint8_t>(_dynamicIntensityFloor, BASE_MIN_INTENSITY);
+    bool motionDetected = (_motionIntensity > effectiveMinIntensity &&
+                           _changedPixels > MIN_CHANGED_PIXELS);
 
+    if (_lightingCooldown > 0) {
+        motionDetected = false;
+        _lightingCooldown--;
+    }
+
+    // Applica conferma multi-frame per evitare falsi positivi
     if (motionDetected) {
+        if (_motionConfidence < 255) {
+            _motionConfidence++;
+        }
+        _stillConfidence = 0;
+    } else {
+        if (_stillConfidence < 255) {
+            _stillConfidence++;
+        }
+        if (_motionConfidence > 0) {
+            _motionConfidence--;
+        }
+    }
+
+    if (!_motionActive && _motionConfidence >= MOTION_CONFIRM_FRAMES) {
+        _motionActive = true;
+        _stillConfidence = 0;
+    }
+
+    if (_motionActive && _stillConfidence >= STILL_CONFIRM_FRAMES) {
+        _motionActive = false;
+        _motionConfidence = 0;
+    }
+
+    bool confirmedMotion = _motionActive;
+
+    if (confirmedMotion) {
         if (_lastMotionTime == 0) {
             _motionStartTime = now;
         }
         _lastMotionTime = now;
         _motionFrameCount++;
-    } else {
-        if (_lastMotionTime != 0) {
-            _lastStillTime = now;
-        }
+    } else if (_lastMotionTime != 0) {
+        _lastStillTime = now;
+        _lastMotionTime = 0;
     }
 
     // Aggiorna background quando scena è stabile
-    _updateBackgroundModel(frameBuffer, motionDetected);
+    _updateBackgroundModel(frameBuffer, confirmedMotion);
 
     // Copia frame corrente in previous per prossimo ciclo
     memcpy(_previousFrame, frameBuffer, _frameSize);
 
     _totalFramesProcessed++;
 
-    return motionDetected;
+    return confirmedMotion;
 }
 
 void MotionDetector::setSensitivity(uint8_t sensitivity) {
@@ -310,6 +457,7 @@ void MotionDetector::reset() {
     _motionIntensity = 0;
     _changedPixels = 0;
     _lastTotalDelta = 0;
+    _motionActive = false;
     _shakeDetected = false;
     _motionDirection = DIRECTION_NONE;
     _motionProximity = PROXIMITY_UNKNOWN;
@@ -325,6 +473,11 @@ void MotionDetector::reset() {
     _motionVectorX = 0.0f;
     _motionVectorY = 0.0f;
     _vectorConfidence = 0;
+    _motionConfidence = 0;
+    _stillConfidence = 0;
+    _lightingCooldown = 0;
+    _lastFrameBrightness = 0;
+    _brightnessInitialized = false;
     _trajectoryIndex = 0;
     _trajectoryFull = false;
     _historyIndex = 0;
@@ -335,6 +488,12 @@ void MotionDetector::reset() {
     _totalFramesProcessed = 0;
     _motionFrameCount = 0;
     _shakeCount = 0;
+    _ambientNoiseEstimate = 0;
+    _dynamicIntensityFloor = BASE_MIN_INTENSITY;
+    _noiseModelInitialized = false;
+    _noiseSpikeCounter = 0;
+    _lastNoiseSpikeTime = 0;
+    _lastNoiseSampleTime = 0;
 
     memset(_intensityHistory, 0, sizeof(_intensityHistory));
     memset(_zoneIntensities, 0, sizeof(_zoneIntensities));
@@ -368,6 +527,7 @@ MotionDetector::MotionMetrics MotionDetector::getMetrics() const {
     metrics.motionVectorX = _motionVectorX;
     metrics.motionVectorY = _motionVectorY;
     metrics.vectorConfidence = _vectorConfidence;
+    metrics.intensityFloor = _dynamicIntensityFloor;
 
     _getHistoryMinMax(metrics.minIntensityRecent, metrics.maxIntensityRecent);
 
@@ -976,6 +1136,9 @@ bool MotionDetector::_detectThrust(uint8_t& outConfidence) {
 // ============================================================================
 
 void MotionDetector::requestProximityTest() {
+    if (_proximityTestRequested) {
+        return;
+    }
     _proximityTestRequested = true;
 }
 
