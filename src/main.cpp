@@ -214,7 +214,8 @@ static void renderLedStrip() {
         if (ledState.effect == "solid") {
             fill_solid(leds, NUM_LEDS, CRGB(ledState.r, ledState.g, ledState.b));
         } else if (ledState.effect == "rainbow") {
-            uint8_t step = ledState.speed / 10;
+            // Speed da 1-255: mappiamo a step incrementali più ampi
+            uint8_t step = map(ledState.speed, 1, 255, 1, 15);
             if (step == 0) step = 1;
             fill_rainbow(leds, NUM_LEDS, hue, 256 / NUM_LEDS);
             hue += step;
@@ -234,7 +235,7 @@ static void renderLedStrip() {
 
             // Velocità di accensione controllata da 'speed' (1-255)
             // speed basso = lento, speed alto = veloce
-            uint16_t ignitionSpeed = map(ledState.speed, 1, 255, 50, 5);
+            uint16_t ignitionSpeed = map(ledState.speed, 1, 255, 100, 1);
 
             // Aggiorna progressione ogni N millisecondi
             if (now - lastIgnitionUpdate > ignitionSpeed) {
@@ -268,7 +269,7 @@ static void renderLedStrip() {
             static uint16_t retractionProgress = 0;
             static unsigned long lastRetractionUpdate = 0;
 
-            uint16_t retractionSpeed = map(ledState.speed, 1, 255, 50, 5);
+            uint16_t retractionSpeed = map(ledState.speed, 1, 255, 100, 1);
 
             // Inizializza retractionProgress alla prima esecuzione
             if (retractionProgress == 0) {
@@ -375,7 +376,7 @@ static void renderLedStrip() {
             static unsigned long lastPulseUpdate = 0;
 
             // Velocità del pulse controllata da 'speed'
-            uint16_t pulseSpeed = map(ledState.speed, 1, 255, 100, 5);
+            uint16_t pulseSpeed = map(ledState.speed, 1, 255, 80, 1);
 
             if (now - lastPulseUpdate > pulseSpeed) {
                 pulsePosition = (pulsePosition + 1) % ledState.foldPoint;
@@ -432,7 +433,7 @@ static void renderLedStrip() {
                 pulse2Pos = ledState.foldPoint / 2;
             }
 
-            uint16_t pulseSpeed = map(ledState.speed, 1, 255, 80, 5);
+            uint16_t pulseSpeed = map(ledState.speed, 1, 255, 60, 1);
 
             if (now - lastDualPulseUpdate > pulseSpeed) {
                 pulse1Pos = (pulse1Pos + 1) % ledState.foldPoint;
@@ -521,7 +522,8 @@ static void renderLedStrip() {
             // EFFETTO: Arcobaleno che percorre la lama linearmente (rispetta piegatura)
             static uint8_t rainbowHue = 0;
 
-            uint8_t hueStep = ledState.speed / 10;
+            // Speed da 1-255: mappiamo a step incrementali più ampi
+            uint8_t hueStep = map(ledState.speed, 1, 255, 1, 15);
             if (hueStep == 0) hueStep = 1;
 
             for (uint16_t i = 0; i < ledState.foldPoint; i++) {

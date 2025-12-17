@@ -163,7 +163,7 @@ class LedSaberClient:
         )
         print(f"{Colors.GREEN}✓ Colore impostato: RGB({r},{g},{b}){Colors.RESET}")
 
-    async def set_effect(self, mode: str, speed: int = 50):
+    async def set_effect(self, mode: str, speed: int = 150):
         """Imposta effetto LED (solid, rainbow, breathe, ignition, retraction, flicker, unstable, pulse, dual_pulse, clash, rainbow_blade)"""
         if not self.client or not self.client.is_connected:
             print(f"{Colors.RED}✗ Non connesso{Colors.RESET}")
@@ -522,7 +522,7 @@ class InteractiveCLI:
                     print(f"{Colors.YELLOW}💡 Usa 'effects' per vedere tutti gli effetti disponibili{Colors.RESET}")
                     return
                 mode = args[0]
-                speed = int(args[1]) if len(args) > 1 else 50
+                speed = int(args[1]) if len(args) > 1 else 150
                 await self.client.set_effect(mode, speed)
 
             elif cmd == "effects":
