@@ -37,6 +37,7 @@ private:
     BLECharacteristic* pCharStatusLed;
     bool deviceConnected;
     LedState* ledState;
+    bool configDirty;
 
 public:
     explicit BLELedController(LedState* state);
@@ -44,6 +45,8 @@ public:
     void notifyState();
     bool isConnected();
     void setConnected(bool connected);
+    void setConfigDirty(bool dirty);
+    bool isConfigDirty();
 
     // Callback classes (friend)
     friend class ColorCallbacks;

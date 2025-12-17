@@ -21,6 +21,8 @@ public:
                 controller->ledState->r,
                 controller->ledState->g,
                 controller->ledState->b);
+
+            controller->setConfigDirty(true);
         } else {
             Serial.println("[BLE ERROR] Invalid JSON for color");
         }
@@ -46,6 +48,8 @@ public:
             Serial.printf("[BLE] Effect set to %s (speed: %d)\n",
                 controller->ledState->effect.c_str(),
                 controller->ledState->speed);
+
+            controller->setConfigDirty(true);
         }
     }
 };
@@ -63,12 +67,15 @@ public:
         DeserializationError error = deserializeJson(doc, value);
 
         if (!error) {
-            controller->ledState->brightness = doc["brightness"] | 255;
+            uint8_t requestedBrightness = doc["brightness"] | 255;
+            controller->ledState->brightness = requestedBrightness;
             controller->ledState->enabled = doc["enabled"] | true;
 
-            Serial.printf("[BLE] Brightness set to %d (enabled: %d)\n",
+            Serial.printf("[BLE] Brightness requested: %d (enabled: %d)\n",
                 controller->ledState->brightness,
                 controller->ledState->enabled);
+
+            controller->setConfigDirty(true);
         }
     }
 };
@@ -90,6 +97,8 @@ public:
 
             Serial.printf("[BLE] Status LED (pin 4) set to %s\n",
                 controller->ledState->statusLedEnabled ? "ON" : "OFF");
+
+            controller->setConfigDirty(true);
         }
     }
 
@@ -107,6 +116,7 @@ public:
 BLELedController::BLELedController(LedState* state) {
     ledState = state;
     deviceConnected = false;
+    configDirty = false;
     pServer = nullptr;
     pCharState = nullptr;
     pCharColor = nullptr;
@@ -207,4 +217,12 @@ bool BLELedController::isConnected() {
 
 void BLELedController::setConnected(bool connected) {
     deviceConnected = connected;
+}
+
+void BLELedController::setConfigDirty(bool dirty) {
+    configDirty = dirty;
+}
+
+bool BLELedController::isConfigDirty() {
+    return configDirty;
 }

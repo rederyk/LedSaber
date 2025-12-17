@@ -1,0 +1,10 @@
+{
+  "brightness": 50,
+  "r": 0,
+  "g": 255,
+  "b": 128,
+  "effect": "rainbow",
+  "speed": 80,
+  "enabled": true,
+  "statusLedEnabled": false
+}

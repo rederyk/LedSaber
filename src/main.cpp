@@ -5,12 +5,19 @@
 
 #include "BLELedController.h"
 #include "OTAManager.h"
+#include "ConfigManager.h"
 
 // GPIO
 static constexpr uint8_t STATUS_LED_PIN = 4;   // LED integrato per stato connessione
-static constexpr uint8_t LED_STRIP_PIN = 12;   // Striscia WS2812B
+static constexpr uint8_t LED_STRIP_PIN = 13;   // Striscia WS2812B
 static constexpr uint16_t NUM_LEDS = 144;
 static constexpr uint8_t DEFAULT_BRIGHTNESS = 30;
+
+// Limite di sicurezza per alimentatore 2A
+// Calcolo: 5V * 2A = 10W disponibili
+// 144 LED * 60mA (max) = 8.64A teorici a luminosità 255
+// Luminosità massima sicura: (2A / 8.64A) * 255 ≈ 59
+static constexpr uint8_t MAX_SAFE_BRIGHTNESS = 60;
 
 CRGB leds[NUM_LEDS];
 
@@ -18,6 +25,7 @@ CRGB leds[NUM_LEDS];
 LedState ledState;
 BLELedController bleController(&ledState);
 OTAManager otaManager;
+ConfigManager configManager(&ledState);
 
 // ============================================================================
 // CALLBACKS GLOBALI DEL SERVER BLE
@@ -130,14 +138,15 @@ static void renderLedStrip() {
         } else if (ledState.effect == "breathe") {
             uint8_t breath = beatsin8(ledState.speed, 0, 255);
             fill_solid(leds, NUM_LEDS, CRGB(ledState.r, ledState.g, ledState.b));
-            FastLED.setBrightness(scale8(breath, ledState.brightness));
+            uint8_t safeBrightness = min(ledState.brightness, MAX_SAFE_BRIGHTNESS);
+            FastLED.setBrightness(scale8(breath, safeBrightness));
             FastLED.show();
-            FastLED.setBrightness(ledState.brightness);
+            FastLED.setBrightness(safeBrightness);
             lastUpdate = now;
             return;
         }
 
-        FastLED.setBrightness(ledState.brightness);
+        FastLED.setBrightness(min(ledState.brightness, MAX_SAFE_BRIGHTNESS));
         FastLED.show();
     } else {
         fill_solid(leds, NUM_LEDS, CRGB::Black);
@@ -153,20 +162,26 @@ void setup() {
 
     initPeripherals();
 
-    // 1. Inizializza il dispositivo BLE e crea il Server
+    // 1. Carica configurazione da LittleFS PRIMA di inizializzare BLE
+    if (!configManager.begin()) {
+        Serial.println("[CONFIG] Warning: using default values");
+    }
+    configManager.printDebugInfo();
+
+    // 2. Inizializza il dispositivo BLE e crea il Server
     BLEDevice::init("LedSaber-BLE");
     BLEServer* pServer = BLEDevice::createServer();
     pServer->setCallbacks(new MainServerCallbacks());
 
-    // 2. Inizializza il servizio LED, agganciandolo al server principale
+    // 3. Inizializza il servizio LED, agganciandolo al server principale
     bleController.begin(pServer);
     Serial.println("*** BLE LED Service avviato ***");
 
-    // 3. Inizializza il servizio OTA, agganciandolo allo stesso server
+    // 4. Inizializza il servizio OTA, agganciandolo allo stesso server
     otaManager.begin(pServer);
     Serial.println("*** OTA Service avviato ***");
 
-    // 4. Configura e avvia l'advertising DOPO aver inizializzato tutti i servizi
+    // 5. Configura e avvia l'advertising DOPO aver inizializzato tutti i servizi
     BLEAdvertising* pAdvertising = BLEDevice::getAdvertising();
     pAdvertising->addServiceUUID(LED_SERVICE_UUID);
     pAdvertising->addServiceUUID(OTA_SERVICE_UUID);
@@ -182,6 +197,7 @@ void setup() {
 void loop() {
     static unsigned long lastBleNotify = 0;
     static unsigned long lastLoopDebug = 0;
+    static unsigned long lastConfigSave = 0;
     const unsigned long now = millis();
 
     const bool bleConnected = bleController.isConnected();
@@ -210,6 +226,17 @@ void loop() {
         if (bleConnected && now - lastBleNotify > 500) {
             bleController.notifyState();
             lastBleNotify = now;
+        }
+
+        // Salvataggio ritardato della configurazione (ogni 5 secondi se config dirty)
+        if (bleController.isConfigDirty() && now - lastConfigSave > 5000) {
+            Serial.println("[CONFIG] Config marked dirty, saving...");
+            if (configManager.saveConfig()) {
+                bleController.setConfigDirty(false);
+                lastConfigSave = now;
+            } else {
+                Serial.println("[CONFIG ERROR] Failed to save config, will retry");
+            }
         }
     }
 
