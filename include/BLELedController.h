@@ -40,13 +40,12 @@ private:
 
 public:
     explicit BLELedController(LedState* state);
-    void begin(const char* deviceName);
+    void begin(BLEServer* server);
     void notifyState();
     bool isConnected();
-    BLEServer* getServer() { return pServer; }
+    void setConnected(bool connected);
 
     // Callback classes (friend)
-    friend class ServerCallbacks;
     friend class ColorCallbacks;
     friend class EffectCallbacks;
     friend class BrightnessCallbacks;

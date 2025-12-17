@@ -1,49 +1,4 @@
 #include "BLELedController.h"
-#include <esp_gap_ble_api.h>
-
-// Callback connessione BLE
-class ServerCallbacks: public BLEServerCallbacks {
-    BLELedController* controller;
-public:
-    explicit ServerCallbacks(BLELedController* ctrl) : controller(ctrl) {}
-
-    void onConnect(BLEServer* pServer) override {
-        controller->deviceConnected = true;
-        Serial.println("[BLE] Client connected!");
-    }
-
-    void onConnect(BLEServer* pServer, esp_ble_gatts_cb_param_t *param) override {
-        (void)pServer;
-        controller->deviceConnected = true;
-        Serial.println("[BLE] Client connected!");
-
-        // Richiedi parametri di connessione più aggressivi per throughput OTA (unità: 1.25ms)
-        // min=0x06 => 7.5ms, max=0x0C => 15ms, latency=0, timeout=400 => 4s
-        esp_ble_conn_update_params_t connParams = {};
-        memcpy(connParams.bda, param->connect.remote_bda, sizeof(esp_bd_addr_t));
-        connParams.min_int = 0x06;
-        connParams.max_int = 0x0C;
-        connParams.latency = 0;
-        connParams.timeout = 400;
-        esp_err_t err = esp_ble_gap_update_conn_params(&connParams);
-        Serial.printf("[BLE] Conn params update req: %s\n", esp_err_to_name(err));
-
-        // Richiedi Data Length Extension (251 payload) se supportato
-        err = esp_ble_gap_set_pkt_data_len(param->connect.remote_bda, 251);
-        Serial.printf("[BLE] Data len update req: %s\n", esp_err_to_name(err));
-    }
-
-    void onDisconnect(BLEServer* pServer) override {
-        controller->deviceConnected = false;
-        Serial.println("[BLE] Client disconnected!");
-        pServer->startAdvertising();  // Riprendi advertising
-    }
-
-    void onMtuChanged(BLEServer* pServer, esp_ble_gatts_cb_param_t* param) override {
-        (void)pServer;
-        Serial.printf("[BLE] MTU changed: %u\n", param->mtu.mtu);
-    }
-};
 
 // Callback scrittura colore
 class ColorCallbacks: public BLECharacteristicCallbacks {
@@ -161,12 +116,8 @@ BLELedController::BLELedController(LedState* state) {
 }
 
 // Inizializzazione BLE
-void BLELedController::begin(const char* deviceName) {
-    BLEDevice::init(deviceName);
-
-    // Crea server
-    pServer = BLEDevice::createServer();
-    pServer->setCallbacks(new ServerCallbacks(this));
+void BLELedController::begin(BLEServer* server) {
+    pServer = server;
 
     // Crea service con handles sufficienti (10 char * 4 handles ciascuna = 40, +10 margine)
     BLEService *pService = pServer->createService(BLEUUID(LED_SERVICE_UUID), 50);
@@ -226,15 +177,7 @@ void BLELedController::begin(const char* deviceName) {
     // Avvia service
     pService->start();
 
-    // Avvia advertising
-    BLEAdvertising *pAdvertising = BLEDevice::getAdvertising();
-    pAdvertising->addServiceUUID(LED_SERVICE_UUID);
-    pAdvertising->setScanResponse(true);
-    pAdvertising->setMinPreferred(0x06);  // iPhone compatibility
-    pAdvertising->setMinPreferred(0x12);
-    pAdvertising->start();
-
-    Serial.println("[BLE OK] BLE GATT Server started!");
+    Serial.println("[BLE OK] LED Service initialized!");
 }
 
 // Notifica stato LED ai client connessi
@@ -260,4 +203,8 @@ void BLELedController::notifyState() {
 
 bool BLELedController::isConnected() {
     return deviceConnected;
+}
+
+void BLELedController::setConnected(bool connected) {
+    deviceConnected = connected;
 }

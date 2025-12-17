@@ -1,6 +1,7 @@
 #include <Arduino.h>
 #include <FastLED.h>
 #include <BLEDevice.h>
+#include <esp_gap_ble_api.h>
 
 #include "BLELedController.h"
 #include "OTAManager.h"
@@ -17,6 +18,50 @@ CRGB leds[NUM_LEDS];
 LedState ledState;
 BLELedController bleController(&ledState);
 OTAManager otaManager;
+
+// ============================================================================
+// CALLBACKS GLOBALI DEL SERVER BLE
+// ============================================================================
+
+class MainServerCallbacks: public BLEServerCallbacks {
+    void onConnect(BLEServer* pServer) override {
+        bleController.setConnected(true);
+        Serial.println("[BLE] Client connected!");
+    }
+
+    void onConnect(BLEServer* pServer, esp_ble_gatts_cb_param_t *param) override {
+        onConnect(pServer); // Chiama la versione base
+
+        // Richiedi parametri di connessione più aggressivi per throughput OTA
+        esp_ble_conn_update_params_t connParams = {};
+        memcpy(connParams.bda, param->connect.remote_bda, sizeof(esp_bd_addr_t));
+        connParams.min_int = 0x06; // 7.5ms
+        connParams.max_int = 0x0C; // 15ms
+        connParams.latency = 0;
+        connParams.timeout = 400; // 4s
+        esp_err_t err = esp_ble_gap_update_conn_params(&connParams);
+        Serial.printf("[BLE] Conn params update req: %s\n", esp_err_to_name(err));
+
+        // Richiedi Data Length Extension (251 payload)
+        err = esp_ble_gap_set_pkt_data_len(param->connect.remote_bda, 251);
+        Serial.printf("[BLE] Data len update req: %s\n", esp_err_to_name(err));
+    }
+
+    void onDisconnect(BLEServer* pServer) override {
+        bleController.setConnected(false);
+        Serial.println("[BLE] Client disconnected! Restarting advertising...");
+        pServer->startAdvertising();
+    }
+
+    void onMtuChanged(BLEServer* pServer, esp_ble_gatts_cb_param_t* param) override {
+        (void)pServer;
+        Serial.printf("[BLE] MTU changed: %u\n", param->mtu.mtu);
+    }
+};
+
+// ============================================================================
+// FUNZIONI DI STATO E GRAFICA
+// ============================================================================
 
 static void initPeripherals() {
     pinMode(STATUS_LED_PIN, OUTPUT);
@@ -108,13 +153,27 @@ void setup() {
 
     initPeripherals();
 
-    // Avvia BLE GATT per controllo LED
-    bleController.begin("LedSaber-BLE");
-    Serial.println("*** BLE GATT Server avviato ***");
+    // 1. Inizializza il dispositivo BLE e crea il Server
+    BLEDevice::init("LedSaber-BLE");
+    BLEServer* pServer = BLEDevice::createServer();
+    pServer->setCallbacks(new MainServerCallbacks());
 
-    // Inizializza OTA Manager (usa lo stesso BLE Server)
-    otaManager.begin(bleController.getServer());
-    Serial.println("*** OTA Manager avviato ***");
+    // 2. Inizializza il servizio LED, agganciandolo al server principale
+    bleController.begin(pServer);
+    Serial.println("*** BLE LED Service avviato ***");
+
+    // 3. Inizializza il servizio OTA, agganciandolo allo stesso server
+    otaManager.begin(pServer);
+    Serial.println("*** OTA Service avviato ***");
+
+    // 4. Configura e avvia l'advertising DOPO aver inizializzato tutti i servizi
+    BLEAdvertising* pAdvertising = BLEDevice::getAdvertising();
+    pAdvertising->addServiceUUID(LED_SERVICE_UUID);
+    pAdvertising->addServiceUUID(OTA_SERVICE_UUID);
+    pAdvertising->setScanResponse(true);
+    pAdvertising->setMinPreferred(0x06);  // iPhone compatibility
+    pAdvertising->setMinPreferred(0x12);
+    pAdvertising->start();
 
     Serial.printf("Free heap: %u bytes\n", ESP.getFreeHeap());
     Serial.println("*** SISTEMA PRONTO ***");
