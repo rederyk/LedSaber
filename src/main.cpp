@@ -203,7 +203,7 @@ void loop() {
     const bool bleConnected = bleController.isConnected();
 
     // Debug loop ogni 2 secondi (disabilitato durante OTA per non rallentare)
-    if (!otaManager.isOTAInProgress() && now - lastLoopDebug > 2000) {
+    if (!otaManager.isOTAInProgress() && now - lastLoopDebug > 10000) {
         Serial.printf("[LOOP] Running, OTA state: %d, heap: %u\n",
             (int)otaManager.getState(), ESP.getFreeHeap());
         lastLoopDebug = now;
