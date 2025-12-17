@@ -89,19 +89,19 @@ void BLEMotionService::notifyEvent(const String& eventType) {
     doc["event"] = eventType;
     doc["timestamp"] = now;
     doc["intensity"] = _motion->getMotionIntensity();
-    doc["changedPixels"] = _motion->getChangedPixels();
-    doc["direction"] = _motion->getMotionDirectionName();
-    doc["motionVectorX"] = _motion->getMotionVectorX();
-    doc["motionVectorY"] = _motion->getMotionVectorY();
-    doc["centroidValid"] = _motion->hasValidCentroid();
-    if (_motion->hasValidCentroid()) {
-        doc["centroidX"] = _motion->getCentroidX();
-        doc["centroidY"] = _motion->getCentroidY();
-    }
 
-    // Aggiungi gesture info
-    doc["gesture"] = _motion->getGestureName();
-    doc["gestureConfidence"] = _motion->getGestureConfidence();
+    // Aggiungi traiettoria se presente
+    MotionDetector::TrajectoryPoint trajectory[MotionDetector::MAX_TRAJECTORY_POINTS];
+    uint8_t points = _motion->getTrajectory(trajectory);
+
+    if (points > 0) {
+        JsonArray trajArray = doc["trajectory"].to<JsonArray>();
+        for (uint8_t i = 0; i < points; i++) {
+            JsonObject point = trajArray.add<JsonObject>();
+            point["x"] = trajectory[i].x;
+            point["y"] = trajectory[i].y;
+        }
+    }
 
     String output;
     serializeJson(doc, output);
@@ -111,8 +111,8 @@ void BLEMotionService::notifyEvent(const String& eventType) {
 
     _lastEventTime = now;
 
-    Serial.printf("[MOTION BLE] 📢 Event notified: %s (gesture: %s, confidence: %u%%)\n",
-                  eventType.c_str(), _motion->getGestureName(), _motion->getGestureConfidence());
+    Serial.printf("[MOTION BLE] Event notified: %s (trajectory: %u points)\n",
+                  eventType.c_str(), points);
 }
 
 void BLEMotionService::update(bool motionDetected, bool shakeDetected) {
@@ -142,52 +142,36 @@ void BLEMotionService::update(bool motionDetected, bool shakeDetected) {
     if (_wasShakeDetected && !shakeDetected) {
         _wasShakeDetected = false;
     }
-
-    // Rileva still (fermo per 3 secondi)
-    if (_motion->isStill(3000)) {
-        static unsigned long lastStillNotify = 0;
-        unsigned long now = millis();
-
-        // Notifica still solo ogni 10 secondi per non spammare
-        if (now - lastStillNotify > 10000) {
-            notifyEvent("still_detected");
-            lastStillNotify = now;
-        }
-    }
 }
 
 String BLEMotionService::_getStatusJson() {
     JsonDocument doc;
-    MotionDetector::MotionMetrics metrics = _motion->getMetrics();
+    MotionDetector::Metrics metrics = _motion->getMetrics();
 
     doc["enabled"] = _motionEnabled;
     doc["motionDetected"] = _wasMotionActive;
-    doc["intensity"] = _motion->getMotionIntensity();
-    doc["changedPixels"] = _motion->getChangedPixels();
-    doc["intensityFloor"] = metrics.intensityFloor;
-    doc["shakeDetected"] = _motion->isShakeDetected();
-    doc["direction"] = _motion->getMotionDirectionName();
-
-    // Gesture recognition
-    doc["gesture"] = _motion->getGestureName();
-    doc["gestureConfidence"] = _motion->getGestureConfidence();
-
-    // Proximity detection
-    doc["proximity"] = _motion->getMotionProximityName();
+    doc["intensity"] = metrics.currentIntensity;
+    doc["avgBrightness"] = metrics.avgBrightness;
+    doc["flashIntensity"] = metrics.flashIntensity;
+    doc["trajectoryLength"] = metrics.trajectoryLength;
 
     doc["totalFrames"] = metrics.totalFramesProcessed;
     doc["motionFrames"] = metrics.motionFrameCount;
-    doc["shakeCount"] = metrics.shakeCount;
-    doc["proximityBrightness"] = metrics.proximityBrightness;
-    doc["centroidValid"] = metrics.centroidValid;
-    doc["centroidX"] = metrics.centroidX;
-    doc["centroidY"] = metrics.centroidY;
-    doc["motionVectorX"] = metrics.motionVectorX;
-    doc["motionVectorY"] = metrics.motionVectorY;
-    doc["vectorConfidence"] = metrics.vectorConfidence;
 
-    // Non inviamo zones via BLE (troppo pesante - 81 valori)
-    // Se necessario, usare un comando separato per richiedere le zone
+    // Aggiungi traiettoria se presente
+    if (metrics.trajectoryLength > 0) {
+        MotionDetector::TrajectoryPoint trajectory[MotionDetector::MAX_TRAJECTORY_POINTS];
+        uint8_t points = _motion->getTrajectory(trajectory);
+
+        JsonArray trajArray = doc["trajectory"].to<JsonArray>();
+        for (uint8_t i = 0; i < points; i++) {
+            JsonObject point = trajArray.add<JsonObject>();
+            point["x"] = trajectory[i].x;
+            point["y"] = trajectory[i].y;
+            point["t"] = trajectory[i].timestamp;
+            point["i"] = trajectory[i].intensity;
+        }
+    }
 
     String output;
     serializeJson(doc, output);

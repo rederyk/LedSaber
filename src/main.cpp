@@ -667,16 +667,8 @@ void loop() {
             uint8_t* frameBuffer = nullptr;
             size_t frameLength = 0;
 
-            // Accendi flash se richiesto test prossimità
+            // Auto flash basato su luminosità
             static bool wasMotionDetected = false;
-            if (motionDetectorInitialized && bleMotionService.isMotionEnabled()) {
-                bool needsProximityTest = motionDetector.isProximityTestRequested();
-                if (needsProximityTest) {
-                    Serial.println("[MAIN] Proximity test requested - enabling flash");
-                    cameraManager.setFlash(true, 255);  // Flash al massimo
-                    delay(50);  // Piccolo delay per stabilizzare il flash
-                }
-            }
 
             if (cameraManager.captureFrame(&frameBuffer, &frameLength)) {
                 // Frame catturato con successo
@@ -693,24 +685,21 @@ void loop() {
                 // Processa frame per motion detection se abilitato
                 if (motionDetectorInitialized && bleMotionService.isMotionEnabled()) {
                     bool motionDetected = motionDetector.processFrame(frameBuffer, frameLength);
-                    bool shakeDetected = motionDetector.isShakeDetected();
 
-                    // Se movimento appena iniziato (transizione da fermo a movimento)
-                    // richiedi test prossimità per il prossimo frame
-                    if (motionDetected && !wasMotionDetected) {
-                        Serial.println("[MAIN] Motion started - requesting proximity test");
-                        motionDetector.requestProximityTest();
+                    // Ottieni intensità flash consigliata basata su luminosità scena
+                    uint8_t flashIntensity = motionDetector.getRecommendedFlashIntensity();
+
+                    // Imposta flash automatico
+                    if (flashIntensity > 0) {
+                        cameraManager.setFlash(true, flashIntensity);
+                    } else {
+                        cameraManager.setFlash(false, 0);
                     }
 
                     wasMotionDetected = motionDetected;
 
                     // Aggiorna BLE motion service con eventi
-                    bleMotionService.update(motionDetected, shakeDetected);
-                }
-
-                // Spegni flash se era acceso
-                if (cameraManager.isFlashEnabled()) {
-                    cameraManager.setFlash(false, 0);
+                    bleMotionService.update(motionDetected, false);
                 }
 
                 cameraManager.releaseFrame();
