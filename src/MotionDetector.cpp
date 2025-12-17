@@ -9,8 +9,8 @@ MotionDetector::MotionDetector()
     , _frameSize(0)
     , _previousFrame(nullptr)
     , _backgroundFrame(nullptr)
-    , _motionThreshold(50)  // Aumentato da 30 a 50 per ridurre falsi positivi
-    , _shakeThreshold(150)
+    , _motionThreshold(80)  // MOLTO PIÙ ALTO per ridurre rumore
+    , _shakeThreshold(180)
     , _motionIntensity(0)
     , _changedPixels(0)
     , _lastTotalDelta(0)
@@ -108,9 +108,10 @@ bool MotionDetector::begin(uint16_t frameWidth, uint16_t frameHeight) {
     _lastStillTime = millis();
 
     Serial.println("[MOTION] ✓ Initialized successfully!");
-    Serial.printf("[MOTION] PSRAM allocated: %u bytes\n", _frameSize);
-    Serial.printf("[MOTION] Motion threshold: %u\n", _motionThreshold);
-    Serial.printf("[MOTION] Shake threshold: %u\n", _shakeThreshold);
+    Serial.printf("[MOTION] PSRAM allocated: %u bytes\n", _frameSize * 2);
+    Serial.printf("[MOTION] Motion threshold: %u (pixel diff)\n", _motionThreshold);
+    Serial.printf("[MOTION] Minimum intensity: %u\n", BASE_MIN_INTENSITY);
+    Serial.printf("[MOTION] Required confirmation frames: %u\n", MOTION_CONFIRM_FRAMES);
 
     return true;
 }
@@ -121,7 +122,8 @@ uint32_t MotionDetector::_calculateFrameDifference(const uint8_t* currentFrame) 
     const uint8_t* referenceFrame = (_backgroundInitialized && _backgroundFrame) ?
         _backgroundFrame : _previousFrame;
 
-    // Confronta ogni pixel con frame di riferimento (background adattivo)
+    // Confronta ogni pixel con frame di riferimento
+    // USA SOGLIA PIÙ ALTA per ignorare rumore camera
     for (size_t i = 0; i < _frameSize; i++) {
         int16_t diff = abs((int16_t)currentFrame[i] - (int16_t)referenceFrame[i]);
         if (diff > _motionThreshold) {
@@ -146,7 +148,8 @@ uint8_t MotionDetector::_calculateMotionIntensity(uint32_t changedPixels) {
     }
 
     // Copertura: quanta parte del frame è interessata
-    uint32_t coverageNormalizer = _frameSize / 6;  // 16% pixel -> 255
+    // RICHIEDIAMO ALMENO 8% del frame per movimento significativo
+    uint32_t coverageNormalizer = _frameSize / 12;  // 8% pixel -> 255
     if (coverageNormalizer == 0) {
         coverageNormalizer = 1;
     }
@@ -156,11 +159,12 @@ uint8_t MotionDetector::_calculateMotionIntensity(uint32_t changedPixels) {
     }
 
     // Intensità finale come media pesata tra ampiezza e copertura
-    uint32_t amplitudeScore = avgDelta * 4;
+    // Diamo PIÙ PESO alla copertura per evitare falsi positivi da pochi pixel luminosi
+    uint32_t amplitudeScore = avgDelta * 3;
     if (amplitudeScore > 255) {
         amplitudeScore = 255;
     }
-    uint8_t intensity = static_cast<uint8_t>((coverageScore * 2 + amplitudeScore) / 3);
+    uint8_t intensity = static_cast<uint8_t>((coverageScore * 3 + amplitudeScore) / 4);
 
     return intensity;
 }
@@ -215,10 +219,10 @@ void MotionDetector::_getHistoryMinMax(uint8_t& outMin, uint8_t& outMax) const {
 }
 
 void MotionDetector::_updateNoiseModel(uint8_t intensity, bool rawMotionCandidate) {
-    const uint8_t STILL_SMOOTHING = 8;
-    const uint8_t STILL_MARGIN = 5;
-    const uint8_t NOISE_SPIKE_MARGIN = 18;
-    const uint8_t NOISE_RAISE_STEP = 6;
+    const uint8_t STILL_SMOOTHING = 16;  // Smoothing più aggressivo
+    const uint8_t STILL_MARGIN = 10;
+    const uint8_t NOISE_SPIKE_MARGIN = 25;
+    const uint8_t NOISE_RAISE_STEP = 8;
 
     unsigned long now = millis();
     bool treatAsStill = (!rawMotionCandidate) ||
@@ -317,6 +321,7 @@ bool MotionDetector::processFrame(const uint8_t* frameBuffer, size_t frameLength
         _lastFrameBrightness = _calculateAverageBrightness(frameBuffer);
         _brightnessInitialized = true;
         _totalFramesProcessed++;
+        Serial.println("[MOTION] Background model initialized");
         return false;
     }
 
@@ -338,9 +343,11 @@ bool MotionDetector::processFrame(const uint8_t* frameBuffer, size_t frameLength
     // Calcola intensità movimento
     _motionIntensity = _calculateMotionIntensity(_changedPixels);
 
-    uint32_t minChangedPixels = _frameSize / 50;
-    if (minChangedPixels < 1500) {
-        minChangedPixels = 1500;
+    // SOGLIA MINIMA PIXEL CAMBIATI: almeno 5% del frame
+    // Per 320x240 = 76800 pixel, 5% = 3840 pixel
+    uint32_t minChangedPixels = _frameSize / 20;  // 5%
+    if (minChangedPixels < 3500) {
+        minChangedPixels = 3500;
     }
     const uint32_t MIN_CHANGED_PIXELS = minChangedPixels;
 
@@ -359,9 +366,10 @@ bool MotionDetector::processFrame(const uint8_t* frameBuffer, size_t frameLength
     _motionDirection = _determineMotionDirection();
 
     // Rileva variazioni globali di illuminazione (es. auto exposure)
+    // SOGLIA PIÙ ALTA per ridurre falsi positivi da auto-exposure
     float changedRatio = (_frameSize > 0) ? (float)_changedPixels / (float)_frameSize : 0.0f;
     uint8_t brightnessDelta = abs((int)frameBrightness - (int)_lastFrameBrightness);
-    bool lightingChange = (changedRatio > 0.60f && brightnessDelta > 4);
+    bool lightingChange = (changedRatio > 0.70f && brightnessDelta > 8);
     _lastFrameBrightness = frameBrightness;
 
     if (lightingChange) {
@@ -382,19 +390,22 @@ bool MotionDetector::processFrame(const uint8_t* frameBuffer, size_t frameLength
     // Aggiorna modello dinamico del rumore per auto-regolazione
     _updateNoiseModel(_motionIntensity, rawMotionCandidate);
 
-    // Aggiorna timing
-    // Richiedi almeno 2% di pixel cambiati per considerarlo movimento valido
-    // (es: 320x240 = 76800 pixels, 2% = 1536 pixels)
+    // VALIDAZIONE SPAZIALE: il movimento deve essere coerente spazialmente
+    bool spatiallyCoherent = _validateSpatialCoherence();
+
+    // Richiedi almeno MIN_CHANGED_PIXELS cambiati per considerarlo movimento valido
     uint8_t effectiveMinIntensity = max<uint8_t>(_dynamicIntensityFloor, BASE_MIN_INTENSITY);
     bool motionDetected = (_motionIntensity > effectiveMinIntensity &&
-                           _changedPixels > MIN_CHANGED_PIXELS);
+                           _changedPixels > MIN_CHANGED_PIXELS &&
+                           spatiallyCoherent);  // NUOVA CONDIZIONE
 
     if (_lightingCooldown > 0) {
         motionDetected = false;
         _lightingCooldown--;
     }
 
-    // Applica conferma multi-frame per evitare falsi positivi
+    // MULTI-FRAME CONFIRMATION: richiediamo MOTION_CONFIRM_FRAMES consecutivi
+    // per confermare movimento reale
     if (motionDetected) {
         if (_motionConfidence < 255) {
             _motionConfidence++;
@@ -409,14 +420,19 @@ bool MotionDetector::processFrame(const uint8_t* frameBuffer, size_t frameLength
         }
     }
 
+    // Transizione a MOTION solo dopo MOTION_CONFIRM_FRAMES frame consecutivi
     if (!_motionActive && _motionConfidence >= MOTION_CONFIRM_FRAMES) {
         _motionActive = true;
         _stillConfidence = 0;
+        Serial.printf("[MOTION] ✓ Motion CONFIRMED (intensity: %u, pixels: %u, floor: %u)\n",
+                      _motionIntensity, _changedPixels, effectiveMinIntensity);
     }
 
+    // Transizione a STILL solo dopo STILL_CONFIRM_FRAMES frame consecutivi
     if (_motionActive && _stillConfidence >= STILL_CONFIRM_FRAMES) {
         _motionActive = false;
         _motionConfidence = 0;
+        Serial.printf("[MOTION] ✓ Motion ENDED (now still)\n");
     }
 
     bool confirmedMotion = _motionActive;
@@ -443,11 +459,72 @@ bool MotionDetector::processFrame(const uint8_t* frameBuffer, size_t frameLength
     return confirmedMotion;
 }
 
+bool MotionDetector::_validateSpatialCoherence() {
+    // Verifica che le zone con movimento siano spazialmente coerenti
+    // Il rumore tende a essere sparso random, movimento reale è più concentrato
+
+    uint8_t activeZones = 0;
+    uint8_t totalZoneIntensity = 0;
+
+    // Conta quante zone hanno intensità significativa
+    for (uint8_t i = 0; i < GRID_SIZE; i++) {
+        if (_zoneIntensities[i] > 30) {  // Soglia zona attiva
+            activeZones++;
+            totalZoneIntensity += (_zoneIntensities[i] > 255) ? 255 : _zoneIntensities[i];
+        }
+    }
+
+    // Se nessuna zona attiva, nessun movimento
+    if (activeZones == 0) {
+        return false;
+    }
+
+    // Movimento reale: almeno 3 zone attive contigue
+    // Rumore: zone sparse casuali
+    // Per ora semplifichiamo: richiediamo almeno 3 zone attive
+    if (activeZones < 3) {
+        return false;
+    }
+
+    // Verifica contiguità: almeno una coppia di zone adiacenti deve essere attiva
+    bool hasAdjacentZones = false;
+    for (uint8_t row = 0; row < GRID_ROWS; row++) {
+        for (uint8_t col = 0; col < GRID_COLS; col++) {
+            uint8_t idx = row * GRID_COLS + col;
+            if (_zoneIntensities[idx] > 30) {
+                // Controlla adiacenti (destra, giù, diagonali)
+                if (col < GRID_COLS - 1 && _zoneIntensities[idx + 1] > 30) {
+                    hasAdjacentZones = true;
+                    break;
+                }
+                if (row < GRID_ROWS - 1 && _zoneIntensities[idx + GRID_COLS] > 30) {
+                    hasAdjacentZones = true;
+                    break;
+                }
+                if (row < GRID_ROWS - 1 && col < GRID_COLS - 1 &&
+                    _zoneIntensities[idx + GRID_COLS + 1] > 30) {
+                    hasAdjacentZones = true;
+                    break;
+                }
+                if (row < GRID_ROWS - 1 && col > 0 &&
+                    _zoneIntensities[idx + GRID_COLS - 1] > 30) {
+                    hasAdjacentZones = true;
+                    break;
+                }
+            }
+        }
+        if (hasAdjacentZones) break;
+    }
+
+    return hasAdjacentZones;
+}
+
 void MotionDetector::setSensitivity(uint8_t sensitivity) {
     // Sensitivity: 0 = molto insensibile, 255 = molto sensibile
     // Invertiamo threshold: sensitivity alta -> threshold basso
-    _motionThreshold = map(sensitivity, 0, 255, 80, 10);
-    _shakeThreshold = map(sensitivity, 0, 255, 200, 100);
+    // RANGE PIÙ RISTRETTO per evitare soglie troppo basse
+    _motionThreshold = map(sensitivity, 0, 255, 120, 40);
+    _shakeThreshold = map(sensitivity, 0, 255, 220, 120);
 
     Serial.printf("[MOTION] Sensitivity updated: %u (motion_th: %u, shake_th: %u)\n",
                   sensitivity, _motionThreshold, _shakeThreshold);
@@ -693,11 +770,11 @@ MotionDetector::MotionDirection MotionDetector::_determineMotionDirection() {
     uint16_t rightSum = _zoneIntensities[2] + _zoneIntensities[5] + _zoneIntensities[8];
     uint16_t centerIntensity = _zoneIntensities[4];
 
-    // Soglia minima per considerare movimento in una direzione
-    const uint16_t DIRECTION_THRESHOLD = 50;
+    // Soglia minima per considerare movimento in una direzione (PIÙ ALTA)
+    const uint16_t DIRECTION_THRESHOLD = 80;
 
     // Se centro ha alta intensità, consideriamo movimento centrale
-    if (centerIntensity > 100 && topSum < DIRECTION_THRESHOLD &&
+    if (centerIntensity > 120 && topSum < DIRECTION_THRESHOLD &&
         bottomSum < DIRECTION_THRESHOLD && leftSum < DIRECTION_THRESHOLD &&
         rightSum < DIRECTION_THRESHOLD) {
         return DIRECTION_CENTER;
@@ -707,8 +784,8 @@ MotionDetector::MotionDirection MotionDetector::_determineMotionDirection() {
     int16_t verticalBias = bottomSum - topSum;    // Positivo = DOWN, Negativo = UP
     int16_t horizontalBias = rightSum - leftSum;  // Positivo = RIGHT, Negativo = LEFT
 
-    // Soglia per direzioni diagonali
-    const int16_t DIAGONAL_THRESHOLD = 30;
+    // Soglia per direzioni diagonali (PIÙ ALTA)
+    const int16_t DIAGONAL_THRESHOLD = 50;
 
     // Nessun movimento significativo
     if (abs(verticalBias) < DIAGONAL_THRESHOLD && abs(horizontalBias) < DIAGONAL_THRESHOLD) {
@@ -748,8 +825,8 @@ const char* MotionDetector::getMotionDirectionName() const {
 }
 
 MotionDetector::MotionDirection MotionDetector::_directionFromVector(float vecX, float vecY) const {
-    const float MIN_COMPONENT = 0.15f;
-    const float DIAGONAL_THRESHOLD = 0.35f;
+    const float MIN_COMPONENT = 0.2f;  // Soglia più alta
+    const float DIAGONAL_THRESHOLD = 0.4f;  // Soglia più alta
 
     float absX = fabsf(vecX);
     float absY = fabsf(vecY);
@@ -816,8 +893,8 @@ MotionDetector::GestureType MotionDetector::_recognizeGesture() {
         return GESTURE_NONE;
     }
 
-    // Verifica che ci sia movimento sufficiente
-    if (_motionIntensity < 40) {
+    // Verifica che ci sia movimento sufficiente (SOGLIA PIÙ ALTA)
+    if (_motionIntensity < 60) {
         _gestureConfidence = 0;
         return GESTURE_NONE;
     }
@@ -886,8 +963,8 @@ bool MotionDetector::_detectSlashVertical(uint8_t& outConfidence) {
             }
         }
 
-        // Registra tempo del picco (se significativo)
-        if (maxRowIntensity > 100) {  // Soglia minima
+        // Registra tempo del picco (se significativo) - SOGLIA PIÙ ALTA
+        if (maxRowIntensity > 150) {
             rowPeakTime[row] = peakTime;
         }
     }
@@ -904,9 +981,9 @@ bool MotionDetector::_detectSlashVertical(uint8_t& outConfidence) {
     }
 
     // Confidence proporzionale a quante righe seguono il pattern
-    // Minimo 5 righe consecutive per considerarlo slash verticale
-    if (sequentialRows >= 5) {
-        outConfidence = map(sequentialRows, 5, GRID_ROWS - 1, 60, 100);
+    // Minimo 6 righe consecutive (più restrittivo)
+    if (sequentialRows >= 6) {
+        outConfidence = map(sequentialRows, 6, GRID_ROWS - 1, 60, 100);
         return true;
     }
 
@@ -951,8 +1028,8 @@ bool MotionDetector::_detectSlashHorizontal(uint8_t& outConfidence) {
             }
         }
 
-        // Registra tempo del picco (se significativo)
-        if (maxColIntensity > 100) {
+        // Registra tempo del picco (se significativo) - SOGLIA PIÙ ALTA
+        if (maxColIntensity > 150) {
             colPeakTime[col] = peakTime;
         }
     }
@@ -968,9 +1045,9 @@ bool MotionDetector::_detectSlashHorizontal(uint8_t& outConfidence) {
         }
     }
 
-    // Minimo 5 colonne consecutive
-    if (sequentialCols >= 5) {
-        outConfidence = map(sequentialCols, 5, GRID_COLS - 1, 60, 100);
+    // Minimo 6 colonne consecutive (più restrittivo)
+    if (sequentialCols >= 6) {
+        outConfidence = map(sequentialCols, 6, GRID_COLS - 1, 60, 100);
         return true;
     }
 
@@ -991,9 +1068,6 @@ bool MotionDetector::_detectRotation(uint8_t& outConfidence) {
     // Settori attorno al centro (clockwise):
     // 0: top, 1: top-right, 2: right, 3: bottom-right,
     // 4: bottom, 5: bottom-left, 6: left, 7: top-left
-
-    // Mappa celle a settori (zona centrale = 4x4, escludiamo bordo esterno se necessario)
-    // Semplifichiamo: dividiamo la griglia in 8 settori radiali
 
     int8_t sectorPeakTime[8];
     memset(sectorPeakTime, -1, sizeof(sectorPeakTime));
@@ -1042,7 +1116,8 @@ bool MotionDetector::_detectRotation(uint8_t& outConfidence) {
             }
         }
 
-        if (maxSectorIntensity > 80) {
+        // SOGLIA PIÙ ALTA
+        if (maxSectorIntensity > 120) {
             sectorPeakTime[sector] = peakTime;
         }
     }
@@ -1057,9 +1132,9 @@ bool MotionDetector::_detectRotation(uint8_t& outConfidence) {
         }
     }
 
-    // Minimo 4 settori consecutivi per rotazione
-    if (sequentialSectors >= 4) {
-        outConfidence = map(sequentialSectors, 4, 7, 60, 100);
+    // Minimo 5 settori consecutivi (più restrittivo)
+    if (sequentialSectors >= 5) {
+        outConfidence = map(sequentialSectors, 5, 7, 60, 100);
         return true;
     }
 
@@ -1099,8 +1174,8 @@ bool MotionDetector::_detectThrust(uint8_t& outConfidence) {
                        intensityOverTime[TRAJECTORY_DEPTH - 2] +
                        intensityOverTime[TRAJECTORY_DEPTH - 1]) / 3;
 
-    // Thrust: fine almeno 3x più intenso dell'inizio
-    if (endAvg < startAvg * 3) {
+    // Thrust: fine almeno 4x più intenso dell'inizio (più restrittivo)
+    if (endAvg < startAvg * 4) {
         outConfidence = 0;
         return false;
     }
@@ -1109,13 +1184,13 @@ bool MotionDetector::_detectThrust(uint8_t& outConfidence) {
     uint8_t latestFrameIdx = (_trajectoryIndex + TRAJECTORY_DEPTH - 1) % TRAJECTORY_DEPTH;
     uint8_t activeCells = 0;
     for (uint8_t i = 0; i < GRID_SIZE; i++) {
-        if (_trajectoryBuffer[latestFrameIdx][i] > 50) {
+        if (_trajectoryBuffer[latestFrameIdx][i] > 70) {  // Soglia più alta
             activeCells++;
         }
     }
 
-    // Thrust deve essere concentrato (max 25 celle attive su 81)
-    if (activeCells > 25) {
+    // Thrust deve essere concentrato (max 20 celle attive su 81)
+    if (activeCells > 20) {
         outConfidence = 0;
         return false;
     }
@@ -1123,12 +1198,12 @@ bool MotionDetector::_detectThrust(uint8_t& outConfidence) {
     // Confidence basato su rapporto intensità e concentrazione
     uint16_t ratio = endAvg / max(startAvg, (uint16_t)1);
     uint16_t intensityRatio = min((uint16_t)ratio, (uint16_t)10);
-    uint8_t concentrationScore = map(activeCells, 1, 25, 100, 60);
+    uint8_t concentrationScore = map(activeCells, 1, 20, 100, 60);
 
     uint16_t confCalc = (intensityRatio * 10 + concentrationScore) / 2;
     outConfidence = min((uint8_t)confCalc, (uint8_t)100);
 
-    return (outConfidence > 50);
+    return (outConfidence > 60);  // Soglia più alta
 }
 
 // ============================================================================
@@ -1211,12 +1286,14 @@ void MotionDetector::_updateBackgroundModel(const uint8_t* currentFrame, bool mo
         return;
     }
 
+    // Se nessun movimento, aggiorna background rapidamente
     if (!motionDetected) {
         memcpy(_backgroundFrame, currentFrame, _frameSize);
         return;
     }
 
-    const uint8_t decayShift = 5;  // Aggiorna lentamente (1/32)
+    // Se c'è movimento, aggiorna molto lentamente per adattarsi gradualmente
+    const uint8_t decayShift = 6;  // Aggiorna molto lentamente (1/64)
     for (size_t i = 0; i < _frameSize; i++) {
         int16_t diff = static_cast<int16_t>(currentFrame[i]) -
                        static_cast<int16_t>(_backgroundFrame[i]);

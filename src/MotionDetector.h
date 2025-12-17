@@ -410,6 +410,12 @@ private:
      */
     void _updateNoiseModel(uint8_t intensity, bool rawMotionCandidate);
 
+    /**
+     * @brief Valida coerenza spaziale del movimento rilevato
+     * @return true se il movimento è spazialmente coerente (non rumore sparso)
+     */
+    bool _validateSpatialCoherence();
+
     // Noise auto-regulation state
     uint8_t _ambientNoiseEstimate;
     uint8_t _dynamicIntensityFloor;
