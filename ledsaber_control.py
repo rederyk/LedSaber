@@ -21,6 +21,13 @@ CHAR_STATUS_LED_UUID = "a4b8d7f9-1e43-6c7d-ad8f-456789abcdef"
 CHAR_FOLD_POINT_UUID = "h5i0f9h7-3g65-8e9f-cf0g-6789abcdef01"
 CHAR_FW_VERSION_UUID = "a4b8d7fa-1e43-6c7d-ad8f-456789abcdef"
 
+# Camera Service UUIDs
+CAMERA_SERVICE_UUID = "5fafc301-1fb5-459e-8fcc-c5c9c331914b"
+CHAR_CAMERA_STATUS_UUID = "6eb5483e-36e1-4688-b7f5-ea07361b26a8"
+CHAR_CAMERA_CONTROL_UUID = "7dc5a4c3-eb10-4a3e-8a4c-1234567890ab"
+CHAR_CAMERA_METRICS_UUID = "8ef6b5d4-fc21-5b4f-9b5d-2345678901bc"
+CHAR_CAMERA_FLASH_UUID = "9fe7c6e5-0d32-4c5a-ac6e-3456789012cd"
+
 # Colori ANSI per output colorato
 class Colors:
     RESET = "\033[0m"
@@ -42,7 +49,13 @@ class LedSaberClient:
         self.current_state = {}
         self.previous_state = {}  # Stato precedente per rilevare cambiamenti
         self.state_callback: Optional[Callable] = None
+        self.camera_callback: Optional[Callable] = None
         self.first_state_received = False  # Flag per primo stato
+
+        # Camera state tracking
+        self.camera_state = {}
+        self.previous_camera_state = {}
+        self.first_camera_state_received = False
 
     async def scan(self, timeout: float = 5.0) -> list:
         """Cerca dispositivi BLE nelle vicinanze"""
@@ -83,9 +96,19 @@ class LedSaberClient:
                         CHAR_LED_STATE_UUID,
                         self._notification_handler
                     )
-                    print(f"{Colors.GREEN}✓ Notifiche abilitate{Colors.RESET}")
+                    print(f"{Colors.GREEN}✓ Notifiche LED abilitate{Colors.RESET}")
                 except Exception as notify_error:
-                    print(f"{Colors.YELLOW}⚠ Notifiche non disponibili: {notify_error}{Colors.RESET}")
+                    print(f"{Colors.YELLOW}⚠ Notifiche LED non disponibili: {notify_error}{Colors.RESET}")
+
+                # Abilita notifiche per stato Camera
+                try:
+                    await self.client.start_notify(
+                        CHAR_CAMERA_STATUS_UUID,
+                        self._camera_notification_handler
+                    )
+                    print(f"{Colors.GREEN}✓ Notifiche Camera abilitate{Colors.RESET}")
+                except Exception as notify_error:
+                    print(f"{Colors.YELLOW}⚠ Notifiche Camera non disponibili: {notify_error}{Colors.RESET}")
 
                 return True
 
@@ -112,7 +135,7 @@ class LedSaberClient:
             print(f"{Colors.YELLOW}📡 Disconnesso{Colors.RESET}")
 
     def _notification_handler(self, characteristic: BleakGATTCharacteristic, data: bytearray):
-        """Gestisce notifiche di stato dal dispositivo"""
+        """Gestisce notifiche di stato LED dal dispositivo"""
         try:
             state_json = data.decode('utf-8')
             new_state = json.loads(state_json)
@@ -137,7 +160,71 @@ class LedSaberClient:
                     self.state_callback(self.current_state, is_first=False, changes=changes)
 
         except Exception as e:
-            print(f"{Colors.RED}✗ Errore parsing notifica: {e}{Colors.RESET}")
+            print(f"{Colors.RED}✗ Errore parsing notifica LED: {e}{Colors.RESET}")
+
+    def _camera_notification_handler(self, characteristic: BleakGATTCharacteristic, data: bytearray):
+        """Gestisce notifiche di stato Camera dal dispositivo"""
+        try:
+            status_json = data.decode('utf-8')
+            new_camera_state = json.loads(status_json)
+
+            # Primo stato camera ricevuto - mostra sempre
+            if not self.first_camera_state_received:
+                self.first_camera_state_received = True
+                self.camera_state = new_camera_state
+                self.previous_camera_state = new_camera_state.copy()
+                if self.camera_callback:
+                    self.camera_callback(self.camera_state, is_first=True)
+                else:
+                    print(f"\n{Colors.GREEN}✓ Camera stato iniziale ricevuto{Colors.RESET}")
+                return
+
+            # Calcola cambiamenti SIGNIFICATIVI
+            significant_changes = {}
+            for key in new_camera_state:
+                old_value = self.previous_camera_state.get(key)
+                new_value = new_camera_state[key]
+
+                # Ignora cambiamenti di FPS minori di 2.0 fps (riduce spam)
+                if key == 'fps':
+                    if old_value is None or abs(new_value - old_value) >= 2.0:
+                        significant_changes[key] = {'old': old_value, 'new': new_value}
+                # Ignora cambiamento totalFrames (troppo frequente, non importante)
+                elif key == 'totalFrames':
+                    pass  # Non notificare mai
+                # Altri cambiamenti: notifica sempre
+                elif old_value != new_value:
+                    significant_changes[key] = {'old': old_value, 'new': new_value}
+
+            # Mostra SOLO se ci sono cambiamenti significativi
+            if significant_changes:
+                self.camera_state = new_camera_state
+                self.previous_camera_state = new_camera_state.copy()
+
+                if self.camera_callback:
+                    self.camera_callback(self.camera_state, is_first=False, changes=significant_changes)
+                else:
+                    print(f"\n{Colors.CYAN}📸 Camera Update:{Colors.RESET}")
+                    for key, change in significant_changes.items():
+                        if key == 'initialized':
+                            status = "✓ Initialized" if change['new'] else "✗ Not initialized"
+                            print(f"  {status}")
+                        elif key == 'active':
+                            status = "ACTIVE" if change['new'] else "STOPPED"
+                            print(f"  Status → {status}")
+                        elif key == 'fps':
+                            print(f"  FPS → {change['new']:.2f}")
+                        elif key == 'failedCaptures':
+                            print(f"  Failed Captures → {change['new']}")
+
+                    print(f"{Colors.BOLD}>{Colors.RESET} ", end="", flush=True)
+            else:
+                # Aggiorna stato silenziosamente (per totalFrames)
+                self.camera_state = new_camera_state
+                self.previous_camera_state = new_camera_state.copy()
+
+        except Exception as e:
+            print(f"{Colors.RED}✗ Errore parsing notifica camera: {e}{Colors.RESET}")
 
     def _calculate_changes(self, old_state: dict, new_state: dict) -> dict:
         """Calcola le differenze tra due stati"""
@@ -288,6 +375,58 @@ class LedSaberClient:
             print(f"{Colors.RED}✗ Errore lettura fold point: {e}{Colors.RESET}")
             return {}
 
+    async def camera_send_command(self, command: str):
+        """Invia comando alla camera (init, capture, start, stop, reset_metrics)"""
+        if not self.client or not self.client.is_connected:
+            print(f"{Colors.RED}✗ Non connesso{Colors.RESET}")
+            return
+
+        await self.client.write_gatt_char(
+            CHAR_CAMERA_CONTROL_UUID,
+            command.encode('utf-8')
+        )
+        print(f"{Colors.GREEN}✓ Comando camera inviato: {command}{Colors.RESET}")
+
+    async def get_camera_status(self) -> dict:
+        """Legge stato camera"""
+        if not self.client or not self.client.is_connected:
+            return {}
+
+        try:
+            status_data = await self.client.read_gatt_char(CHAR_CAMERA_STATUS_UUID)
+            status_json = status_data.decode('utf-8')
+            return json.loads(status_json)
+        except Exception as e:
+            print(f"{Colors.RED}✗ Errore lettura camera status: {e}{Colors.RESET}")
+            return {}
+
+    async def get_camera_metrics(self) -> dict:
+        """Legge metriche camera"""
+        if not self.client or not self.client.is_connected:
+            return {}
+
+        try:
+            metrics_data = await self.client.read_gatt_char(CHAR_CAMERA_METRICS_UUID)
+            metrics_json = metrics_data.decode('utf-8')
+            return json.loads(metrics_json)
+        except Exception as e:
+            print(f"{Colors.RED}✗ Errore lettura camera metrics: {e}{Colors.RESET}")
+            return {}
+
+    async def set_camera_flash(self, enabled: bool, brightness: int = 255):
+        """Imposta flash camera"""
+        if not self.client or not self.client.is_connected:
+            print(f"{Colors.RED}✗ Non connesso{Colors.RESET}")
+            return
+
+        flash_data = json.dumps({"enabled": enabled, "brightness": brightness})
+        await self.client.write_gatt_char(
+            CHAR_CAMERA_FLASH_UUID,
+            flash_data.encode('utf-8')
+        )
+        status = "ON" if enabled else "OFF"
+        print(f"{Colors.GREEN}✓ Flash camera: {status} (brightness: {brightness}){Colors.RESET}")
+
     async def debug_services(self):
         """Mostra servizi/characteristics noti per il dispositivo connesso"""
         if not self.client or not self.client.is_connected:
@@ -331,7 +470,7 @@ class InteractiveCLI:
     def __init__(self):
         self.client = LedSaberClient()
         self.running = False
-        self.notifications_enabled = True  # Flag per abilitare/disabilitare notifiche
+        self.notifications_enabled = False  # Flag per abilitare/disabilitare notifiche
 
     async def prompt_user(self, prompt: str) -> str:
         """Chiede input all'utente senza bloccare l'event loop"""
@@ -372,7 +511,18 @@ class InteractiveCLI:
   {Colors.MAGENTA}presets{Colors.RESET}          - Mostra preset colori
   {Colors.MAGENTA}preset <name>{Colors.RESET}    - Applica preset
 
-  {Colors.YELLOW}notify{Colors.RESET}            - Toggle notifiche automatiche on/off
+  {Colors.YELLOW}notify{Colors.RESET}            - Toggle notifiche automatiche LED+Camera
+
+  {Colors.BOLD}🎥 CAMERA COMMANDS:{Colors.RESET}
+  {Colors.CYAN}cam init{Colors.RESET}          - Inizializza camera
+  {Colors.CYAN}cam capture{Colors.RESET}       - Cattura frame singolo (test)
+  {Colors.CYAN}cam start{Colors.RESET}         - Avvia cattura continua
+  {Colors.CYAN}cam stop{Colors.RESET}          - Ferma cattura continua
+  {Colors.CYAN}cam status{Colors.RESET}        - Mostra stato camera
+  {Colors.CYAN}cam metrics{Colors.RESET}       - Mostra metriche dettagliate
+  {Colors.CYAN}cam reset{Colors.RESET}         - Reset metriche
+  {Colors.CYAN}cam flash on/off{Colors.RESET}  - Accendi/spegni flash
+  {Colors.CYAN}cam flash <0-255>{Colors.RESET} - Imposta intensità flash
 
   {Colors.RED}quit{Colors.RESET}              - Esci
   {Colors.BLUE}help{Colors.RESET}              - Mostra questo menu
@@ -619,7 +769,87 @@ class InteractiveCLI:
             elif cmd == "notify":
                 self.notifications_enabled = not self.notifications_enabled
                 status = f"{Colors.GREEN}ABILITATE{Colors.RESET}" if self.notifications_enabled else f"{Colors.RED}DISABILITATE{Colors.RESET}"
-                print(f"📢 Notifiche automatiche: {status}")
+                print(f"📢 Notifiche automatiche LED/Camera: {status}")
+
+            elif cmd == "cam":
+                # Gestione comandi camera
+                if not args:
+                    print(f"{Colors.RED}✗ Uso: cam <comando>{Colors.RESET}")
+                    print(f"{Colors.YELLOW}💡 Comandi: init, capture, start, stop, status, metrics, reset, flash{Colors.RESET}")
+                    return
+
+                subcmd = args[0].lower()
+
+                if subcmd == "init":
+                    await self.client.camera_send_command("init")
+                    await asyncio.sleep(1)
+                    status = await self.client.get_camera_status()
+                    if status:
+                        print(f"\n{Colors.BOLD}📸 Camera Status:{Colors.RESET}")
+                        print(f"  Initialized: {status.get('initialized', False)}")
+                        print(f"  Active: {status.get('active', False)}")
+
+                elif subcmd == "capture":
+                    await self.client.camera_send_command("capture")
+
+                elif subcmd == "start":
+                    await self.client.camera_send_command("start")
+
+                elif subcmd == "stop":
+                    await self.client.camera_send_command("stop")
+
+                elif subcmd == "status":
+                    status = await self.client.get_camera_status()
+                    if status:
+                        print(f"\n{Colors.BOLD}📸 Camera Status:{Colors.RESET}")
+                        print(f"  Initialized: {status.get('initialized', False)}")
+                        print(f"  Active: {status.get('active', False)}")
+                        print(f"  FPS: {status.get('fps', 0):.2f}")
+                        print(f"  Total Frames: {status.get('totalFrames', 0)}")
+                        print(f"  Failed Captures: {status.get('failedCaptures', 0)}")
+                    else:
+                        print(f"{Colors.YELLOW}⚠ Nessun dato disponibile{Colors.RESET}")
+
+                elif subcmd == "metrics":
+                    metrics = await self.client.get_camera_metrics()
+                    if metrics:
+                        print(f"\n{Colors.BOLD}📊 Camera Metrics:{Colors.RESET}")
+                        print(f"  Total Frames: {metrics.get('totalFramesCaptured', 0)}")
+                        print(f"  Failed Captures: {metrics.get('failedCaptures', 0)}")
+                        print(f"  Last Frame Size: {metrics.get('lastFrameSize', 0)} bytes")
+                        print(f"  Last Capture Time: {metrics.get('lastCaptureTime', 0)} ms")
+                        print(f"  Current FPS: {metrics.get('currentFps', 0):.2f}")
+                        print(f"\n{Colors.BOLD}💾 Memory:{Colors.RESET}")
+                        print(f"  Heap Free: {metrics.get('heapFree', 0)} bytes")
+                        print(f"  PSRAM Total: {metrics.get('psramTotal', 0)} bytes")
+                        print(f"  PSRAM Free: {metrics.get('psramFree', 0)} bytes")
+                    else:
+                        print(f"{Colors.YELLOW}⚠ Nessun dato disponibile{Colors.RESET}")
+
+                elif subcmd == "reset":
+                    await self.client.camera_send_command("reset_metrics")
+
+                elif subcmd == "flash":
+                    if len(args) < 2:
+                        print(f"{Colors.RED}✗ Uso: cam flash <on|off|0-255>{Colors.RESET}")
+                        return
+
+                    flash_arg = args[1].lower()
+                    if flash_arg == "on":
+                        await self.client.set_camera_flash(True, 255)
+                    elif flash_arg == "off":
+                        await self.client.set_camera_flash(False, 0)
+                    else:
+                        try:
+                            brightness = int(flash_arg)
+                            brightness = max(0, min(255, brightness))
+                            await self.client.set_camera_flash(brightness > 0, brightness)
+                        except ValueError:
+                            print(f"{Colors.RED}✗ Valore non valido{Colors.RESET}")
+
+                else:
+                    print(f"{Colors.RED}✗ Comando camera sconosciuto: {subcmd}{Colors.RESET}")
+                    print(f"{Colors.YELLOW}💡 Comandi: init, capture, start, stop, status, metrics, reset, flash{Colors.RESET}")
 
             elif cmd == "help":
                 self.print_menu()
@@ -683,6 +913,37 @@ class InteractiveCLI:
                 print(f"{Colors.BOLD}>{Colors.RESET} ", end="", flush=True)
 
         self.client.state_callback = on_state_update
+
+        def on_camera_update(state, is_first=False, changes=None):
+            if not self.notifications_enabled:
+                return
+
+            state = state or {}
+            if is_first:
+                print(f"\n{Colors.GREEN}✓ Camera stato iniziale ricevuto{Colors.RESET}")
+                print(f"  Initialized: {state.get('initialized', False)}")
+                print(f"  Active: {state.get('active', False)}")
+                print(f"  FPS: {state.get('fps', 0):.2f}")
+                print(f"  Failed Captures: {state.get('failedCaptures', 0)}")
+            else:
+                print(f"\n{Colors.CYAN}📸 Camera Update:{Colors.RESET}")
+                if changes:
+                    for key, change in changes.items():
+                        if key == 'initialized':
+                            status = "✓ Initialized" if change['new'] else "✗ Not initialized"
+                            print(f"  {status}")
+                        elif key == 'active':
+                            status = "ACTIVE" if change['new'] else "STOPPED"
+                            print(f"  Status → {status}")
+                        elif key == 'fps':
+                            print(f"  FPS → {change['new']:.2f}")
+                        elif key == 'failedCaptures':
+                            print(f"  Failed Captures → {change['new']}")
+                else:
+                    print("  (Nessun cambiamento significativo)")
+            print(f"{Colors.BOLD}>{Colors.RESET} ", end="", flush=True)
+
+        self.client.camera_callback = on_camera_update
 
         print(f"{Colors.YELLOW}💡 Suggerimento: inizia con 'scan' per cercare dispositivi{Colors.RESET}\n")
 

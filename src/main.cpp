@@ -6,6 +6,8 @@
 #include "BLELedController.h"
 #include "OTAManager.h"
 #include "ConfigManager.h"
+#include "CameraManager.h"
+#include "BLECameraService.h"
 
 // GPIO
 static constexpr uint8_t STATUS_LED_PIN = 4;   // LED integrato per stato connessione
@@ -21,7 +23,8 @@ static constexpr uint8_t DEFAULT_STATUS_LED_BRIGHTNESS = 32;
 // Calcolo: 5V * 2A = 10W disponibili
 // 144 LED * 60mA (max) = 8.64A teorici a luminosità 255
 // Luminosità massima sicura: (2A / 8.64A) * 255 ≈ 59
-static constexpr uint8_t MAX_SAFE_BRIGHTNESS = 60;
+// Luminosità massima modulo 5v5A: (4A / 8.64A) * 255 ≈ 112
+static constexpr uint8_t MAX_SAFE_BRIGHTNESS = 112;
 
 CRGB leds[NUM_LEDS];
 
@@ -48,6 +51,10 @@ LedState ledState;
 BLELedController bleController(&ledState);
 OTAManager otaManager;
 ConfigManager configManager(&ledState);
+
+// Camera Manager
+CameraManager cameraManager;
+BLECameraService bleCameraService(&cameraManager);
 
 // ============================================================================
 // CALLBACKS GLOBALI DEL SERVER BLE
@@ -571,10 +578,15 @@ void setup() {
     otaManager.begin(pServer);
     Serial.println("*** OTA Service avviato ***");
 
-    // 5. Configura e avvia l'advertising DOPO aver inizializzato tutti i servizi
+    // 5. Inizializza il servizio Camera, agganciandolo allo stesso server
+    bleCameraService.begin(pServer);
+    Serial.println("*** Camera Service avviato ***");
+
+    // 6. Configura e avvia l'advertising DOPO aver inizializzato tutti i servizi
     BLEAdvertising* pAdvertising = BLEDevice::getAdvertising();
     pAdvertising->addServiceUUID(LED_SERVICE_UUID);
     pAdvertising->addServiceUUID(OTA_SERVICE_UUID);
+    pAdvertising->addServiceUUID(CAMERA_SERVICE_UUID);
     pAdvertising->setScanResponse(true);
     pAdvertising->setMinPreferred(0x06);  // iPhone compatibility
     pAdvertising->setMinPreferred(0x12);
@@ -588,6 +600,7 @@ void loop() {
     static unsigned long lastBleNotify = 0;
     static unsigned long lastLoopDebug = 0;
     static unsigned long lastConfigSave = 0;
+    static unsigned long lastCameraUpdate = 0;
     const unsigned long now = millis();
 
     const bool bleConnected = bleController.isConnected();
@@ -627,6 +640,26 @@ void loop() {
             } else {
                 Serial.println("[CONFIG ERROR] Failed to save config, will retry");
             }
+        }
+
+        // Aggiorna metriche camera ogni 1 secondo
+        if (now - lastCameraUpdate > 1000) {
+            bleCameraService.updateMetrics();
+            bleCameraService.notifyStatus();
+            lastCameraUpdate = now;
+        }
+
+        // Cattura continua camera se attiva
+        if (bleCameraService.isCameraActive()) {
+            uint8_t* frameBuffer = nullptr;
+            size_t frameLength = 0;
+
+            if (cameraManager.captureFrame(&frameBuffer, &frameLength)) {
+                // Frame catturato con successo
+                // TODO: In futuro qui faremo motion detection
+                cameraManager.releaseFrame();
+            }
+            // Non aggiungiamo delay - lasciamo che la camera catturi al max FPS
         }
     }
 
