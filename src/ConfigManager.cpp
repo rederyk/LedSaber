@@ -67,6 +67,7 @@ bool ConfigManager::loadConfig() {
     ledState->enabled = doc["enabled"] | defaults.enabled;
     ledState->statusLedEnabled = doc["statusLedEnabled"] | defaults.statusLedEnabled;
     ledState->statusLedBrightness = doc["statusLedBrightness"] | defaults.statusLedBrightness;
+    ledState->foldPoint = doc["foldPoint"] | defaults.foldPoint;
 
     // Valida i valori caricati
     if (ledState->brightness > 255) ledState->brightness = 255;
@@ -75,6 +76,11 @@ bool ConfigManager::loadConfig() {
     if (ledState->b > 255) ledState->b = 255;
     if (ledState->speed > 255) ledState->speed = 255;
     if (ledState->statusLedBrightness > 255) ledState->statusLedBrightness = 255;
+
+    // Validazione foldPoint: deve essere tra 1 e 143 (NUM_LEDS-1)
+    if (ledState->foldPoint == 0 || ledState->foldPoint >= 144) {
+        ledState->foldPoint = 72;  // Fallback a metà di 144
+    }
 
     Serial.printf("[CONFIG] Loaded: brightness=%d, r=%d, g=%d, b=%d, effect=%s, speed=%d\n",
         ledState->brightness, ledState->r, ledState->g, ledState->b,
@@ -118,6 +124,10 @@ bool ConfigManager::saveConfig() {
     }
     if (ledState->statusLedBrightness != defaults.statusLedBrightness) {
         doc["statusLedBrightness"] = ledState->statusLedBrightness;
+        modifiedCount++;
+    }
+    if (ledState->foldPoint != defaults.foldPoint) {
+        doc["foldPoint"] = ledState->foldPoint;
         modifiedCount++;
     }
 
@@ -164,6 +174,7 @@ void ConfigManager::resetToDefaults() {
     ledState->enabled = defaults.enabled;
     ledState->statusLedEnabled = defaults.statusLedEnabled;
     ledState->statusLedBrightness = defaults.statusLedBrightness;
+    ledState->foldPoint = defaults.foldPoint;
 
     if (LittleFS.exists(CONFIG_FILE)) {
         LittleFS.remove(CONFIG_FILE);
@@ -216,4 +227,5 @@ void ConfigManager::createDefaultConfig() {
     ledState->enabled = defaults.enabled;
     ledState->statusLedEnabled = defaults.statusLedEnabled;
     ledState->statusLedBrightness = defaults.statusLedBrightness;
+    ledState->foldPoint = defaults.foldPoint;
 }

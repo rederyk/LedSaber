@@ -21,6 +21,7 @@ private:
         bool enabled = true;
         uint8_t statusLedBrightness = 32;
         bool statusLedEnabled = true;
+        uint8_t foldPoint = 72;  // Punto di piegatura LED (default = metà)
     };
     DefaultConfig defaults;
 

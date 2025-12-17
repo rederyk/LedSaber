@@ -18,6 +18,7 @@ CHAR_LED_COLOR_UUID = "d1e5a4c3-eb10-4a3e-8a4c-1234567890ab"
 CHAR_LED_EFFECT_UUID = "e2f6b5d4-fc21-5b4f-9b5d-2345678901bc"
 CHAR_LED_BRIGHTNESS_UUID = "f3e7c6e5-0d32-4c5a-ac6e-3456789012cd"
 CHAR_STATUS_LED_UUID = "a4b8d7f9-1e43-6c7d-ad8f-456789abcdef"
+CHAR_FOLD_POINT_UUID = "h5i0f9h7-3g65-8e9f-cf0g-6789abcdef01"
 CHAR_FW_VERSION_UUID = "a4b8d7fa-1e43-6c7d-ad8f-456789abcdef"
 
 # Colori ANSI per output colorato
@@ -163,7 +164,7 @@ class LedSaberClient:
         print(f"{Colors.GREEN}✓ Colore impostato: RGB({r},{g},{b}){Colors.RESET}")
 
     async def set_effect(self, mode: str, speed: int = 50):
-        """Imposta effetto LED (solid, rainbow, breathe)"""
+        """Imposta effetto LED (solid, rainbow, breathe, ignition, retraction, flicker, unstable, pulse, dual_pulse, clash, rainbow_blade)"""
         if not self.client or not self.client.is_connected:
             print(f"{Colors.RED}✗ Non connesso{Colors.RESET}")
             return
@@ -258,6 +259,35 @@ class LedSaberClient:
             print(f"{Colors.RED}✗ Errore lettura LED di stato: {e}{Colors.RESET}")
             return {}
 
+    async def set_fold_point(self, fold_point: int):
+        """Imposta punto di piegatura striscia LED (1-143)"""
+        if not self.client or not self.client.is_connected:
+            print(f"{Colors.RED}✗ Non connesso{Colors.RESET}")
+            return
+
+        # Validazione
+        fold_point = max(1, min(143, int(fold_point)))
+
+        fold_data = json.dumps({"foldPoint": fold_point})
+        await self.client.write_gatt_char(
+            CHAR_FOLD_POINT_UUID,
+            fold_data.encode('utf-8')
+        )
+        print(f"{Colors.GREEN}✓ Fold point impostato: {fold_point}{Colors.RESET}")
+
+    async def get_fold_point(self) -> dict:
+        """Legge punto di piegatura striscia LED"""
+        if not self.client or not self.client.is_connected:
+            return {}
+
+        try:
+            fold_data = await self.client.read_gatt_char(CHAR_FOLD_POINT_UUID)
+            fold_json = fold_data.decode('utf-8')
+            return json.loads(fold_json)
+        except Exception as e:
+            print(f"{Colors.RED}✗ Errore lettura fold point: {e}{Colors.RESET}")
+            return {}
+
     async def debug_services(self):
         """Mostra servizi/characteristics noti per il dispositivo connesso"""
         if not self.client or not self.client.is_connected:
@@ -329,13 +359,15 @@ class InteractiveCLI:
   {Colors.YELLOW}status{Colors.RESET}            - Mostra stato corrente
 
   {Colors.GREEN}color <r> <g> <b>{Colors.RESET} - Imposta colore RGB (0-255)
-  {Colors.GREEN}effect <mode> [speed]{Colors.RESET} - Imposta effetto (solid/rainbow/breathe)
+  {Colors.GREEN}effect <mode> [speed]{Colors.RESET} - Imposta effetto LED
+  {Colors.GREEN}effects{Colors.RESET}            - Mostra lista effetti disponibili
   {Colors.GREEN}brightness <val>{Colors.RESET}  - Imposta luminosità (0-255)
   {Colors.GREEN}on{Colors.RESET}                - Accendi LED
   {Colors.GREEN}off{Colors.RESET}               - Spegni LED
 
   {Colors.CYAN}statusled on/off{Colors.RESET}  - Accendi o spegni LED integrato (pin 4)
   {Colors.CYAN}statusled <0-255>{Colors.RESET} - Imposta luminosità LED integrato
+  {Colors.CYAN}foldpoint <1-143>{Colors.RESET} - Imposta punto di piegatura LED
 
   {Colors.MAGENTA}presets{Colors.RESET}          - Mostra preset colori
   {Colors.MAGENTA}preset <name>{Colors.RESET}    - Applica preset
@@ -360,6 +392,7 @@ class InteractiveCLI:
         enabled = state.get('enabled', False)
         status_led_enabled = state.get('statusLedEnabled', True)
         status_led_brightness = state.get('statusLedBrightness', 0)
+        fold_point = state.get('foldPoint', 72)
         fw_line = (
             f"{Colors.CYAN}{firmware_version}{Colors.RESET}"
             if firmware_version
@@ -376,6 +409,7 @@ class InteractiveCLI:
   Colore: RGB({r}, {g}, {b})
   Effetto: {effect} (speed: {speed})
   Luminosità: {brightness}/255
+  Fold Point: {fold_point}
   LED di stato (pin 4): {status_led_status} (lum: {status_led_brightness}/255)
         """)
 
@@ -397,6 +431,27 @@ class InteractiveCLI:
         print(f"\n{Colors.BOLD}🎨 Preset disponibili:{Colors.RESET}")
         for name, (r, g, b) in presets.items():
             print(f"  {name:12} - RGB({r:3}, {g:3}, {b:3})")
+        print()
+
+    def print_effects(self):
+        """Mostra effetti LED disponibili"""
+        effects = {
+            "solid": "Colore solido statico",
+            "rainbow": "Arcobaleno animato",
+            "breathe": "Respirazione (fade in/out)",
+            "ignition": "Accensione progressiva (base → punta)",
+            "retraction": "Spegnimento progressivo (punta → base)",
+            "flicker": "Instabilità plasma (tipo Kylo Ren)",
+            "unstable": "Kylo Ren avanzato (flicker + sparks)",
+            "pulse": "Onda di energia che percorre la lama",
+            "dual_pulse": "Due onde in direzioni opposte",
+            "clash": "Flash bianco su impatto (auto ogni 3s)",
+            "rainbow_blade": "Arcobaleno lineare sulla lama",
+        }
+
+        print(f"\n{Colors.BOLD}✨ Effetti disponibili:{Colors.RESET}")
+        for name, description in effects.items():
+            print(f"  {name:15} - {description}")
         print()
 
     async def handle_command(self, command: str):
@@ -463,11 +518,15 @@ class InteractiveCLI:
 
             elif cmd == "effect":
                 if not args:
-                    print(f"{Colors.RED}✗ Uso: effect <solid|rainbow|breathe> [speed]{Colors.RESET}")
+                    print(f"{Colors.RED}✗ Uso: effect <mode> [speed]{Colors.RESET}")
+                    print(f"{Colors.YELLOW}💡 Usa 'effects' per vedere tutti gli effetti disponibili{Colors.RESET}")
                     return
                 mode = args[0]
                 speed = int(args[1]) if len(args) > 1 else 50
                 await self.client.set_effect(mode, speed)
+
+            elif cmd == "effects":
+                self.print_effects()
 
             elif cmd == "brightness":
                 if not args:
@@ -514,6 +573,16 @@ class InteractiveCLI:
                         print(f"{Colors.RED}✗ Uso: statusled <on|off|0-255|brightness <val>>{Colors.RESET}")
                         return
                     await self.client.set_status_led(brightness=brightness)
+
+            elif cmd == "foldpoint":
+                if not args:
+                    print(f"{Colors.RED}✗ Uso: foldpoint <1-143>{Colors.RESET}")
+                    return
+                try:
+                    fold_point = int(args[0])
+                    await self.client.set_fold_point(fold_point)
+                except ValueError:
+                    print(f"{Colors.RED}✗ Valore non valido{Colors.RESET}")
 
             elif cmd == "debug":
                 if args and args[0] == "services":
@@ -609,6 +678,8 @@ class InteractiveCLI:
                         elif key == 'statusLedEnabled':
                             status = "ENABLED" if change['new'] else "DISABLED"
                             print(f"  LED di stato (pin 4) → {status}")
+                        elif key == 'foldPoint':
+                            print(f"  Fold Point → {change['new']}")
                 print(f"{Colors.BOLD}>{Colors.RESET} ", end="", flush=True)
 
         self.client.state_callback = on_state_update

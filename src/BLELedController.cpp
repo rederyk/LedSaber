@@ -127,6 +127,42 @@ public:
     }
 };
 
+// Callback configurazione punto di piegatura
+class FoldPointCallbacks: public BLECharacteristicCallbacks {
+    BLELedController* controller;
+public:
+    explicit FoldPointCallbacks(BLELedController* ctrl) : controller(ctrl) {}
+
+    void onWrite(BLECharacteristic *pChar) override {
+        String value = pChar->getValue().c_str();
+        JsonDocument doc;
+        DeserializationError error = deserializeJson(doc, value);
+
+        if (!error) {
+            uint8_t requestedFoldPoint = doc["foldPoint"] | controller->ledState->foldPoint;
+
+            // Validazione: deve essere tra 1 e 143 (NUM_LEDS-1)
+            if (requestedFoldPoint >= 1 && requestedFoldPoint < 144) {
+                controller->ledState->foldPoint = requestedFoldPoint;
+                Serial.printf("[BLE] Fold point set to %d\n", controller->ledState->foldPoint);
+                controller->setConfigDirty(true);
+            } else {
+                Serial.printf("[BLE ERROR] Invalid fold point: %d (must be 1-143)\n",
+                    requestedFoldPoint);
+            }
+        }
+    }
+
+    void onRead(BLECharacteristic *pChar) override {
+        JsonDocument doc;
+        doc["foldPoint"] = controller->ledState->foldPoint;
+
+        String jsonString;
+        serializeJson(doc, jsonString);
+        pChar->setValue(jsonString.c_str());
+    }
+};
+
 // Costruttore
 BLELedController::BLELedController(LedState* state) {
     ledState = state;
@@ -138,6 +174,7 @@ BLELedController::BLELedController(LedState* state) {
     pCharEffect = nullptr;
     pCharBrightness = nullptr;
     pCharStatusLed = nullptr;
+    pCharFoldPoint = nullptr;
 }
 
 // Inizializzazione BLE
@@ -199,6 +236,17 @@ void BLELedController::begin(BLEServer* server) {
     descStatusLed->setValue("Status LED Pin 4");
     pCharStatusLed->addDescriptor(descStatusLed);
 
+    // Characteristic 6: Fold Point (READ + WRITE)
+    pCharFoldPoint = pService->createCharacteristic(
+        CHAR_FOLD_POINT_UUID,
+        BLECharacteristic::PROPERTY_READ |
+        BLECharacteristic::PROPERTY_WRITE
+    );
+    pCharFoldPoint->setCallbacks(new FoldPointCallbacks(this));
+    BLEDescriptor* descFoldPoint = new BLEDescriptor(BLEUUID((uint16_t)0x2901));
+    descFoldPoint->setValue("LED Strip Fold Point");
+    pCharFoldPoint->addDescriptor(descFoldPoint);
+
     // Avvia service
     pService->start();
 
@@ -219,6 +267,7 @@ void BLELedController::notifyState() {
     doc["enabled"] = ledState->enabled;
     doc["statusLedEnabled"] = ledState->statusLedEnabled;
     doc["statusLedBrightness"] = ledState->statusLedBrightness;
+    doc["foldPoint"] = ledState->foldPoint;
 
     String jsonString;
     serializeJson(doc, jsonString);
