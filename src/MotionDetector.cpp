@@ -12,6 +12,11 @@ MotionDetector::MotionDetector()
     , _motionIntensity(0)
     , _changedPixels(0)
     , _shakeDetected(false)
+    , _motionDirection(DIRECTION_NONE)
+    , _currentGesture(GESTURE_NONE)
+    , _gestureConfidence(0)
+    , _trajectoryIndex(0)
+    , _trajectoryFull(false)
     , _historyIndex(0)
     , _historyFull(false)
     , _lastMotionTime(0)
@@ -22,6 +27,8 @@ MotionDetector::MotionDetector()
     , _shakeCount(0)
 {
     memset(_intensityHistory, 0, sizeof(_intensityHistory));
+    memset(_zoneIntensities, 0, sizeof(_zoneIntensities));
+    memset(_trajectoryBuffer, 0, sizeof(_trajectoryBuffer));
 }
 
 MotionDetector::~MotionDetector() {
@@ -176,6 +183,16 @@ bool MotionDetector::processFrame(const uint8_t* frameBuffer, size_t frameLength
     // Calcola intensità movimento
     _motionIntensity = _calculateMotionIntensity(frameBuffer, _changedPixels);
 
+    // Calcola intensità per zone e determina direzione
+    _calculateZoneIntensities(frameBuffer);
+    _motionDirection = _determineMotionDirection();
+
+    // Aggiorna trajectory buffer con heatmap corrente
+    _updateTrajectoryBuffer();
+
+    // Riconosce gesture dalla trajectory
+    _currentGesture = _recognizeGesture();
+
     // Aggiorna history e rileva shake
     _updateHistoryAndDetectShake(_motionIntensity);
 
@@ -216,6 +233,11 @@ void MotionDetector::reset() {
     _motionIntensity = 0;
     _changedPixels = 0;
     _shakeDetected = false;
+    _motionDirection = DIRECTION_NONE;
+    _currentGesture = GESTURE_NONE;
+    _gestureConfidence = 0;
+    _trajectoryIndex = 0;
+    _trajectoryFull = false;
     _historyIndex = 0;
     _historyFull = false;
     _lastMotionTime = 0;
@@ -226,6 +248,8 @@ void MotionDetector::reset() {
     _shakeCount = 0;
 
     memset(_intensityHistory, 0, sizeof(_intensityHistory));
+    memset(_zoneIntensities, 0, sizeof(_zoneIntensities));
+    memset(_trajectoryBuffer, 0, sizeof(_trajectoryBuffer));
 
     if (_previousFrame) {
         memset(_previousFrame, 0, _frameSize);
@@ -241,8 +265,14 @@ MotionDetector::MotionMetrics MotionDetector::getMetrics() const {
     metrics.shakeCount = _shakeCount;
     metrics.currentIntensity = _motionIntensity;
     metrics.changedPixels = _changedPixels;
+    metrics.direction = _motionDirection;
+    metrics.gesture = _currentGesture;
+    metrics.gestureConfidence = _gestureConfidence;
 
     _getHistoryMinMax(metrics.minIntensityRecent, metrics.maxIntensityRecent);
+
+    // Copia intensità zone
+    memcpy(metrics.zoneIntensities, _zoneIntensities, sizeof(_zoneIntensities));
 
     return metrics;
 }
@@ -273,4 +303,472 @@ bool MotionDetector::isStill(unsigned long durationMs) const {
     bool stillActive = (_lastMotionTime == 0) || (_lastStillTime > _lastMotionTime);
 
     return stillActive && (stillDuration >= durationMs);
+}
+
+void MotionDetector::_calculateZoneIntensities(const uint8_t* currentFrame) {
+    // Reset zone intensities
+    memset(_zoneIntensities, 0, sizeof(_zoneIntensities));
+
+    // Calcola dimensioni zone
+    uint16_t zoneWidth = _frameWidth / GRID_COLS;
+    uint16_t zoneHeight = _frameHeight / GRID_ROWS;
+
+    // Per ogni zona calcola intensità movimento
+    for (uint8_t row = 0; row < GRID_ROWS; row++) {
+        for (uint8_t col = 0; col < GRID_COLS; col++) {
+            uint8_t zoneIndex = row * GRID_COLS + col;
+
+            uint32_t zoneDeltaSum = 0;
+            uint32_t zoneChangedPixels = 0;
+
+            // Coordinate zona
+            uint16_t startX = col * zoneWidth;
+            uint16_t startY = row * zoneHeight;
+            uint16_t endX = (col == GRID_COLS - 1) ? _frameWidth : (startX + zoneWidth);
+            uint16_t endY = (row == GRID_ROWS - 1) ? _frameHeight : (startY + zoneHeight);
+
+            // Scansiona pixel della zona
+            for (uint16_t y = startY; y < endY; y++) {
+                for (uint16_t x = startX; x < endX; x++) {
+                    size_t pixelIdx = y * _frameWidth + x;
+
+                    int16_t diff = abs((int16_t)currentFrame[pixelIdx] -
+                                      (int16_t)_previousFrame[pixelIdx]);
+
+                    if (diff > _motionThreshold) {
+                        zoneDeltaSum += diff;
+                        zoneChangedPixels++;
+                    }
+                }
+            }
+
+            // Calcola intensità media della zona
+            if (zoneChangedPixels > 0) {
+                uint8_t avgDelta = zoneDeltaSum / zoneChangedPixels;
+                _zoneIntensities[zoneIndex] = min(avgDelta * 2, 255);
+            } else {
+                _zoneIntensities[zoneIndex] = 0;
+            }
+        }
+    }
+}
+
+MotionDetector::MotionDirection MotionDetector::_determineMotionDirection() {
+    // Mappa zone a indici (3x3 grid):
+    // 0 1 2
+    // 3 4 5
+    // 6 7 8
+
+    // Somma intensità per direzioni
+    uint16_t topSum = _zoneIntensities[0] + _zoneIntensities[1] + _zoneIntensities[2];
+    uint16_t bottomSum = _zoneIntensities[6] + _zoneIntensities[7] + _zoneIntensities[8];
+    uint16_t leftSum = _zoneIntensities[0] + _zoneIntensities[3] + _zoneIntensities[6];
+    uint16_t rightSum = _zoneIntensities[2] + _zoneIntensities[5] + _zoneIntensities[8];
+    uint16_t centerIntensity = _zoneIntensities[4];
+
+    // Soglia minima per considerare movimento in una direzione
+    const uint16_t DIRECTION_THRESHOLD = 50;
+
+    // Se centro ha alta intensità, consideriamo movimento centrale
+    if (centerIntensity > 100 && topSum < DIRECTION_THRESHOLD &&
+        bottomSum < DIRECTION_THRESHOLD && leftSum < DIRECTION_THRESHOLD &&
+        rightSum < DIRECTION_THRESHOLD) {
+        return DIRECTION_CENTER;
+    }
+
+    // Determina direzione predominante
+    int16_t verticalBias = bottomSum - topSum;    // Positivo = DOWN, Negativo = UP
+    int16_t horizontalBias = rightSum - leftSum;  // Positivo = RIGHT, Negativo = LEFT
+
+    // Soglia per direzioni diagonali
+    const int16_t DIAGONAL_THRESHOLD = 30;
+
+    // Nessun movimento significativo
+    if (abs(verticalBias) < DIAGONAL_THRESHOLD && abs(horizontalBias) < DIAGONAL_THRESHOLD) {
+        return DIRECTION_NONE;
+    }
+
+    // Direzioni diagonali (entrambi i bias significativi)
+    if (abs(verticalBias) > DIAGONAL_THRESHOLD && abs(horizontalBias) > DIAGONAL_THRESHOLD) {
+        if (verticalBias < 0 && horizontalBias < 0) return DIRECTION_UP_LEFT;
+        if (verticalBias < 0 && horizontalBias > 0) return DIRECTION_UP_RIGHT;
+        if (verticalBias > 0 && horizontalBias < 0) return DIRECTION_DOWN_LEFT;
+        if (verticalBias > 0 && horizontalBias > 0) return DIRECTION_DOWN_RIGHT;
+    }
+
+    // Direzioni cardinali (un solo bias predominante)
+    if (abs(verticalBias) > abs(horizontalBias)) {
+        return (verticalBias < 0) ? DIRECTION_UP : DIRECTION_DOWN;
+    } else {
+        return (horizontalBias < 0) ? DIRECTION_LEFT : DIRECTION_RIGHT;
+    }
+}
+
+const char* MotionDetector::getMotionDirectionName() const {
+    switch (_motionDirection) {
+        case DIRECTION_NONE:       return "none";
+        case DIRECTION_UP:         return "up";
+        case DIRECTION_DOWN:       return "down";
+        case DIRECTION_LEFT:       return "left";
+        case DIRECTION_RIGHT:      return "right";
+        case DIRECTION_UP_LEFT:    return "up_left";
+        case DIRECTION_UP_RIGHT:   return "up_right";
+        case DIRECTION_DOWN_LEFT:  return "down_left";
+        case DIRECTION_DOWN_RIGHT: return "down_right";
+        case DIRECTION_CENTER:     return "center";
+        default:                   return "unknown";
+    }
+}
+
+const char* MotionDetector::getGestureName() const {
+    switch (_currentGesture) {
+        case GESTURE_NONE:              return "none";
+        case GESTURE_SLASH_VERTICAL:    return "slash_vertical";
+        case GESTURE_SLASH_HORIZONTAL:  return "slash_horizontal";
+        case GESTURE_ROTATION:          return "rotation";
+        case GESTURE_THRUST:            return "thrust";
+        default:                        return "unknown";
+    }
+}
+
+// ============================================================================
+// TRAJECTORY TRACKING
+// ============================================================================
+
+void MotionDetector::_updateTrajectoryBuffer() {
+    // Copia heatmap corrente nel trajectory buffer
+    memcpy(_trajectoryBuffer[_trajectoryIndex], _zoneIntensities, GRID_SIZE);
+
+    // Avanza indice circolare
+    _trajectoryIndex = (_trajectoryIndex + 1) % TRAJECTORY_DEPTH;
+
+    if (!_trajectoryFull && _trajectoryIndex == 0) {
+        _trajectoryFull = true;
+    }
+}
+
+// ============================================================================
+// GESTURE RECOGNITION
+// ============================================================================
+
+MotionDetector::GestureType MotionDetector::_recognizeGesture() {
+    // Gesture recognition richiede trajectory buffer pieno
+    if (!_trajectoryFull) {
+        _gestureConfidence = 0;
+        return GESTURE_NONE;
+    }
+
+    // Verifica che ci sia movimento sufficiente
+    if (_motionIntensity < 40) {
+        _gestureConfidence = 0;
+        return GESTURE_NONE;
+    }
+
+    uint8_t confidence = 0;
+    GestureType detectedGesture = GESTURE_NONE;
+
+    // Tenta rilevamento pattern in ordine di priorità
+    // (pattern più specifici prima)
+
+    if (_detectThrust(confidence)) {
+        detectedGesture = GESTURE_THRUST;
+    } else if (_detectSlashVertical(confidence)) {
+        detectedGesture = GESTURE_SLASH_VERTICAL;
+    } else if (_detectSlashHorizontal(confidence)) {
+        detectedGesture = GESTURE_SLASH_HORIZONTAL;
+    } else if (_detectRotation(confidence)) {
+        detectedGesture = GESTURE_ROTATION;
+    }
+
+    _gestureConfidence = confidence;
+
+    // Log solo se gesture diversa da NONE con confidence sufficiente
+    if (detectedGesture != GESTURE_NONE && confidence > 50) {
+        Serial.printf("[GESTURE] Detected: %s (confidence: %u%%)\n",
+                      getGestureName(), confidence);
+    }
+
+    return detectedGesture;
+}
+
+// ============================================================================
+// PATTERN DETECTION - SLASH VERTICAL
+// ============================================================================
+
+bool MotionDetector::_detectSlashVertical(uint8_t& outConfidence) {
+    // Pattern: movimento sequenziale dall'alto verso il basso
+    // Analizziamo la progressione dell'attività nelle righe nel tempo
+
+    outConfidence = 0;
+
+    // Per ogni riga calcoliamo quando è stata più attiva
+    int8_t rowPeakTime[GRID_ROWS];  // Timestamp relativo del picco (-1 = nessun picco)
+    memset(rowPeakTime, -1, sizeof(rowPeakTime));
+
+    // Scansiona trajectory per trovare picco di ogni riga
+    for (uint8_t row = 0; row < GRID_ROWS; row++) {
+        uint16_t maxRowIntensity = 0;
+        int8_t peakTime = -1;
+
+        // Scansiona trajectory dal più vecchio al più recente
+        for (uint8_t t = 0; t < TRAJECTORY_DEPTH; t++) {
+            uint8_t frameIdx = (_trajectoryIndex + t) % TRAJECTORY_DEPTH;
+
+            // Somma intensità di tutta la riga in questo frame
+            uint16_t rowIntensity = 0;
+            for (uint8_t col = 0; col < GRID_COLS; col++) {
+                uint8_t cellIdx = row * GRID_COLS + col;
+                rowIntensity += _trajectoryBuffer[frameIdx][cellIdx];
+            }
+
+            // Aggiorna picco
+            if (rowIntensity > maxRowIntensity) {
+                maxRowIntensity = rowIntensity;
+                peakTime = t;
+            }
+        }
+
+        // Registra tempo del picco (se significativo)
+        if (maxRowIntensity > 100) {  // Soglia minima
+            rowPeakTime[row] = peakTime;
+        }
+    }
+
+    // Verifica sequenzialità: i picchi devono essere in ordine crescente temporale
+    // da riga 0 (top) a riga 8 (bottom)
+    uint8_t sequentialRows = 0;
+    for (uint8_t row = 0; row < GRID_ROWS - 1; row++) {
+        if (rowPeakTime[row] >= 0 && rowPeakTime[row + 1] >= 0) {
+            if (rowPeakTime[row] < rowPeakTime[row + 1]) {
+                sequentialRows++;
+            }
+        }
+    }
+
+    // Confidence proporzionale a quante righe seguono il pattern
+    // Minimo 5 righe consecutive per considerarlo slash verticale
+    if (sequentialRows >= 5) {
+        outConfidence = map(sequentialRows, 5, GRID_ROWS - 1, 60, 100);
+        return true;
+    }
+
+    outConfidence = 0;
+    return false;
+}
+
+// ============================================================================
+// PATTERN DETECTION - SLASH HORIZONTAL
+// ============================================================================
+
+bool MotionDetector::_detectSlashHorizontal(uint8_t& outConfidence) {
+    // Pattern: movimento sequenziale da sinistra verso destra
+    // Analizziamo la progressione dell'attività nelle colonne nel tempo
+
+    outConfidence = 0;
+
+    // Per ogni colonna calcoliamo quando è stata più attiva
+    int8_t colPeakTime[GRID_COLS];
+    memset(colPeakTime, -1, sizeof(colPeakTime));
+
+    // Scansiona trajectory per trovare picco di ogni colonna
+    for (uint8_t col = 0; col < GRID_COLS; col++) {
+        uint16_t maxColIntensity = 0;
+        int8_t peakTime = -1;
+
+        // Scansiona trajectory dal più vecchio al più recente
+        for (uint8_t t = 0; t < TRAJECTORY_DEPTH; t++) {
+            uint8_t frameIdx = (_trajectoryIndex + t) % TRAJECTORY_DEPTH;
+
+            // Somma intensità di tutta la colonna in questo frame
+            uint16_t colIntensity = 0;
+            for (uint8_t row = 0; row < GRID_ROWS; row++) {
+                uint8_t cellIdx = row * GRID_COLS + col;
+                colIntensity += _trajectoryBuffer[frameIdx][cellIdx];
+            }
+
+            // Aggiorna picco
+            if (colIntensity > maxColIntensity) {
+                maxColIntensity = colIntensity;
+                peakTime = t;
+            }
+        }
+
+        // Registra tempo del picco (se significativo)
+        if (maxColIntensity > 100) {
+            colPeakTime[col] = peakTime;
+        }
+    }
+
+    // Verifica sequenzialità: i picchi devono essere in ordine crescente temporale
+    // da colonna 0 (left) a colonna 8 (right)
+    uint8_t sequentialCols = 0;
+    for (uint8_t col = 0; col < GRID_COLS - 1; col++) {
+        if (colPeakTime[col] >= 0 && colPeakTime[col + 1] >= 0) {
+            if (colPeakTime[col] < colPeakTime[col + 1]) {
+                sequentialCols++;
+            }
+        }
+    }
+
+    // Minimo 5 colonne consecutive
+    if (sequentialCols >= 5) {
+        outConfidence = map(sequentialCols, 5, GRID_COLS - 1, 60, 100);
+        return true;
+    }
+
+    outConfidence = 0;
+    return false;
+}
+
+// ============================================================================
+// PATTERN DETECTION - ROTATION
+// ============================================================================
+
+bool MotionDetector::_detectRotation(uint8_t& outConfidence) {
+    // Pattern: movimento circolare attorno al centro
+    // Definiamo 8 settori attorno al centro e verifichiamo attivazione sequenziale
+
+    outConfidence = 0;
+
+    // Settori attorno al centro (clockwise):
+    // 0: top, 1: top-right, 2: right, 3: bottom-right,
+    // 4: bottom, 5: bottom-left, 6: left, 7: top-left
+
+    // Mappa celle a settori (zona centrale = 4x4, escludiamo bordo esterno se necessario)
+    // Semplifichiamo: dividiamo la griglia in 8 settori radiali
+
+    int8_t sectorPeakTime[8];
+    memset(sectorPeakTime, -1, sizeof(sectorPeakTime));
+
+    // Per ogni settore troviamo il picco temporale
+    for (uint8_t sector = 0; sector < 8; sector++) {
+        uint16_t maxSectorIntensity = 0;
+        int8_t peakTime = -1;
+
+        // Scansiona trajectory
+        for (uint8_t t = 0; t < TRAJECTORY_DEPTH; t++) {
+            uint8_t frameIdx = (_trajectoryIndex + t) % TRAJECTORY_DEPTH;
+
+            // Somma intensità celle del settore
+            uint16_t sectorIntensity = 0;
+
+            // Mappa settori a zone della griglia (approssimazione)
+            // Centro griglia: (4, 4)
+            for (uint8_t row = 0; row < GRID_ROWS; row++) {
+                for (uint8_t col = 0; col < GRID_COLS; col++) {
+                    // Calcola angolo della cella rispetto al centro
+                    int8_t dy = row - 4;
+                    int8_t dx = col - 4;
+
+                    // Determina settore (0-7) basato su angolo
+                    uint8_t cellSector = 0;
+                    if (dx == 0 && dy < 0) cellSector = 0;       // top
+                    else if (dx > 0 && dy < 0) cellSector = 1;   // top-right
+                    else if (dx > 0 && dy == 0) cellSector = 2;  // right
+                    else if (dx > 0 && dy > 0) cellSector = 3;   // bottom-right
+                    else if (dx == 0 && dy > 0) cellSector = 4;  // bottom
+                    else if (dx < 0 && dy > 0) cellSector = 5;   // bottom-left
+                    else if (dx < 0 && dy == 0) cellSector = 6;  // left
+                    else if (dx < 0 && dy < 0) cellSector = 7;   // top-left
+
+                    if (cellSector == sector) {
+                        uint8_t cellIdx = row * GRID_COLS + col;
+                        sectorIntensity += _trajectoryBuffer[frameIdx][cellIdx];
+                    }
+                }
+            }
+
+            if (sectorIntensity > maxSectorIntensity) {
+                maxSectorIntensity = sectorIntensity;
+                peakTime = t;
+            }
+        }
+
+        if (maxSectorIntensity > 80) {
+            sectorPeakTime[sector] = peakTime;
+        }
+    }
+
+    // Verifica sequenzialità circolare: settori attivati in ordine crescente
+    uint8_t sequentialSectors = 0;
+    for (uint8_t i = 0; i < 7; i++) {
+        if (sectorPeakTime[i] >= 0 && sectorPeakTime[i + 1] >= 0) {
+            if (sectorPeakTime[i] < sectorPeakTime[i + 1]) {
+                sequentialSectors++;
+            }
+        }
+    }
+
+    // Minimo 4 settori consecutivi per rotazione
+    if (sequentialSectors >= 4) {
+        outConfidence = map(sequentialSectors, 4, 7, 60, 100);
+        return true;
+    }
+
+    outConfidence = 0;
+    return false;
+}
+
+// ============================================================================
+// PATTERN DETECTION - THRUST
+// ============================================================================
+
+bool MotionDetector::_detectThrust(uint8_t& outConfidence) {
+    // Pattern: movimento rapido e concentrato verso un punto specifico
+    // Caratteristiche:
+    // - Intensità cresce rapidamente nel tempo
+    // - Movimento concentrato in una zona ristretta (poche celle)
+    // - Picco finale molto più alto dell'inizio
+
+    outConfidence = 0;
+
+    // Analizza intensità totale nel tempo (tutti i frame)
+    uint16_t intensityOverTime[TRAJECTORY_DEPTH];
+    for (uint8_t t = 0; t < TRAJECTORY_DEPTH; t++) {
+        uint8_t frameIdx = (_trajectoryIndex + t) % TRAJECTORY_DEPTH;
+        uint16_t totalIntensity = 0;
+
+        for (uint8_t i = 0; i < GRID_SIZE; i++) {
+            totalIntensity += _trajectoryBuffer[frameIdx][i];
+        }
+
+        intensityOverTime[t] = totalIntensity;
+    }
+
+    // Verifica crescita rapida: ultimi frame molto più intensi dei primi
+    uint16_t startAvg = (intensityOverTime[0] + intensityOverTime[1] + intensityOverTime[2]) / 3;
+    uint16_t endAvg = (intensityOverTime[TRAJECTORY_DEPTH - 3] +
+                       intensityOverTime[TRAJECTORY_DEPTH - 2] +
+                       intensityOverTime[TRAJECTORY_DEPTH - 1]) / 3;
+
+    // Thrust: fine almeno 3x più intenso dell'inizio
+    if (endAvg < startAvg * 3) {
+        outConfidence = 0;
+        return false;
+    }
+
+    // Verifica concentrazione: trova numero celle attive nell'ultimo frame
+    uint8_t latestFrameIdx = (_trajectoryIndex + TRAJECTORY_DEPTH - 1) % TRAJECTORY_DEPTH;
+    uint8_t activeCells = 0;
+    for (uint8_t i = 0; i < GRID_SIZE; i++) {
+        if (_trajectoryBuffer[latestFrameIdx][i] > 50) {
+            activeCells++;
+        }
+    }
+
+    // Thrust deve essere concentrato (max 25 celle attive su 81)
+    if (activeCells > 25) {
+        outConfidence = 0;
+        return false;
+    }
+
+    // Confidence basato su rapporto intensità e concentrazione
+    uint16_t ratio = endAvg / max(startAvg, (uint16_t)1);
+    uint16_t intensityRatio = min((uint16_t)ratio, (uint16_t)10);
+    uint8_t concentrationScore = map(activeCells, 1, 25, 100, 60);
+
+    uint16_t confCalc = (intensityRatio * 10 + concentrationScore) / 2;
+    outConfidence = min((uint8_t)confCalc, (uint8_t)100);
+
+    return (outConfidence > 50);
 }

@@ -48,6 +48,63 @@ public:
     bool isShakeDetected() const { return _shakeDetected; }
 
     /**
+     * @brief Gesture riconoscibili tramite pattern 2D
+     */
+    enum GestureType {
+        GESTURE_NONE = 0,
+        GESTURE_SLASH_VERTICAL,      // Movimento alto→basso sequenziale
+        GESTURE_SLASH_HORIZONTAL,    // Movimento sinistra→destra sequenziale
+        GESTURE_ROTATION,            // Movimento circolare attorno al centro
+        GESTURE_THRUST               // Movimento rapido concentrato verso centro/bordi
+    };
+
+    /**
+     * @brief Direzioni movimento rilevabili (deprecated - sostituito da gesture)
+     */
+    enum MotionDirection {
+        DIRECTION_NONE = 0,
+        DIRECTION_UP,
+        DIRECTION_DOWN,
+        DIRECTION_LEFT,
+        DIRECTION_RIGHT,
+        DIRECTION_UP_LEFT,
+        DIRECTION_UP_RIGHT,
+        DIRECTION_DOWN_LEFT,
+        DIRECTION_DOWN_RIGHT,
+        DIRECTION_CENTER
+    };
+
+    /**
+     * @brief Ottiene gesture rilevata corrente
+     * @return Tipo di gesture
+     */
+    GestureType getGesture() const { return _currentGesture; }
+
+    /**
+     * @brief Ottiene nome gesture rilevata
+     * @return Nome gesture
+     */
+    const char* getGestureName() const;
+
+    /**
+     * @brief Ottiene confidence score della gesture (0-100)
+     * @return Confidence percentage
+     */
+    uint8_t getGestureConfidence() const { return _gestureConfidence; }
+
+    /**
+     * @brief Ottiene direzione movimento predominante (deprecated)
+     * @return Direzione movimento
+     */
+    MotionDirection getMotionDirection() const { return _motionDirection; }
+
+    /**
+     * @brief Ottiene nome direzione movimento (deprecated)
+     * @return Nome direzione
+     */
+    const char* getMotionDirectionName() const;
+
+    /**
      * @brief Ottiene numero pixel cambiati ultimo frame
      * @return Pixel count
      */
@@ -87,6 +144,10 @@ public:
         uint32_t changedPixels;
         uint8_t minIntensityRecent;
         uint8_t maxIntensityRecent;
+        MotionDirection direction;
+        uint8_t zoneIntensities[81];  // Intensità per ogni zona (9x9)
+        GestureType gesture;
+        uint8_t gestureConfidence;
     };
 
     MotionMetrics getMetrics() const;
@@ -122,6 +183,23 @@ private:
     uint8_t _motionIntensity;      // Intensità movimento corrente (0-255)
     uint32_t _changedPixels;       // Pixel cambiati ultimo frame
     bool _shakeDetected;           // Flag shake rilevato
+    MotionDirection _motionDirection;  // Direzione movimento predominante (deprecated)
+
+    // Gesture recognition
+    GestureType _currentGesture;       // Gesture rilevata corrente
+    uint8_t _gestureConfidence;        // Confidence score gesture (0-100)
+
+    // Zone detection (9x9 grid)
+    static constexpr uint8_t GRID_ROWS = 9;
+    static constexpr uint8_t GRID_COLS = 9;
+    static constexpr uint8_t GRID_SIZE = GRID_ROWS * GRID_COLS;  // 81 celle
+    uint8_t _zoneIntensities[GRID_SIZE];  // Intensità per zona (frame corrente)
+
+    // Trajectory tracking (ultimi N frames di heatmap)
+    static constexpr uint8_t TRAJECTORY_DEPTH = 15;  // Ultimi 15 frames
+    uint8_t _trajectoryBuffer[TRAJECTORY_DEPTH][GRID_SIZE];  // Storia heatmap
+    uint8_t _trajectoryIndex;          // Indice circolare nel buffer
+    bool _trajectoryFull;              // Buffer pieno almeno una volta
 
     // Shake detection history buffer
     static constexpr uint8_t HISTORY_SIZE = 10;
@@ -153,6 +231,57 @@ private:
      * @return Intensità movimento (0-255)
      */
     uint8_t _calculateMotionIntensity(const uint8_t* currentFrame, uint32_t changedPixels);
+
+    /**
+     * @brief Calcola intensità movimento per zone (3x3 grid)
+     * @param currentFrame Frame corrente
+     */
+    void _calculateZoneIntensities(const uint8_t* currentFrame);
+
+    /**
+     * @brief Determina direzione movimento predominante dalle zone (deprecated)
+     * @return Direzione movimento
+     */
+    MotionDirection _determineMotionDirection();
+
+    /**
+     * @brief Aggiorna trajectory buffer con heatmap corrente
+     */
+    void _updateTrajectoryBuffer();
+
+    /**
+     * @brief Riconosce pattern gesture dalla trajectory
+     * @return Tipo di gesture rilevata
+     */
+    GestureType _recognizeGesture();
+
+    /**
+     * @brief Rileva slash verticale (alto→basso)
+     * @param outConfidence Output confidence score
+     * @return true se pattern rilevato
+     */
+    bool _detectSlashVertical(uint8_t& outConfidence);
+
+    /**
+     * @brief Rileva slash orizzontale (sinistra→destra)
+     * @param outConfidence Output confidence score
+     * @return true se pattern rilevato
+     */
+    bool _detectSlashHorizontal(uint8_t& outConfidence);
+
+    /**
+     * @brief Rileva rotazione circolare
+     * @param outConfidence Output confidence score
+     * @return true se pattern rilevato
+     */
+    bool _detectRotation(uint8_t& outConfidence);
+
+    /**
+     * @brief Rileva thrust/stoccata (movimento rapido verso punto)
+     * @param outConfidence Output confidence score
+     * @return true se pattern rilevato
+     */
+    bool _detectThrust(uint8_t& outConfidence);
 
     /**
      * @brief Aggiorna history buffer e rileva shake

@@ -90,6 +90,11 @@ void BLEMotionService::notifyEvent(const String& eventType) {
     doc["timestamp"] = now;
     doc["intensity"] = _motion->getMotionIntensity();
     doc["changedPixels"] = _motion->getChangedPixels();
+    doc["direction"] = _motion->getMotionDirectionName();
+
+    // Aggiungi gesture info
+    doc["gesture"] = _motion->getGestureName();
+    doc["gestureConfidence"] = _motion->getGestureConfidence();
 
     String output;
     serializeJson(doc, output);
@@ -99,7 +104,8 @@ void BLEMotionService::notifyEvent(const String& eventType) {
 
     _lastEventTime = now;
 
-    Serial.printf("[MOTION BLE] 📢 Event notified: %s\n", eventType.c_str());
+    Serial.printf("[MOTION BLE] 📢 Event notified: %s (gesture: %s, confidence: %u%%)\n",
+                  eventType.c_str(), _motion->getGestureName(), _motion->getGestureConfidence());
 }
 
 void BLEMotionService::update(bool motionDetected, bool shakeDetected) {
@@ -151,11 +157,22 @@ String BLEMotionService::_getStatusJson() {
     doc["intensity"] = _motion->getMotionIntensity();
     doc["changedPixels"] = _motion->getChangedPixels();
     doc["shakeDetected"] = _motion->isShakeDetected();
+    doc["direction"] = _motion->getMotionDirectionName();
+
+    // Gesture recognition
+    doc["gesture"] = _motion->getGestureName();
+    doc["gestureConfidence"] = _motion->getGestureConfidence();
 
     MotionDetector::MotionMetrics metrics = _motion->getMetrics();
     doc["totalFrames"] = metrics.totalFramesProcessed;
     doc["motionFrames"] = metrics.motionFrameCount;
     doc["shakeCount"] = metrics.shakeCount;
+
+    // Aggiungi intensità zone (9x9 grid = 81 celle)
+    JsonArray zones = doc["zones"].to<JsonArray>();
+    for (uint8_t i = 0; i < 81; i++) {
+        zones.add(metrics.zoneIntensities[i]);
+    }
 
     String output;
     serializeJson(doc, output);

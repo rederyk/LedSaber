@@ -312,6 +312,13 @@ class LedSaberClient:
                             print(f"  Motion → {status}")
                         elif key == 'intensity':
                             print(f"  Intensity → {change['new']}")
+                        elif key == 'direction':
+                            print(f"  Direction → {Colors.CYAN}{change['new']}{Colors.RESET}")
+                        elif key == 'gesture':
+                            gesture = change['new']
+                            confidence = new_motion_state.get('gestureConfidence', 0)
+                            if gesture != 'none' and confidence > 50:
+                                print(f"  {Colors.BOLD}{Colors.GREEN}⚔️  GESTURE: {gesture.upper()} ({confidence}%){Colors.RESET}")
                         elif key == 'shakeDetected':
                             if change['new']:
                                 print(f"  {Colors.YELLOW}🔔 SHAKE DETECTED!{Colors.RESET}")
@@ -334,6 +341,9 @@ class LedSaberClient:
             event_type = event.get('event', 'unknown')
             intensity = event.get('intensity', 0)
             pixels = event.get('changedPixels', 0)
+            direction = event.get('direction', 'none')
+            gesture = event.get('gesture', 'none')
+            gesture_confidence = event.get('gestureConfidence', 0)
 
             if self.motion_event_callback:
                 self.motion_event_callback(event)
@@ -352,6 +362,13 @@ class LedSaberClient:
                 print(f"\n{Colors.YELLOW}{emoji} Motion Event: {event_type.upper()}{Colors.RESET}")
                 print(f"  Intensity: {intensity}")
                 print(f"  Changed Pixels: {pixels}")
+                if direction != 'none':
+                    print(f"  Direction: {Colors.CYAN}{direction}{Colors.RESET}")
+
+                # Visualizza gesture se rilevata
+                if gesture != 'none' and gesture_confidence > 50:
+                    print(f"  {Colors.BOLD}{Colors.GREEN}⚔️  GESTURE: {gesture.upper()} ({gesture_confidence}%){Colors.RESET}")
+
                 print(f"{Colors.BOLD}>{Colors.RESET} ", end="", flush=True)
 
         except Exception as e:
@@ -1091,11 +1108,20 @@ class InteractiveCLI:
                         print(f"  Enabled: {status.get('enabled', False)}")
                         print(f"  Motion Detected: {status.get('motionDetected', False)}")
                         print(f"  Intensity: {status.get('intensity', 0)}")
+                        print(f"  Direction: {status.get('direction', 'none')}")
                         print(f"  Changed Pixels: {status.get('changedPixels', 0)}")
                         print(f"  Shake Detected: {status.get('shakeDetected', False)}")
                         print(f"  Total Frames: {status.get('totalFrames', 0)}")
                         print(f"  Motion Frames: {status.get('motionFrames', 0)}")
                         print(f"  Shake Count: {status.get('shakeCount', 0)}")
+
+                        # Mostra intensità zone (3x3 grid)
+                        zones = status.get('zones', [])
+                        if zones and len(zones) == 9:
+                            print(f"\n  {Colors.CYAN}Zone Intensities (3x3 grid):{Colors.RESET}")
+                            print(f"    {zones[0]:3d} {zones[1]:3d} {zones[2]:3d}")
+                            print(f"    {zones[3]:3d} {zones[4]:3d} {zones[5]:3d}")
+                            print(f"    {zones[6]:3d} {zones[7]:3d} {zones[8]:3d}")
                     else:
                         print(f"{Colors.YELLOW}⚠ Nessun dato disponibile{Colors.RESET}")
 
