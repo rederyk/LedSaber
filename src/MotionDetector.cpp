@@ -8,7 +8,7 @@ MotionDetector::MotionDetector()
     , _frameHeight(0)
     , _frameSize(0)
     , _previousFrame(nullptr)
-    , _flashIntensity(0)
+    , _flashIntensity(150)  // Intensità iniziale media per avvio immediato
     , _avgBrightness(0)
     , _motionThreshold(50)
     , _motionIntensity(0)
@@ -315,18 +315,35 @@ uint8_t MotionDetector::_calculateAverageBrightness(const uint8_t* frame) {
 }
 
 void MotionDetector::_updateFlashIntensity() {
-    // Logica auto flash:
-    // - Scena molto scura (< 30): flash al massimo
-    // - Scena scura (30-80): flash medio
-    // - Scena luminosa (> 80): flash spento
+    // Logica auto flash con smoothing graduale:
+    // - Scena molto scura (< 30): flash al massimo (255)
+    // - Scena scura (30-100): flash medio-alto (150-255)
+    // - Scena normale (100-180): flash minimo garantito (80-150)
+    // - Scena luminosa (> 180): flash minimo (80)
+    //
+    // Il flash non si spegne MAI per garantire illuminazione costante
+
+    uint8_t targetIntensity;
 
     if (_avgBrightness < 30) {
-        _flashIntensity = 255;  // Flash massimo
-    } else if (_avgBrightness < 80) {
-        // Scala lineare tra 30-80 -> 255-0
-        _flashIntensity = map(_avgBrightness, 30, 80, 255, 0);
+        targetIntensity = 255;  // Flash massimo per scena molto scura
+    } else if (_avgBrightness < 100) {
+        // Scala lineare 30-100 -> 255-150
+        targetIntensity = map(_avgBrightness, 30, 100, 255, 150);
+    } else if (_avgBrightness < 180) {
+        // Scala lineare 100-180 -> 150-80
+        targetIntensity = map(_avgBrightness, 100, 180, 150, 80);
     } else {
-        _flashIntensity = 0;  // Flash spento
+        targetIntensity = 80;  // Flash minimo garantito
+    }
+
+    // Smoothing: cambia gradualmente verso target (evita flicker)
+    if (_flashIntensity < targetIntensity) {
+        uint16_t newValue = (uint16_t)_flashIntensity + 5;
+        _flashIntensity = (newValue > targetIntensity) ? targetIntensity : newValue;
+    } else if (_flashIntensity > targetIntensity) {
+        int16_t newValue = (int16_t)_flashIntensity - 5;
+        _flashIntensity = (newValue < targetIntensity) ? targetIntensity : newValue;
     }
 }
 

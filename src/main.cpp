@@ -694,14 +694,15 @@ void loop() {
                     }
                 }
 
-                // Processa frame per motion detection se abilitato
-                if (motionDetectorInitialized && bleMotionService.isMotionEnabled()) {
+                // Processa frame SEMPRE per calcolare auto-flash (anche se motion disabled)
+                if (motionDetectorInitialized) {
                     bool motionDetected = motionDetector.processFrame(frameBuffer, frameLength);
 
-                    wasMotionDetected = motionDetected;
-
-                    // Aggiorna BLE motion service con eventi
-                    bleMotionService.update(motionDetected, false);
+                    // Aggiorna BLE motion service SOLO se motion detection abilitato
+                    if (bleMotionService.isMotionEnabled()) {
+                        wasMotionDetected = motionDetected;
+                        bleMotionService.update(motionDetected, false);
+                    }
                 }
 
                 cameraManager.releaseFrame();
