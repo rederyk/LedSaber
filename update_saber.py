@@ -8,6 +8,7 @@ import asyncio
 import sys
 import os
 import struct
+import subprocess
 import time
 from pathlib import Path
 from typing import Optional
@@ -21,6 +22,20 @@ CHAR_OTA_STATUS_UUID = "d1e5a4c4-eb10-4a3e-8a4c-1234567890ab"     # READ + NOTIF
 CHAR_OTA_CONTROL_UUID = "e2f6b5d5-fc21-5b4f-9b5d-2345678901bc"    # WRITE
 CHAR_OTA_PROGRESS_UUID = "f3e7c6e6-0d32-4c5a-ac6e-3456789012cd"   # READ + NOTIFY
 CHAR_FW_VERSION_UUID = "a4b8d7fa-1e43-6c7d-ad8f-456789abcdef"     # READ
+
+PROJECT_ROOT = Path(__file__).resolve().parent
+
+
+def detect_local_firmware_version() -> Optional[str]:
+    """Restituisce la versione firmware locale usando git describe (se disponibile)."""
+    try:
+        output = subprocess.check_output(
+            ["git", "describe", "--tags", "--dirty", "--always"],
+            cwd=str(PROJECT_ROOT),
+        )
+        return output.decode().strip()
+    except Exception:
+        return None
 
 # Comandi OTA
 OTA_CMD_START = 0x01
@@ -57,6 +72,7 @@ class OTAUpdater:
 
     def __init__(self):
         self.client: Optional[BleakClient] = None
+        self.device_address: Optional[str] = None
         self.ota_state = OTA_STATE_IDLE
         self.ota_error = ""
         self.progress_percent = 0
@@ -65,6 +81,8 @@ class OTAUpdater:
         self.start_time = 0
         self.negotiated_mtu: int = 0
         self.mtu_acquired: bool = False
+        self.device_fw_version: Optional[str] = None
+        self.expected_fw_version: Optional[str] = None
 
     async def _try_acquire_mtu(self) -> None:
         """Best-effort MTU acquisition for BlueZ (Bleak 2.x may report default 23 unless acquired)."""
@@ -115,6 +133,7 @@ class OTAUpdater:
             await self.client.connect()
 
             if self.client.is_connected:
+                self.device_address = address
                 print(f"{Colors.GREEN}✓ Connesso!{Colors.RESET}")
 
                 # Attendi stabilizzazione connessione
@@ -136,7 +155,8 @@ class OTAUpdater:
                 # Leggi versione firmware corrente
                 try:
                     fw_version_data = await self.client.read_gatt_char(CHAR_FW_VERSION_UUID)
-                    fw_version = fw_version_data.decode('utf-8')
+                    fw_version = fw_version_data.decode('utf-8').strip()
+                    self.device_fw_version = fw_version
                     print(f"{Colors.CYAN}📦 Versione firmware corrente: {fw_version}{Colors.RESET}")
                 except Exception as e:
                     print(f"{Colors.YELLOW}⚠ Impossibile leggere versione firmware: {e}{Colors.RESET}")
@@ -228,6 +248,8 @@ class OTAUpdater:
         print(f"\n{Colors.BOLD}📤 Upload firmware:{Colors.RESET}")
         print(f"  File: {firmware_path.name}")
         print(f"  Dimensione: {firmware_size} bytes ({firmware_size / 1024:.2f} KB)")
+        if self.expected_fw_version:
+            print(f"  Versione target: {self.expected_fw_version}")
 
         # Verifica dimensione (max ~1.9MB per partizione app0/app1)
         max_size = 1966080  # 0x1E0000 in decimale
@@ -335,6 +357,61 @@ class OTAUpdater:
         await self.send_command(OTA_CMD_REBOOT)
         print(f"{Colors.GREEN}✓ Dispositivo in fase di riavvio{Colors.RESET}")
         await asyncio.sleep(2.0)
+        await self.disconnect()
+
+    async def verify_new_firmware_version(self, timeout: float = 60.0) -> Optional[str]:
+        """Riconnette il device dopo il riavvio e verifica la nuova versione firmware."""
+        if not self.device_address:
+            print(f"{Colors.YELLOW}⚠ Impossibile verificare la versione: indirizzo BLE sconosciuto{Colors.RESET}")
+            return None
+
+        print(f"{Colors.CYAN}⏳ Attendo che il dispositivo completi il riavvio per leggere la nuova versione...{Colors.RESET}")
+        await asyncio.sleep(3.0)
+
+        start_time = time.time()
+        attempt = 1
+        while time.time() - start_time < timeout:
+            verifier: Optional[BleakClient] = None
+            try:
+                verifier = BleakClient(self.device_address, timeout=20.0)
+                await verifier.connect()
+
+                if verifier.is_connected:
+                    data = await verifier.read_gatt_char(CHAR_FW_VERSION_UUID)
+                    new_version = data.decode('utf-8').strip()
+                    previous_version = self.device_fw_version
+                    self.device_fw_version = new_version
+                    if previous_version:
+                        print(f"{Colors.CYAN}↻ Versione precedente: {previous_version}{Colors.RESET}")
+
+                    if previous_version == new_version:
+                        print(f"{Colors.YELLOW}⚠ La versione firmware non è cambiata ({new_version}).{Colors.RESET}")
+                    else:
+                        print(f"{Colors.GREEN}✓ Nuova versione firmware rilevata: {new_version}{Colors.RESET}")
+
+                    if self.expected_fw_version:
+                        if new_version == self.expected_fw_version:
+                            print(f"{Colors.GREEN}✓ Versione corrispondente alla build locale{Colors.RESET}")
+                        else:
+                            print(f"{Colors.YELLOW}⚠ Attesa: {self.expected_fw_version} (ottenuta: {new_version}){Colors.RESET}")
+
+                    await verifier.disconnect()
+                    return new_version
+
+            except Exception as e:
+                print(f"{Colors.YELLOW}Tentativo {attempt}: dispositivo non pronto ({e}){Colors.RESET}")
+            finally:
+                if verifier and verifier.is_connected:
+                    try:
+                        await verifier.disconnect()
+                    except Exception:
+                        pass
+
+            attempt += 1
+            await asyncio.sleep(3.0)
+
+        print(f"{Colors.RED}✗ Impossibile verificare la nuova versione entro {timeout} secondi{Colors.RESET}")
+        return None
 
 
 async def main():
@@ -358,6 +435,12 @@ async def main():
     target_address = sys.argv[2] if len(sys.argv) > 2 else None
 
     updater = OTAUpdater()
+    local_fw_version = detect_local_firmware_version()
+    if local_fw_version:
+        print(f"{Colors.CYAN}💾 Versione firmware locale: {local_fw_version}{Colors.RESET}")
+    else:
+        print(f"{Colors.YELLOW}⚠ Impossibile determinare la versione locale (git describe non disponibile){Colors.RESET}")
+    updater.expected_fw_version = local_fw_version
 
     # Scansione o connessione diretta
     if target_address:
@@ -405,6 +488,7 @@ async def main():
         reboot = input(f"\n{Colors.BOLD}Riavviare il dispositivo ora? (S/n): {Colors.RESET}")
         if reboot.lower() != 'n':
             await updater.reboot_device()
+            await updater.verify_new_firmware_version()
         else:
             print(f"{Colors.CYAN}💡 Ricorda di riavviare il dispositivo manualmente per applicare l'aggiornamento{Colors.RESET}")
     else:

@@ -18,6 +18,7 @@ CHAR_LED_COLOR_UUID = "d1e5a4c3-eb10-4a3e-8a4c-1234567890ab"
 CHAR_LED_EFFECT_UUID = "e2f6b5d4-fc21-5b4f-9b5d-2345678901bc"
 CHAR_LED_BRIGHTNESS_UUID = "f3e7c6e5-0d32-4c5a-ac6e-3456789012cd"
 CHAR_STATUS_LED_UUID = "a4b8d7f9-1e43-6c7d-ad8f-456789abcdef"
+CHAR_FW_VERSION_UUID = "a4b8d7fa-1e43-6c7d-ad8f-456789abcdef"
 
 # Colori ANSI per output colorato
 class Colors:
@@ -201,6 +202,18 @@ class LedSaberClient:
             print(f"{Colors.RED}✗ Errore lettura stato: {e}{Colors.RESET}")
             return {}
 
+    async def get_firmware_version(self) -> Optional[str]:
+        """Legge versione firmware esposta dal servizio OTA"""
+        if not self.client or not self.client.is_connected:
+            return None
+
+        try:
+            version_data = await self.client.read_gatt_char(CHAR_FW_VERSION_UUID)
+            return version_data.decode('utf-8').strip()
+        except Exception as e:
+            print(f"{Colors.YELLOW}⚠ Impossibile leggere versione firmware: {e}{Colors.RESET}")
+            return None
+
     async def set_status_led(self, enabled: bool):
         """Imposta stato LED integrato (pin 4)"""
         if not self.client or not self.client.is_connected:
@@ -316,7 +329,7 @@ class InteractiveCLI:
   {Colors.BLUE}help{Colors.RESET}              - Mostra questo menu
         """)
 
-    def print_state(self, state: dict):
+    def print_state(self, state: dict, firmware_version: Optional[str] = None):
         """Stampa stato LED"""
         if not state:
             return
@@ -329,12 +342,18 @@ class InteractiveCLI:
         speed = state.get('speed', 0)
         enabled = state.get('enabled', False)
         status_led_enabled = state.get('statusLedEnabled', True)
+        fw_line = (
+            f"{Colors.CYAN}{firmware_version}{Colors.RESET}"
+            if firmware_version
+            else f"{Colors.YELLOW}non disponibile{Colors.RESET}"
+        )
 
         status = f"{Colors.GREEN}ON{Colors.RESET}" if enabled else f"{Colors.RED}OFF{Colors.RESET}"
         status_led_status = f"{Colors.GREEN}ENABLED{Colors.RESET}" if status_led_enabled else f"{Colors.RED}DISABLED{Colors.RESET}"
 
         print(f"""
 {Colors.BOLD}📊 Stato LED:{Colors.RESET}
+  Firmware: {fw_line}
   Stato: {status}
   Colore: RGB({r}, {g}, {b})
   Effetto: {effect} (speed: {speed})
@@ -414,7 +433,8 @@ class InteractiveCLI:
 
             elif cmd == "status":
                 state = await self.client.get_state()
-                self.print_state(state)
+                firmware_version = await self.client.get_firmware_version()
+                self.print_state(state, firmware_version)
 
             elif cmd == "color":
                 if len(args) < 3:

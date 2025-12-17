@@ -191,7 +191,7 @@ void setup() {
     pAdvertising->start();
 
     Serial.printf("Free heap: %u bytes\n", ESP.getFreeHeap());
-    Serial.println("*** SISTEMA PRONTO ***");
+    Serial.println("*** SISTEMA PRONTIssimo ***");
 }
 
 void loop() {
