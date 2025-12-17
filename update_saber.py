@@ -424,15 +424,27 @@ async def main():
 {Colors.RESET}
     """)
 
-    if len(sys.argv) < 2:
-        print(f"{Colors.YELLOW}Uso: {sys.argv[0]} <firmware.bin> [indirizzo_ble]{Colors.RESET}")
+    args = sys.argv[1:]
+    auto_confirm = False
+    filtered_args = []
+    for arg in args:
+        if arg == "-YY":
+            auto_confirm = True
+        else:
+            filtered_args.append(arg)
+    args = filtered_args
+
+    if not args:
+        print(f"{Colors.YELLOW}Uso: {sys.argv[0]} [-YY] <firmware.bin> [indirizzo_ble]{Colors.RESET}")
+        print(f"\nOpzioni:")
+        print(f"  -YY    Autoconferma upload e riavvio")
         print(f"\nEsempio:")
         print(f"  {sys.argv[0]} .pio/build/esp32cam/firmware.bin")
-        print(f"  {sys.argv[0]} firmware.bin AA:BB:CC:DD:EE:FF")
+        print(f"  {sys.argv[0]} -YY firmware.bin AA:BB:CC:DD:EE:FF")
         sys.exit(1)
 
-    firmware_path = Path(sys.argv[1])
-    target_address = sys.argv[2] if len(sys.argv) > 2 else None
+    firmware_path = Path(args[0])
+    target_address = args[1] if len(args) > 1 else None
 
     updater = OTAUpdater()
     local_fw_version = detect_local_firmware_version()
@@ -473,7 +485,11 @@ async def main():
 
     # Conferma upload
     print(f"\n{Colors.YELLOW}⚠ ATTENZIONE: Durante l'aggiornamento NON spegnere il dispositivo!{Colors.RESET}")
-    confirm = input(f"{Colors.BOLD}Procedere con l'aggiornamento? (s/N): {Colors.RESET}")
+    if auto_confirm:
+        print(f"{Colors.GREEN}✓ Flag -YY attivo: procedo automaticamente con l'aggiornamento{Colors.RESET}")
+        confirm = 's'
+    else:
+        confirm = input(f"{Colors.BOLD}Procedere con l'aggiornamento? (s/N): {Colors.RESET}")
 
     if confirm.lower() != 's':
         print(f"{Colors.YELLOW}↩ Aggiornamento annullato{Colors.RESET}")
@@ -485,7 +501,12 @@ async def main():
 
     if success:
         # Chiedi se riavviare
-        reboot = input(f"\n{Colors.BOLD}Riavviare il dispositivo ora? (S/n): {Colors.RESET}")
+        if auto_confirm:
+            print(f"{Colors.GREEN}✓ Flag -YY attivo: riavvio automatico abilitato{Colors.RESET}")
+            reboot = 's'
+        else:
+            reboot = input(f"\n{Colors.BOLD}Riavviare il dispositivo ora? (S/n): {Colors.RESET}")
+
         if reboot.lower() != 'n':
             await updater.reboot_device()
             await updater.verify_new_firmware_version()

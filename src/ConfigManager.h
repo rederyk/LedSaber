@@ -19,6 +19,7 @@ private:
         String effect = "solid";
         uint8_t speed = 50;
         bool enabled = true;
+        uint8_t statusLedBrightness = 32;
         bool statusLedEnabled = true;
     };
     DefaultConfig defaults;

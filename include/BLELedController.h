@@ -21,6 +21,7 @@ struct LedState {
     uint8_t g = 0;
     uint8_t b = 0;
     uint8_t brightness = 255;
+    uint8_t statusLedBrightness = 32;
     String effect = "solid";
     uint8_t speed = 50;
     bool enabled = true;

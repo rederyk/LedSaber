@@ -9,9 +9,13 @@
 
 // GPIO
 static constexpr uint8_t STATUS_LED_PIN = 4;   // LED integrato per stato connessione
+static constexpr uint8_t STATUS_LED_PWM_CHANNEL = 0;
+static constexpr uint16_t STATUS_LED_PWM_FREQ = 5000;
+static constexpr uint8_t STATUS_LED_PWM_RES = 8;
 static constexpr uint8_t LED_STRIP_PIN = 13;   // Striscia WS2812B
 static constexpr uint16_t NUM_LEDS = 144;
 static constexpr uint8_t DEFAULT_BRIGHTNESS = 30;
+static constexpr uint8_t DEFAULT_STATUS_LED_BRIGHTNESS = 32;
 
 // Limite di sicurezza per alimentatore 2A
 // Calcolo: 5V * 2A = 10W disponibili
@@ -20,6 +24,24 @@ static constexpr uint8_t DEFAULT_BRIGHTNESS = 30;
 static constexpr uint8_t MAX_SAFE_BRIGHTNESS = 60;
 
 CRGB leds[NUM_LEDS];
+
+extern LedState ledState;
+
+static void applyStatusLedOutput(bool ledOn, bool force = false, int fallbackBrightness = -1) {
+    uint8_t brightness = ledState.statusLedBrightness;
+    if (fallbackBrightness >= 0 && brightness == 0) {
+        brightness = static_cast<uint8_t>(fallbackBrightness);
+    }
+    brightness = min<uint8_t>(brightness, 255);
+
+    if (!force && (!ledState.statusLedEnabled || brightness == 0)) {
+        ledcWrite(STATUS_LED_PWM_CHANNEL, 0);
+        return;
+    }
+
+    uint8_t duty = (ledOn && brightness > 0) ? brightness : 0;
+    ledcWrite(STATUS_LED_PWM_CHANNEL, duty);
+}
 
 // BLE GATT
 LedState ledState;
@@ -74,6 +96,9 @@ class MainServerCallbacks: public BLEServerCallbacks {
 static void initPeripherals() {
     pinMode(STATUS_LED_PIN, OUTPUT);
     digitalWrite(STATUS_LED_PIN, LOW);
+    ledcSetup(STATUS_LED_PWM_CHANNEL, STATUS_LED_PWM_FREQ, STATUS_LED_PWM_RES);
+    ledcAttachPin(STATUS_LED_PIN, STATUS_LED_PWM_CHANNEL);
+    applyStatusLedOutput(false, true);
 
     FastLED.addLeds<WS2812B, LED_STRIP_PIN, GRB>(leds, NUM_LEDS);
     FastLED.setBrightness(DEFAULT_BRIGHTNESS);
@@ -87,7 +112,7 @@ static void updateStatusLed_OTAMode() {
 
     if (now - lastBlink > 100) {
         ledOn = !ledOn;
-        digitalWrite(STATUS_LED_PIN, ledOn ? HIGH : LOW);
+        applyStatusLedOutput(ledOn, true, DEFAULT_STATUS_LED_BRIGHTNESS);
         lastBlink = now;
     }
 }
@@ -98,14 +123,15 @@ static void updateStatusLed(bool bleConnected, bool btConnected) {
     unsigned long now = millis();
 
     // Se il LED è disabilitato via BLE, lo spegniamo
-    if (!ledState.statusLedEnabled) {
-        digitalWrite(STATUS_LED_PIN, LOW);
+    if (!ledState.statusLedEnabled || ledState.statusLedBrightness == 0) {
+        applyStatusLedOutput(false);
+        ledOn = false;
         return;
     }
 
     // LED fisso acceso se c'è almeno una connessione
     if (bleConnected || btConnected) {
-        digitalWrite(STATUS_LED_PIN, HIGH);
+        applyStatusLedOutput(true);
         ledOn = true;
         return;
     }
@@ -113,7 +139,7 @@ static void updateStatusLed(bool bleConnected, bool btConnected) {
     // Blink lento quando nessuna connessione è presente
     if (now - lastBlink > 500) {
         ledOn = !ledOn;
-        digitalWrite(STATUS_LED_PIN, ledOn ? HIGH : LOW);
+        applyStatusLedOutput(ledOn);
         lastBlink = now;
     }
 }
@@ -202,7 +228,7 @@ void loop() {
 
     const bool bleConnected = bleController.isConnected();
 
-    // Debug loop ogni 2 secondi (disabilitato durante OTA per non rallentare)
+    // Debug loop ogni 10 secondi (disabilitato durante OTA per non rallentare)
     if (!otaManager.isOTAInProgress() && now - lastLoopDebug > 10000) {
         Serial.printf("[LOOP] Running, OTA state: %d, heap: %u\n",
             (int)otaManager.getState(), ESP.getFreeHeap());

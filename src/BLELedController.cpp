@@ -93,18 +93,33 @@ public:
         DeserializationError error = deserializeJson(doc, value);
 
         if (!error) {
-            controller->ledState->statusLedEnabled = doc["enabled"] | true;
+            bool updated = false;
 
-            Serial.printf("[BLE] Status LED (pin 4) set to %s\n",
-                controller->ledState->statusLedEnabled ? "ON" : "OFF");
+            if (doc.containsKey("enabled")) {
+                controller->ledState->statusLedEnabled = doc["enabled"] | controller->ledState->statusLedEnabled;
+                updated = true;
+            }
 
-            controller->setConfigDirty(true);
+            if (doc.containsKey("brightness")) {
+                uint8_t requestedBrightness = doc["brightness"] | controller->ledState->statusLedBrightness;
+                requestedBrightness = constrain(requestedBrightness, static_cast<uint8_t>(0), static_cast<uint8_t>(255));
+                controller->ledState->statusLedBrightness = requestedBrightness;
+                updated = true;
+            }
+
+            if (updated) {
+                Serial.printf("[BLE] Status LED (pin 4): enabled=%d brightness=%d\n",
+                    controller->ledState->statusLedEnabled,
+                    controller->ledState->statusLedBrightness);
+                controller->setConfigDirty(true);
+            }
         }
     }
 
     void onRead(BLECharacteristic *pChar) override {
         JsonDocument doc;
         doc["enabled"] = controller->ledState->statusLedEnabled;
+        doc["brightness"] = controller->ledState->statusLedBrightness;
 
         String jsonString;
         serializeJson(doc, jsonString);
@@ -203,6 +218,7 @@ void BLELedController::notifyState() {
     doc["speed"] = ledState->speed;
     doc["enabled"] = ledState->enabled;
     doc["statusLedEnabled"] = ledState->statusLedEnabled;
+    doc["statusLedBrightness"] = ledState->statusLedBrightness;
 
     String jsonString;
     serializeJson(doc, jsonString);

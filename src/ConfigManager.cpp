@@ -66,6 +66,7 @@ bool ConfigManager::loadConfig() {
     ledState->speed = doc["speed"] | defaults.speed;
     ledState->enabled = doc["enabled"] | defaults.enabled;
     ledState->statusLedEnabled = doc["statusLedEnabled"] | defaults.statusLedEnabled;
+    ledState->statusLedBrightness = doc["statusLedBrightness"] | defaults.statusLedBrightness;
 
     // Valida i valori caricati
     if (ledState->brightness > 255) ledState->brightness = 255;
@@ -73,12 +74,13 @@ bool ConfigManager::loadConfig() {
     if (ledState->g > 255) ledState->g = 255;
     if (ledState->b > 255) ledState->b = 255;
     if (ledState->speed > 255) ledState->speed = 255;
+    if (ledState->statusLedBrightness > 255) ledState->statusLedBrightness = 255;
 
     Serial.printf("[CONFIG] Loaded: brightness=%d, r=%d, g=%d, b=%d, effect=%s, speed=%d\n",
         ledState->brightness, ledState->r, ledState->g, ledState->b,
         ledState->effect.c_str(), ledState->speed);
-    Serial.printf("[CONFIG] Status: enabled=%d, statusLed=%d\n",
-        ledState->enabled, ledState->statusLedEnabled);
+    Serial.printf("[CONFIG] Status: enabled=%d, statusLed=%d (brightness=%d)\n",
+        ledState->enabled, ledState->statusLedEnabled, ledState->statusLedBrightness);
 
     return true;
 }
@@ -112,6 +114,10 @@ bool ConfigManager::saveConfig() {
     }
     if (ledState->statusLedEnabled != defaults.statusLedEnabled) {
         doc["statusLedEnabled"] = ledState->statusLedEnabled;
+        modifiedCount++;
+    }
+    if (ledState->statusLedBrightness != defaults.statusLedBrightness) {
+        doc["statusLedBrightness"] = ledState->statusLedBrightness;
         modifiedCount++;
     }
 
@@ -157,6 +163,7 @@ void ConfigManager::resetToDefaults() {
     ledState->speed = defaults.speed;
     ledState->enabled = defaults.enabled;
     ledState->statusLedEnabled = defaults.statusLedEnabled;
+    ledState->statusLedBrightness = defaults.statusLedBrightness;
 
     if (LittleFS.exists(CONFIG_FILE)) {
         LittleFS.remove(CONFIG_FILE);
@@ -208,4 +215,5 @@ void ConfigManager::createDefaultConfig() {
     ledState->speed = defaults.speed;
     ledState->enabled = defaults.enabled;
     ledState->statusLedEnabled = defaults.statusLedEnabled;
+    ledState->statusLedBrightness = defaults.statusLedBrightness;
 }

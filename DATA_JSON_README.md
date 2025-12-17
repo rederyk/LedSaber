@@ -17,7 +17,8 @@ Il file `/config.json` viene creato automaticamente da ConfigManager sul filesys
   "effect": "rainbow",
   "speed": 80,
   "enabled": true,
-  "statusLedEnabled": false
+  "statusLedEnabled": false,
+  "statusLedBrightness": 32
 }
 ```
 
@@ -33,6 +34,7 @@ Il file `/config.json` viene creato automaticamente da ConfigManager sul filesys
 | `speed` | uint8 | 0-255 | 50 | Velocità effetto animato |
 | `enabled` | bool | true/false | true | LED strip on/off |
 | `statusLedEnabled` | bool | true/false | true | LED integrato pin 4 on/off |
+| `statusLedBrightness` | uint8 | 0-255 | 32 | Luminosità LED integrato (PWM) |
 
 ### Comportamento
 

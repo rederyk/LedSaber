@@ -214,19 +214,36 @@ class LedSaberClient:
             print(f"{Colors.YELLOW}⚠ Impossibile leggere versione firmware: {e}{Colors.RESET}")
             return None
 
-    async def set_status_led(self, enabled: bool):
-        """Imposta stato LED integrato (pin 4)"""
+    async def set_status_led(self, enabled: Optional[bool] = None, brightness: Optional[int] = None):
+        """Imposta stato/brightness del LED integrato (pin 4)"""
         if not self.client or not self.client.is_connected:
             print(f"{Colors.RED}✗ Non connesso{Colors.RESET}")
             return
 
-        status_data = json.dumps({"enabled": enabled})
+        payload = {}
+        if enabled is not None:
+            payload["enabled"] = enabled
+        if brightness is not None:
+            brightness = max(0, min(255, int(brightness)))
+            payload["brightness"] = brightness
+
+        if not payload:
+            print(f"{Colors.YELLOW}⚠ Nessun parametro per statusled{Colors.RESET}")
+            return
+
+        status_data = json.dumps(payload)
         await self.client.write_gatt_char(
             CHAR_STATUS_LED_UUID,
             status_data.encode('utf-8')
         )
-        status = "ON" if enabled else "OFF"
-        print(f"{Colors.GREEN}✓ LED di stato (pin 4): {status}{Colors.RESET}")
+
+        parts = []
+        if enabled is not None:
+            parts.append("ON" if enabled else "OFF")
+        if brightness is not None:
+            parts.append(f"lum={brightness}")
+        summary = " ".join(parts)
+        print(f"{Colors.GREEN}✓ LED di stato (pin 4): {summary}{Colors.RESET}")
 
     async def get_status_led(self) -> dict:
         """Legge stato LED integrato (pin 4)"""
@@ -317,8 +334,8 @@ class InteractiveCLI:
   {Colors.GREEN}on{Colors.RESET}                - Accendi LED
   {Colors.GREEN}off{Colors.RESET}               - Spegni LED
 
-  {Colors.CYAN}statusled on{Colors.RESET}      - Accendi LED integrato (pin 4)
-  {Colors.CYAN}statusled off{Colors.RESET}     - Spegni LED integrato (pin 4)
+  {Colors.CYAN}statusled on/off{Colors.RESET}  - Accendi o spegni LED integrato (pin 4)
+  {Colors.CYAN}statusled <0-255>{Colors.RESET} - Imposta luminosità LED integrato
 
   {Colors.MAGENTA}presets{Colors.RESET}          - Mostra preset colori
   {Colors.MAGENTA}preset <name>{Colors.RESET}    - Applica preset
@@ -342,6 +359,7 @@ class InteractiveCLI:
         speed = state.get('speed', 0)
         enabled = state.get('enabled', False)
         status_led_enabled = state.get('statusLedEnabled', True)
+        status_led_brightness = state.get('statusLedBrightness', 0)
         fw_line = (
             f"{Colors.CYAN}{firmware_version}{Colors.RESET}"
             if firmware_version
@@ -358,7 +376,7 @@ class InteractiveCLI:
   Colore: RGB({r}, {g}, {b})
   Effetto: {effect} (speed: {speed})
   Luminosità: {brightness}/255
-  LED di stato (pin 4): {status_led_status}
+  LED di stato (pin 4): {status_led_status} (lum: {status_led_brightness}/255)
         """)
 
     def print_presets(self):
@@ -465,11 +483,37 @@ class InteractiveCLI:
                 await self.client.set_brightness(0, False)
 
             elif cmd == "statusled":
-                if not args or args[0].lower() not in ['on', 'off']:
-                    print(f"{Colors.RED}✗ Uso: statusled <on|off>{Colors.RESET}")
+                if not args:
+                    print(f"{Colors.RED}✗ Uso: statusled <on|off|0-255|brightness <val>>{Colors.RESET}")
                     return
-                enabled = args[0].lower() == 'on'
-                await self.client.set_status_led(enabled)
+
+                sub = args[0].lower()
+
+                def parse_brightness(value: str) -> Optional[int]:
+                    try:
+                        val = int(value)
+                    except ValueError:
+                        return None
+                    return max(0, min(255, val))
+
+                if sub in ['on', 'off']:
+                    enabled = sub == 'on'
+                    await self.client.set_status_led(enabled=enabled)
+                elif sub == "brightness":
+                    if len(args) < 2:
+                        print(f"{Colors.RED}✗ Uso: statusled brightness <0-255>{Colors.RESET}")
+                        return
+                    brightness = parse_brightness(args[1])
+                    if brightness is None:
+                        print(f"{Colors.RED}✗ Luminosità non valida{Colors.RESET}")
+                        return
+                    await self.client.set_status_led(brightness=brightness)
+                else:
+                    brightness = parse_brightness(sub)
+                    if brightness is None:
+                        print(f"{Colors.RED}✗ Uso: statusled <on|off|0-255|brightness <val>>{Colors.RESET}")
+                        return
+                    await self.client.set_status_led(brightness=brightness)
 
             elif cmd == "debug":
                 if args and args[0] == "services":

@@ -6,5 +6,6 @@
   "effect": "rainbow",
   "speed": 80,
   "enabled": true,
-  "statusLedEnabled": false
+  "statusLedEnabled": false,
+  "statusLedBrightness": 32
 }
