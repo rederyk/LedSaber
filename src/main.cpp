@@ -187,10 +187,17 @@ static void updateStatusLed_OTAMode() {
     }
 }
 
-static void updateStatusLed(bool bleConnected, bool btConnected) {
+static void updateStatusLed(bool bleConnected, bool btConnected, bool cameraFlashMode, uint8_t flashIntensity) {
     static unsigned long lastBlink = 0;
     static bool ledOn = false;
     unsigned long now = millis();
+
+    // MODALITÀ CAMERA FLASH: ignora tutto e usa solo l'intensità flash
+    if (cameraFlashMode) {
+        // Scrivi direttamente l'intensità flash senza controlli
+        ledcWrite(STATUS_LED_PWM_CHANNEL, flashIntensity);
+        return;
+    }
 
     // Se il LED è disabilitato via BLE, lo spegniamo
     if (!ledState.statusLedEnabled || ledState.statusLedBrightness == 0) {
@@ -635,7 +642,12 @@ void loop() {
         // FastLED.show() blocca per diversi ms e rallenta il trasferimento BLE
     } else {
         // Funzionamento normale
-        updateStatusLed(bleConnected, false);
+
+        // Determina se il LED deve essere in modalità flash camera
+        bool cameraFlashMode = bleCameraService.isCameraActive();
+        uint8_t flashIntensity = motionDetectorInitialized ? motionDetector.getRecommendedFlashIntensity() : 0;
+
+        updateStatusLed(bleConnected, false, cameraFlashMode, flashIntensity);
         renderLedStrip();
 
         // Notifica stato BLE ogni 500ms se c'è una connessione
@@ -685,16 +697,6 @@ void loop() {
                 // Processa frame per motion detection se abilitato
                 if (motionDetectorInitialized && bleMotionService.isMotionEnabled()) {
                     bool motionDetected = motionDetector.processFrame(frameBuffer, frameLength);
-
-                    // Ottieni intensità flash consigliata basata su luminosità scena
-                    uint8_t flashIntensity = motionDetector.getRecommendedFlashIntensity();
-
-                    // Imposta flash automatico
-                    if (flashIntensity > 0) {
-                        cameraManager.setFlash(true, flashIntensity);
-                    } else {
-                        cameraManager.setFlash(false, 0);
-                    }
 
                     wasMotionDetected = motionDetected;
 
