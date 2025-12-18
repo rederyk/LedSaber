@@ -715,14 +715,18 @@ class SaberDashboard(App):
         min-width: 40;
         layout: vertical;
         height: auto;
+        max-height: 0.9fr;
+
+
     }
 
     #console_scroll {
         border: round cyan;
         background: $panel;
         padding: 1;
-        height: 1fr;
+        height: auto;
         min-height: 15;
+        margin: 0 0 0 0;
     }
 
     #console_log {
@@ -733,7 +737,7 @@ class SaberDashboard(App):
     #cmd_input {
         border: solid cyan;
         background: $surface;
-        margin: 1 0 0 0;
+        margin: 0 0 0 0;
     }
 
     #led_column {
@@ -822,9 +826,9 @@ class SaberDashboard(App):
                 # Optical Flow e Console ora fanno parte della griglia principale
                 yield OpticalFlowGridWidget(id="optical_flow")
                 with Vertical(id="console_column"):
+                    yield CommandInputWidget()
                     with VerticalScroll(id="console_scroll"):
                         yield ConsoleWidget(id="console_log")
-                    yield CommandInputWidget()
 
         yield Footer()
 
