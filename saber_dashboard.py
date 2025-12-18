@@ -577,6 +577,7 @@ class SaberDashboard(App):
         layout: vertical;
         height: 1fr;
         padding: 0 1;
+        overflow-y: auto;  /* Scroll sul main_body invece che su Screen */
     }
 
     #stats_grid {
@@ -585,51 +586,12 @@ class SaberDashboard(App):
         grid-columns: 1fr 1fr 1fr;
         padding: 0;
         margin: 0;
-        height: 12;
-        max-height: 12;
+        height: auto;  /* Altezza automatica basata sui widget */
     }
 
-    /* Dynamic height classes based on layout */
-    #stats_grid.height-compact {
-        height: 12;
-        max-height: 12;
-    }
-
-    #stats_grid.height-medium {
-        height: 18;
-        max-height: 18;
-    }
-
-    #stats_grid.height-tall {
-        height: 28;
-        max-height: 28;
-    }
-
-    #kpi_row, #camera_frames_card {
-        margin: 0;
-    }
-
-    #motion_summary {
-        layout: grid;
-        grid-size: 1;
-        grid-columns: 1fr;
-        padding-left: 1;
-        margin: 0;
-    }
-    #motion_summary.cols-3 {
+    #stats_grid.cols-3 {
         grid-size: 3;
         grid-columns: 1fr 1fr 1fr;
-    }
-
-    #kpi_row {
-        layout: grid;
-        grid-size: 2;
-        grid-columns: 1fr 1fr;
-        margin: 0;
-    }
-    #kpi_row.single {
-        grid-size: 1;
-        grid-columns: 1fr;
     }
 
     #stats_grid.cols-2 {
@@ -642,28 +604,41 @@ class SaberDashboard(App):
         grid-columns: 1fr;
     }
 
+    #kpi_row, #camera_frames_card {
+        margin: 0;
+    }
+
+    #motion_summary {
+        layout: grid;
+        grid-size: 3;
+        grid-columns: 1fr 1fr 1fr;
+        padding-left: 1;
+        margin: 0;
+    }
+
+    #motion_summary.cols-1 {
+        grid-size: 1;
+        grid-columns: 1fr;
+    }
+
+    #kpi_row {
+        layout: grid;
+        grid-size: 2;
+        grid-columns: 1fr 1fr;
+        margin: 0;
+    }
+
+    #kpi_row.cols-1 {
+        grid-size: 1;
+        grid-columns: 1fr;
+    }
+
     #grid_console_row {
         layout: horizontal;
         padding: 0;
         margin: 1 0 0 0;
-        height: 20;
-        max-height: 20;
-    }
-
-    /* Dynamic height classes for grid_console_row */
-    #grid_console_row.height-compact {
-        height: 20;
-        max-height: 20;
-    }
-
-    #grid_console_row.height-medium {
-        height: 16;
-        max-height: 16;
-    }
-
-    #grid_console_row.height-tall {
-        height: 12;
-        max-height: 12;
+        height: auto;  /* Altezza automatica */
+        min-height: 20;
     }
 
     #optical_flow {
@@ -820,43 +795,36 @@ class SaberDashboard(App):
         self._update_responsive_layout(event.size.width)
 
     def _update_responsive_layout(self, width: int) -> None:
-        """Applica classi CSS in base alla larghezza corrente"""
-        height_class = ""
+        """Applica classi CSS in base alla larghezza corrente - i widget mantengono altezza fissa e si impilano"""
 
+        # Stats grid: cambia solo il numero di colonne, non l'altezza dei widget
         if self.stats_grid:
-            # Remove all layout and height classes
-            self.stats_grid.remove_class("cols-2", "cols-1", "height-compact", "height-medium", "height-tall")
-
-            # Apply column layout and corresponding height
+            self.stats_grid.remove_class("cols-2", "cols-1", "cols-3")
             if width < 110:
-                # 1-column: widgets stack vertically = tallest
+                # Terminale stretto: 1 colonna (widget impilati verticalmente)
                 self.stats_grid.add_class("cols-1")
-                self.stats_grid.add_class("height-tall")  # 28 lines
-                height_class = "height-tall"
             elif width < 160:
-                # 2-column: medium height
+                # Terminale medio: 2 colonne
                 self.stats_grid.add_class("cols-2")
-                self.stats_grid.add_class("height-medium")  # 18 lines
-                height_class = "height-medium"
             else:
-                # 3-column: most compact (default)
-                self.stats_grid.add_class("height-compact")  # 12 lines
-                height_class = "height-compact"
+                # Terminale largo: 3 colonne (default)
+                self.stats_grid.add_class("cols-3")
 
-        # Apply same height class to grid_console_row for inverse sizing
-        if self.grid_console_row and height_class:
-            self.grid_console_row.remove_class("height-compact", "height-medium", "height-tall")
-            self.grid_console_row.add_class(height_class)
-
+        # Motion summary: adatta il numero di colonne
         if self.motion_section:
-            self.motion_section.remove_class("cols-3")
-            if width >= 140:
-                self.motion_section.add_class("cols-3")
+            self.motion_section.remove_class("cols-1")
+            if width < 140:
+                # Terminale stretto: 1 colonna (motion cards impilate)
+                self.motion_section.add_class("cols-1")
+            # else: 3 colonne (default dal CSS)
 
+        # KPI row (RSSI + FX cards): adatta il numero di colonne
         if self.kpi_row:
-            self.kpi_row.remove_class("single")
+            self.kpi_row.remove_class("cols-1")
             if width < 100:
-                self.kpi_row.add_class("single")
+                # Terminale molto stretto: 1 colonna
+                self.kpi_row.add_class("cols-1")
+            # else: 2 colonne (default dal CSS)
 
     def _log(self, message: str, style: str = "white") -> None:
         """Scrive sul log in modo thread-safe"""
