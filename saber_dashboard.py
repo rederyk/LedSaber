@@ -574,10 +574,8 @@ class SaberDashboard(App):
     }
 
     #main_body {
-        layout: vertical;
         height: 1fr;
         padding: 0 1;
-        overflow-y: auto;  /* Scroll sul main_body invece che su Screen */
     }
 
     #stats_grid {
@@ -586,22 +584,25 @@ class SaberDashboard(App):
         grid-columns: 1fr 1fr 1fr;
         padding: 0;
         margin: 0;
-        height: auto;  /* Altezza automatica basata sui widget */
+        height: 12;  /* Altezza fissa per 1 riga */
     }
 
     #stats_grid.cols-3 {
         grid-size: 3;
         grid-columns: 1fr 1fr 1fr;
+        height: 12;  /* 1 riga: 3 widget affiancati */
     }
 
     #stats_grid.cols-2 {
         grid-size: 2;
         grid-columns: 1fr 1fr;
+        height: 24;  /* 2 righe: 2+1 widget */
     }
 
     #stats_grid.cols-1 {
         grid-size: 1;
         grid-columns: 1fr;
+        height: 36;  /* 3 righe: tutti i widget impilati */
     }
 
     #kpi_row, #camera_frames_card {
@@ -637,8 +638,7 @@ class SaberDashboard(App):
         layout: horizontal;
         padding: 0;
         margin: 1 0 0 0;
-        height: auto;  /* Altezza automatica */
-        min-height: 20;
+        height: 22;  /* Altezza fissa per optical flow e console */
     }
 
     #optical_flow {
@@ -738,12 +738,13 @@ class SaberDashboard(App):
         self.stats_grid: Optional[Container] = None
         self.kpi_row: Optional[Container] = None
         self.grid_console_row: Optional[Horizontal] = None
+        self.main_scroll: Optional[VerticalScroll] = None
 
     def compose(self) -> ComposeResult:
         """Componi layout"""
         yield HeaderWidget(id="header")
 
-        with Container(id="main_body"):
+        with VerticalScroll(id="main_body"):
             with Container(id="stats_grid"):
                 with Vertical(id="led_column"):
                     yield LEDPanelWidget(id="led_panel")
@@ -779,6 +780,7 @@ class SaberDashboard(App):
         self.camera_frames_card = self.query_one("#camera_frames_card", CameraFramesCard)
         self.kpi_row = self.query_one("#kpi_row", Container)
         self.grid_console_row = self.query_one("#grid_console_row", Horizontal)
+        self.main_scroll = self.query_one("#main_body", VerticalScroll)
 
         # Setup callbacks
         self.client.state_callback = self._on_led_update
