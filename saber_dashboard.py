@@ -122,7 +122,7 @@ class LEDPanelWidget(Static):
             title="[bold cyan]⚡ LED STATUS[/]",
             border_style="cyan",
             box=box.ROUNDED,
-            height=3
+            height=5
         )
 
 
@@ -182,7 +182,7 @@ class CameraPanelWidget(Static):
             title="[bold green]📸 CAMERA[/]",
             border_style="green",
             box=box.ROUNDED,
-            height=3
+            height=5
         )
 
 
@@ -212,7 +212,7 @@ class MotionStatusCard(Static):
             title="[bold magenta]⚡ STATUS[/]",
             border_style="magenta",
             box=box.ROUNDED,
-            height=7
+            height=9
         )
 
 
@@ -274,7 +274,7 @@ class MotionIntensityCard(Static):
             title="[bold yellow]📊 INTENSITY[/]",
             border_style="yellow",
             box=box.ROUNDED,
-            height=12
+            height=15
         )
 
 
@@ -317,7 +317,7 @@ class MotionDirectionCard(Static):
             title="[bold cyan]🧭 DIRECTION[/]",
             border_style="cyan",
             box=box.ROUNDED,
-            height=12
+            height=15
         )
 
 
@@ -364,7 +364,7 @@ class OpticalFlowGridWidget(Static):
                 normalized_rows.extend(["." * grid_cols for _ in range(missing)])
 
         grid_lines: List[str] = []
-        cell_gap = "    "
+        cell_gap = "  "  # Ridotto da 4 a 2 spazi
         for row_str in normalized_rows:
             colored_cells = []
             for char in row_str:
@@ -388,17 +388,17 @@ class OpticalFlowGridWidget(Static):
         legend.add_row(legend_text)
 
         available_width = self.size.width or 120
-        pad_x = 1 if available_width < 100 else 2
+        pad_x = 1
         grid_label = "Live optical flow" if has_live_data else "Waiting for motion data"
         info_line = Text(f"Grid: {grid_cols}x{grid_rows_count} @ {block_size}px  •  {grid_label}", style="dim cyan")
-        target_width = max(60, int(available_width * 0.65))
-        target_height = max(18, grid_rows_count * 2 + 8)
+        target_width = max(50, int(available_width * 0.70))
+        target_height = grid_rows_count + 2  # Altezza compatta basata sulle righe effettive
 
         grid_panel = Panel(
             Align.center(grid_text, vertical="middle"),
             border_style="cyan",
             box=box.SQUARE,
-            padding=(2, 4),
+            padding=(0, 2),  # Ridotto padding verticale e orizzontale
             width=target_width,
             height=target_height,
         )
@@ -413,8 +413,8 @@ class OpticalFlowGridWidget(Static):
             content,
             title="[bold magenta]🔍 OPTICAL FLOW GRID[/]",
             border_style="magenta",
-            box=box.MINIMAL_DOUBLE_HEAD,
-            padding=(1, pad_x)
+            box=box.ROUNDED,  # Più accattivante
+            padding=(0, pad_x)  # Ridotto padding esterno
         )
 
 
@@ -444,7 +444,7 @@ class BLERSSICard(Static):
             title="[cyan]📡 RSSI[/]",
             border_style="cyan",
             box=box.ROUNDED,
-            height=5
+            height=6
         )
 
 
@@ -465,7 +465,7 @@ class ActiveFXCard(Static):
             title="[magenta]✨ FX[/]",
             border_style="magenta",
             box=box.ROUNDED,
-            height=5
+            height=6
         )
 
 
@@ -486,7 +486,7 @@ class CameraFramesCard(Static):
             title="[green]🎬 Frames[/]",
             border_style="green",
             box=box.ROUNDED,
-            height=5
+            height=6
         )
 
 
@@ -571,16 +571,25 @@ class SaberDashboard(App):
         margin: 1 1 0 1;
     }
 
+    #main_body {
+        layout: vertical;
+        height: 1fr;
+        padding: 0 1 0 1;
+    }
+
     #stats_grid {
         layout: grid;
         grid-size: 3;
         grid-columns: 1fr 1fr 1fr;
         grid-rows: auto;
-        padding: 0 1;
+        padding: 0;
+        margin-bottom: 1;
+        height: 50vh;
+        max-height: 50vh;
     }
 
     #kpi_row, #camera_frames_card {
-        margin-top: 1;
+        margin-top: 0;
     }
 
     #motion_summary {
@@ -588,6 +597,7 @@ class SaberDashboard(App):
         grid-size: 1;
         grid-columns: 1fr;
         padding-left: 1;
+        margin-top: 1;
     }
     #motion_summary.cols-3 {
         grid-size: 3;
@@ -598,6 +608,7 @@ class SaberDashboard(App):
         layout: grid;
         grid-size: 2;
         grid-columns: 1fr 1fr;
+        margin-top: 0;
     }
     #kpi_row.single {
         grid-size: 1;
@@ -616,22 +627,23 @@ class SaberDashboard(App):
 
     #grid_console_row {
         layout: horizontal;
-        padding: 0 1 1 1;
-        height: 1fr;
-        min-height: 20;
+        padding: 0;
+        margin-top: 0;
+        height: 35vh;
+        max-height: 35vh;
     }
 
     #optical_flow {
         width: 2fr;
         margin-right: 1;
-        min-height: 20;
+        height: 100%;
     }
 
     #console_column {
         width: 1fr;
         min-width: 40;
         layout: vertical;
-        min-height: 20;
+        height: 100%;
     }
 
     #console_scroll {
@@ -639,7 +651,6 @@ class SaberDashboard(App):
         background: $panel;
         padding: 1;
         height: 1fr;
-        min-height: 20;
     }
 
     #console_log {
@@ -663,7 +674,7 @@ class SaberDashboard(App):
 
     #led_panel,
     #camera_panel {
-        margin-bottom: 1;
+        margin-bottom: 0;
     }
 
     #ble_rssi_card {
@@ -673,7 +684,7 @@ class SaberDashboard(App):
     #motion_status_card,
     #motion_intensity_card,
     #motion_direction_card {
-        margin-bottom: 1;
+        margin-bottom: 0;
     }
 
     #motion_status_card,
@@ -685,6 +696,7 @@ class SaberDashboard(App):
     #motion_summary.cols-3 #motion_intensity_card,
     #motion_summary.cols-3 #motion_direction_card {
         margin-bottom: 0;
+        margin-top: 0;
     }
 
     """
@@ -723,23 +735,24 @@ class SaberDashboard(App):
         """Componi layout"""
         yield HeaderWidget(id="header")
 
-        with Container(id="stats_grid"):
-            with Vertical(id="led_column"):
-                yield LEDPanelWidget(id="led_panel")
-                with Container(id="kpi_row"):
-                    yield BLERSSICard(id="ble_rssi_card")
-                    yield ActiveFXCard(id="active_fx_card")
-            with Vertical(id="camera_column"):
-                yield CameraPanelWidget(id="camera_panel")
-                yield CameraFramesCard(id="camera_frames_card")
-            yield MotionSection(id="motion_summary")
+        with Container(id="main_body"):
+            with Container(id="stats_grid"):
+                with Vertical(id="led_column"):
+                    yield LEDPanelWidget(id="led_panel")
+                    with Container(id="kpi_row"):
+                        yield BLERSSICard(id="ble_rssi_card")
+                        yield ActiveFXCard(id="active_fx_card")
+                with Vertical(id="camera_column"):
+                    yield CameraPanelWidget(id="camera_panel")
+                    yield CameraFramesCard(id="camera_frames_card")
+                yield MotionSection(id="motion_summary")
 
-        with Horizontal(id="grid_console_row"):
-            yield OpticalFlowGridWidget(id="optical_flow")
-            with Vertical(id="console_column"):
-                with VerticalScroll(id="console_scroll"):
-                    yield ConsoleWidget(id="console_log")
-                yield CommandInputWidget()
+            with Horizontal(id="grid_console_row"):
+                yield OpticalFlowGridWidget(id="optical_flow")
+                with Vertical(id="console_column"):
+                    with VerticalScroll(id="console_scroll"):
+                        yield ConsoleWidget(id="console_log")
+                    yield CommandInputWidget()
 
         yield Footer()
 
