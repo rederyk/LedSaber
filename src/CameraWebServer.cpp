@@ -257,38 +257,74 @@ void CameraWebServer::begin(CameraManager* camera, OpticalFlowDetector* detector
     _detector = detector;
 
     Serial.printf("[WebServer] Starting on port %u...\n", _port);
+    Serial.printf("[WebServer] Camera pointer: %p\n", camera);
+    Serial.printf("[WebServer] Detector pointer: %p\n", detector);
+
+    if (!camera) {
+        Serial.println("[WebServer] ERROR: Camera pointer is NULL!");
+        return;
+    }
+
+    if (!camera->isInitialized()) {
+        Serial.println("[WebServer] ERROR: Camera is not initialized!");
+        return;
+    }
+
+    if (!detector) {
+        Serial.println("[WebServer] ERROR: Detector pointer is NULL!");
+        return;
+    }
 
     _server = new AsyncWebServer(_port);
 
+    if (!_server) {
+        Serial.println("[WebServer] ERROR: Failed to create AsyncWebServer!");
+        return;
+    }
+
+    Serial.println("[WebServer] AsyncWebServer created successfully");
+
     // Route: Dashboard
+    Serial.println("[WebServer] Registering route: /");
     _server->on("/", HTTP_GET, [this](AsyncWebServerRequest* request) {
+        Serial.println("[WebServer] Request received: /");
         request->send_P(200, "text/html", DASHBOARD_HTML);
     });
 
     // Route: MJPEG Stream
+    Serial.println("[WebServer] Registering route: /stream");
     _server->on("/stream", HTTP_GET, [this](AsyncWebServerRequest* request) {
+        Serial.println("[WebServer] Request received: /stream");
         _handleStream(request);
     });
 
     // Route: Overlay JSON
+    Serial.println("[WebServer] Registering route: /overlay");
     _server->on("/overlay", HTTP_GET, [this](AsyncWebServerRequest* request) {
+        Serial.println("[WebServer] Request received: /overlay");
         _handleOverlay(request);
     });
 
     // Route: Snapshot singolo
+    Serial.println("[WebServer] Registering route: /snapshot");
     _server->on("/snapshot", HTTP_GET, [this](AsyncWebServerRequest* request) {
+        Serial.println("[WebServer] Request received: /snapshot");
         _handleSnapshot(request);
     });
 
     // Route: Metriche JSON
+    Serial.println("[WebServer] Registering route: /metrics");
     _server->on("/metrics", HTTP_GET, [this](AsyncWebServerRequest* request) {
+        Serial.println("[WebServer] Request received: /metrics");
         _handleMetrics(request);
     });
 
+    Serial.println("[WebServer] All routes registered, calling begin()...");
     _server->begin();
     _running = true;
 
     Serial.printf("[WebServer] Started! URL: http://%s\n", WiFi.localIP().toString().c_str());
+    Serial.println("[WebServer] Server is now listening for connections");
 }
 
 void CameraWebServer::end() {

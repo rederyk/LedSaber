@@ -738,6 +738,18 @@ void loop() {
 
         // Avvia/ferma web server in base a stato WiFi
         if (bleWiFiService.isConnected() && webServer == nullptr) {
+            // Inizializza camera se non già fatto
+            if (!cameraManager.isInitialized()) {
+                Serial.println("[MAIN] Inizializzazione camera per web server...");
+                if (cameraManager.begin()) {
+                    Serial.println("[MAIN] Camera inizializzata con successo");
+                } else {
+                    Serial.println("[MAIN] ERRORE: Inizializzazione camera fallita, web server non avviato");
+                    return; // Non avviare il web server se la camera non funziona
+                }
+            }
+
+            // Avvia web server
             webServer = new CameraWebServer(80);
             webServer->begin(&cameraManager, &motionDetector);
             Serial.println("[MAIN] Web server started");
