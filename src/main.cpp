@@ -12,6 +12,7 @@
 #include "BLEMotionService.h"
 #include "BLEWiFiService.h"
 #include "CameraWebServer.h"
+#include "StatusLedManager.h"
 
 // GPIO
 static constexpr uint8_t STATUS_LED_PIN = 4;   // LED integrato per stato connessione
@@ -34,21 +35,6 @@ CRGB leds[NUM_LEDS];
 
 extern LedState ledState;
 
-static void applyStatusLedOutput(bool ledOn, bool force = false, int fallbackBrightness = -1) {
-    uint8_t brightness = ledState.statusLedBrightness;
-    if (fallbackBrightness >= 0 && brightness == 0) {
-        brightness = static_cast<uint8_t>(fallbackBrightness);
-    }
-    brightness = min<uint8_t>(brightness, 255);
-
-    if (!force && (!ledState.statusLedEnabled || brightness == 0)) {
-        ledcWrite(STATUS_LED_PWM_CHANNEL, 0);
-        return;
-    }
-
-    uint8_t duty = (ledOn && brightness > 0) ? brightness : 0;
-    ledcWrite(STATUS_LED_PWM_CHANNEL, duty);
-}
 
 // BLE GATT
 LedState ledState;
@@ -170,55 +156,15 @@ static void setLedPair(uint16_t logicalIndex, uint16_t foldPoint, CRGB color) {
 // ============================================================================
 
 static void initPeripherals() {
-    pinMode(STATUS_LED_PIN, OUTPUT);
-    digitalWrite(STATUS_LED_PIN, LOW);
-    ledcSetup(STATUS_LED_PWM_CHANNEL, STATUS_LED_PWM_FREQ, STATUS_LED_PWM_RES);
-    ledcAttachPin(STATUS_LED_PIN, STATUS_LED_PWM_CHANNEL);
-    applyStatusLedOutput(false, true);
+    auto& ledManager = StatusLedManager::getInstance();
+    ledManager.begin(STATUS_LED_PIN, STATUS_LED_PWM_CHANNEL, STATUS_LED_PWM_FREQ, STATUS_LED_PWM_RES);
+    ledManager.setMode(StatusLedManager::Mode::STATUS_LED);
+    ledManager.setStatusLedDirect(false, ledState.statusLedBrightness > 0 ? ledState.statusLedBrightness : DEFAULT_STATUS_LED_BRIGHTNESS);
 
     FastLED.addLeds<WS2812B, LED_STRIP_PIN, GRB>(leds, NUM_LEDS);
     FastLED.setBrightness(DEFAULT_BRIGHTNESS);
 }
 
-static void updateStatusLed_OTAMode() {
-    // Blink rosso veloce durante OTA (100ms) - ATTENZIONE: NON TOCCARE!
-    static unsigned long lastBlink = 0;
-    static bool ledOn = false;
-    unsigned long now = millis();
-
-    if (now - lastBlink > 100) {
-        ledOn = !ledOn;
-        applyStatusLedOutput(ledOn, true, DEFAULT_STATUS_LED_BRIGHTNESS);
-        lastBlink = now;
-    }
-}
-
-static void updateStatusLed(bool bleConnected, bool btConnected) {
-    static unsigned long lastBlink = 0;
-    static bool ledOn = false;
-    unsigned long now = millis();
-
-    // Se il LED è disabilitato via BLE, lo spegniamo
-    if (!ledState.statusLedEnabled || ledState.statusLedBrightness == 0) {
-        applyStatusLedOutput(false);
-        ledOn = false;
-        return;
-    }
-
-    // LED fisso acceso se c'è almeno una connessione
-    if (bleConnected || btConnected) {
-        applyStatusLedOutput(true);
-        ledOn = true;
-        return;
-    }
-
-    // Blink lento quando nessuna connessione è presente
-    if (now - lastBlink > 500) {
-        ledOn = !ledOn;
-        applyStatusLedOutput(ledOn);
-        lastBlink = now;
-    }
-}
 
 static void renderLedStrip() {
     static unsigned long lastUpdate = 0;
@@ -639,30 +585,42 @@ void loop() {
     // Aggiorna OTA Manager (controlla timeout)
     otaManager.update();
 
+    StatusLedManager& ledManager = StatusLedManager::getInstance();
+
     // Se OTA in corso: blocca LED strip e mostra status OTA
     if (otaManager.isOTAInProgress()) {
-        updateStatusLed_OTAMode();  // Blink veloce per indicare OTA
+        if (!ledManager.isMode(StatusLedManager::Mode::OTA_BLINK)) {
+            ledManager.setMode(StatusLedManager::Mode::OTA_BLINK);
+        }
+        ledManager.updateOtaBlink();  // Blink veloce per indicare OTA
         // LED strip spento durante OTA - NON chiamare FastLED.show() per non rallentare!
         // FastLED.show() blocca per diversi ms e rallenta il trasferimento BLE
     } else {
         // Funzionamento normale
 
+        // Se eravamo in OTA, torna a modalità status LED di default
+        if (ledManager.isMode(StatusLedManager::Mode::OTA_BLINK)) {
+            ledManager.setMode(StatusLedManager::Mode::STATUS_LED);
+        }
+
+        const bool manualFlashActive = cameraManager.isFlashEnabled() && cameraManager.getFlashBrightness() > 0;
+
         // LED FLASH CAMERA: priorità assoluta
-        if (bleCameraService.isCameraActive()) {
+        if (manualFlashActive) {
+            ledManager.setMode(StatusLedManager::Mode::CAMERA_FLASH);
+            ledManager.setCameraFlash(cameraManager.getFlashBrightness());
+        } else if (bleCameraService.isCameraActive()) {
             // Modalità FLASH: scrivi direttamente l'intensità del flash
             // NOTA: Il flash viene aggiornato automaticamente da motionDetector
             // che calcola l'intensità ottimale basandosi sulla luminosità del frame
-            static uint8_t lastFlashIntensity = 0;
             uint8_t flashIntensity = motionDetectorInitialized ? motionDetector.getRecommendedFlashIntensity() : 150;
 
-            // Aggiorna solo se il valore è cambiato per ridurre le scritture PWM
-            if (flashIntensity != lastFlashIntensity) {
-                ledcWrite(STATUS_LED_PWM_CHANNEL, flashIntensity);
-                lastFlashIntensity = flashIntensity;
-            }
+            ledManager.setMode(StatusLedManager::Mode::CAMERA_FLASH);
+            ledManager.setCameraFlash(flashIntensity);
         } else {
             // Modalità NOTIFICA: LED normale solo quando camera spenta
-            updateStatusLed(bleConnected, false);
+            ledManager.setMode(StatusLedManager::Mode::STATUS_LED);
+            ledManager.updateStatusLed(bleConnected, ledState.statusLedEnabled, ledState.statusLedBrightness);
         }
 
         renderLedStrip();
@@ -738,21 +696,15 @@ void loop() {
 
         // Avvia/ferma web server in base a stato WiFi
         if (bleWiFiService.isConnected() && webServer == nullptr) {
-            // Inizializza camera se non già fatto
-            if (!cameraManager.isInitialized()) {
-                Serial.println("[MAIN] Inizializzazione camera per web server...");
-                if (cameraManager.begin()) {
-                    Serial.println("[MAIN] Camera inizializzata con successo");
-                } else {
-                    Serial.println("[MAIN] ERRORE: Inizializzazione camera fallita, web server non avviato");
-                    return; // Non avviare il web server se la camera non funziona
-                }
+            // Avvia web server SOLO se la camera è già inizializzata
+            if (cameraManager.isInitialized()) {
+                webServer = new CameraWebServer(80);
+                webServer->begin(&cameraManager, &motionDetector);
+                Serial.println("[MAIN] Web server started");
+            } else {
+                Serial.println("[MAIN] Camera not initialized - web server not started");
+                Serial.println("[MAIN] Use 'cam init' command first");
             }
-
-            // Avvia web server
-            webServer = new CameraWebServer(80);
-            webServer->begin(&cameraManager, &motionDetector);
-            Serial.println("[MAIN] Web server started");
         } else if (!bleWiFiService.isConnected() && webServer != nullptr) {
             delete webServer;
             webServer = nullptr;

@@ -23,6 +23,7 @@ CameraManager::CameraManager()
     : _initialized(false)
     , _flashPin(4)
     , _flashEnabled(false)
+    , _flashBrightness(0)
     , _currentFrameBuffer(nullptr)
     , _lastFrameTime(0)
     , _frameCount(0)
@@ -84,9 +85,8 @@ bool CameraManager::begin(uint8_t flashPin) {
 
     // Configurazione
     config.xclk_freq_hz = 20000000;  // 20MHz clock
-    // Usa TIMER_1 e CHANNEL_1 per evitare conflitti con STATUS_LED (TIMER_0/CHANNEL_0)
-    config.ledc_timer = LEDC_TIMER_1;
-    config.ledc_channel = LEDC_CHANNEL_1;
+    config.ledc_timer = LEDC_TIMER_0;
+    config.ledc_channel = LEDC_CHANNEL_0;
 
     // Formato immagine: QVGA grayscale per prestazioni
     config.pixel_format = PIXFORMAT_GRAYSCALE;  // 1 byte/pixel
@@ -193,15 +193,10 @@ void CameraManager::releaseFrame() {
 
 void CameraManager::setFlash(bool enabled, uint8_t brightness) {
     _flashEnabled = enabled;
+    _flashBrightness = enabled ? brightness : 0;
 
-    // NOTA: Il pin del flash (pin 4) usa il canale PWM 0, già configurato in main.cpp
-    // Non riconfigurare il canale PWM qui per evitare conflitti.
-    // Scrivi direttamente sul canale 0 (condiviso con status LED)
-    if (enabled && brightness > 0) {
-        ledcWrite(0, brightness);  // Canale 0 condiviso
-    } else {
-        ledcWrite(0, 0);  // Spegni LED
-    }
+    Serial.printf("[CAMERA] Flash %s (brightness=%u)\n",
+                  enabled ? "ENABLED" : "DISABLED", _flashBrightness);
 }
 
 void CameraManager::resetMetrics() {

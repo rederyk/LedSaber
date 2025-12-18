@@ -46,6 +46,11 @@ public:
     void setFlash(bool enabled, uint8_t brightness = 255);
 
     /**
+     * @brief Ultima intensità richiesta per il flash (manuale)
+     */
+    uint8_t getFlashBrightness() const { return _flashBrightness; }
+
+    /**
      * @brief Verifica se il flash è attualmente acceso
      * @return true se flash abilitato
      */
@@ -78,6 +83,7 @@ private:
     bool _initialized;
     uint8_t _flashPin;
     bool _flashEnabled;
+    uint8_t _flashBrightness;
     camera_fb_t* _currentFrameBuffer;
 
     CameraMetrics _metrics;
