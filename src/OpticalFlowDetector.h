@@ -106,6 +106,17 @@ public:
      */
     uint8_t getActiveBlocks() const { return _activeBlocks; }
 
+    /**
+     * @brief Ottieni vettore movimento di un blocco specifico
+     * @param row Riga blocco (0-5)
+     * @param col Colonna blocco (0-7)
+     * @param outDx Output: componente X vettore
+     * @param outDy Output: componente Y vettore
+     * @param outConfidence Output: confidence (0-255)
+     * @return true se blocco valido
+     */
+    bool getBlockVector(uint8_t row, uint8_t col, int8_t* outDx, int8_t* outDy, uint8_t* outConfidence) const;
+
     // ═══════════════════════════════════════════════════════════
     // TRAJECTORY TRACKING (compatibile + migliorato)
     // ═══════════════════════════════════════════════════════════

@@ -10,6 +10,8 @@
 #include "BLECameraService.h"
 #include "OpticalFlowDetector.h"
 #include "BLEMotionService.h"
+#include "BLEWiFiService.h"
+#include "CameraWebServer.h"
 
 // GPIO
 static constexpr uint8_t STATUS_LED_PIN = 4;   // LED integrato per stato connessione
@@ -61,6 +63,10 @@ BLECameraService bleCameraService(&cameraManager);
 // Optical Flow Detector
 OpticalFlowDetector motionDetector;
 BLEMotionService bleMotionService(&motionDetector);
+
+// WiFi and Web Server
+BLEWiFiService bleWiFiService;
+CameraWebServer* webServer = nullptr;
 
 // ============================================================================
 // CALLBACKS GLOBALI DEL SERVER BLE
@@ -592,12 +598,17 @@ void setup() {
     bleMotionService.begin(pServer);
     Serial.println("*** Motion Service avviato ***");
 
-    // 7. Configura e avvia l'advertising DOPO aver inizializzato tutti i servizi
+    // 7. Inizializza il servizio WiFi, agganciandolo allo stesso server
+    bleWiFiService.begin(pServer);
+    Serial.println("*** WiFi Service avviato ***");
+
+    // 8. Configura e avvia l'advertising DOPO aver inizializzato tutti i servizi
     BLEAdvertising* pAdvertising = BLEDevice::getAdvertising();
     pAdvertising->addServiceUUID(LED_SERVICE_UUID);
     pAdvertising->addServiceUUID(OTA_SERVICE_UUID);
     pAdvertising->addServiceUUID(CAMERA_SERVICE_UUID);
     pAdvertising->addServiceUUID(MOTION_SERVICE_UUID);
+    // Nota: Non aggiungiamo WiFi service UUID all'advertising per risparmiare spazio
     pAdvertising->setScanResponse(true);
     pAdvertising->setMinPreferred(0x06);  // iPhone compatibility
     pAdvertising->setMinPreferred(0x12);
@@ -720,6 +731,20 @@ void loop() {
         if (motionDetectorInitialized && now - lastMotionUpdate > 1000) {
             bleMotionService.notifyStatus();
             lastMotionUpdate = now;
+        }
+
+        // Aggiorna WiFi service
+        bleWiFiService.update();
+
+        // Avvia/ferma web server in base a stato WiFi
+        if (bleWiFiService.isConnected() && webServer == nullptr) {
+            webServer = new CameraWebServer(80);
+            webServer->begin(&cameraManager, &motionDetector);
+            Serial.println("[MAIN] Web server started");
+        } else if (!bleWiFiService.isConnected() && webServer != nullptr) {
+            delete webServer;
+            webServer = nullptr;
+            Serial.println("[MAIN] Web server stopped");
         }
     }
 

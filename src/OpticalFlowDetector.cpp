@@ -583,3 +583,17 @@ int8_t OpticalFlowDetector::_median(int8_t* values, uint8_t count) {
     // Ritorna mediana
     return values[count / 2];
 }
+
+bool OpticalFlowDetector::getBlockVector(uint8_t row, uint8_t col, int8_t* outDx, int8_t* outDy, uint8_t* outConfidence) const {
+    if (row >= GRID_ROWS || col >= GRID_COLS) {
+        return false;
+    }
+
+    const BlockMotionVector& vec = _motionVectors[row][col];
+
+    if (outDx) *outDx = vec.dx;
+    if (outDy) *outDy = vec.dy;
+    if (outConfidence) *outConfidence = vec.confidence;
+
+    return vec.valid;
+}

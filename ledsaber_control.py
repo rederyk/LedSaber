@@ -35,6 +35,11 @@ CHAR_MOTION_CONTROL_UUID = "8dc5b4c3-eb10-4a3e-8a4c-1234567890ac"
 CHAR_MOTION_EVENTS_UUID = "9ef6c5d4-fc21-5b4f-9b5d-2345678901bd"
 CHAR_MOTION_CONFIG_UUID = "aff7d6e5-0d32-4c5a-ac6e-3456789012ce"
 
+# WiFi Service UUIDs
+WIFI_SERVICE_UUID = "8a7f1234-5678-90ab-cdef-1234567890ac"
+CHAR_WIFI_CONTROL_UUID = "8a7f1235-5678-90ab-cdef-1234567890ac"
+CHAR_WIFI_STATUS_UUID = "8a7f1236-5678-90ab-cdef-1234567890ac"
+
 # Colori ANSI per output colorato
 class Colors:
     RESET = "\033[0m"
@@ -70,6 +75,12 @@ class LedSaberClient:
         self.first_motion_state_received = False
         self.motion_callback: Optional[Callable] = None
         self.motion_event_callback: Optional[Callable] = None
+
+        # WiFi state tracking
+        self.wifi_state = {}
+        self.previous_wifi_state = {}
+        self.first_wifi_state_received = False
+        self.wifi_callback: Optional[Callable] = None
 
     async def scan(self, timeout: float = 5.0) -> list:
         """Cerca dispositivi BLE nelle vicinanze"""
@@ -143,6 +154,16 @@ class LedSaberClient:
                     print(f"{Colors.GREEN}✓ Eventi Motion abilitati{Colors.RESET}")
                 except Exception as notify_error:
                     print(f"{Colors.YELLOW}⚠ Eventi Motion non disponibili: {notify_error}{Colors.RESET}")
+
+                # Abilita notifiche per stato WiFi
+                try:
+                    await self.client.start_notify(
+                        CHAR_WIFI_STATUS_UUID,
+                        self._wifi_notification_handler
+                    )
+                    print(f"{Colors.GREEN}✓ Notifiche WiFi abilitate{Colors.RESET}")
+                except Exception as notify_error:
+                    print(f"{Colors.YELLOW}⚠ Notifiche WiFi non disponibili: {notify_error}{Colors.RESET}")
 
                 return True
 
@@ -373,6 +394,90 @@ class LedSaberClient:
 
         except Exception as e:
             print(f"{Colors.RED}✗ Errore parsing evento motion: {e}{Colors.RESET}")
+
+    def _wifi_notification_handler(self, characteristic: BleakGATTCharacteristic, data: bytearray):
+        """Gestisce notifiche di stato WiFi dal dispositivo"""
+        try:
+            status_json = data.decode('utf-8')
+            new_wifi_state = json.loads(status_json)
+
+            # Primo stato WiFi ricevuto - mostra sempre
+            if not self.first_wifi_state_received:
+                self.first_wifi_state_received = True
+                self.wifi_state = new_wifi_state
+                self.previous_wifi_state = new_wifi_state.copy()
+                if self.wifi_callback:
+                    self.wifi_callback(self.wifi_state, is_first=True)
+                else:
+                    self._display_wifi_state(self.wifi_state, is_first=True)
+                return
+
+            # Calcola cambiamenti SIGNIFICATIVI
+            significant_changes = {}
+            for key in new_wifi_state:
+                old_value = self.previous_wifi_state.get(key)
+                new_value = new_wifi_state[key]
+
+                # Ignora cambiamenti di RSSI minori di 5 dBm (riduce spam)
+                if key == 'rssi':
+                    if old_value is None or abs(new_value - old_value) >= 5:
+                        significant_changes[key] = {'old': old_value, 'new': new_value}
+                # Altri cambiamenti: notifica sempre
+                elif old_value != new_value:
+                    significant_changes[key] = {'old': old_value, 'new': new_value}
+
+            # Mostra SOLO se ci sono cambiamenti significativi
+            if significant_changes:
+                self.wifi_state = new_wifi_state
+                self.previous_wifi_state = new_wifi_state.copy()
+
+                if self.wifi_callback:
+                    self.wifi_callback(self.wifi_state, is_first=False, changes=significant_changes)
+                else:
+                    self._display_wifi_state(self.wifi_state, is_first=False, changes=significant_changes)
+            else:
+                # Aggiorna stato silenziosamente
+                self.wifi_state = new_wifi_state
+                self.previous_wifi_state = new_wifi_state.copy()
+
+        except Exception as e:
+            print(f"{Colors.RED}✗ Errore parsing notifica WiFi: {e}{Colors.RESET}")
+
+    def _display_wifi_state(self, state: dict, is_first: bool = False, changes: dict = None):
+        """Visualizza stato WiFi nel terminale"""
+        if is_first:
+            print(f"\n{Colors.GREEN}✓ WiFi stato iniziale ricevuto{Colors.RESET}")
+            connected = state.get('connected', False)
+            if connected:
+                print(f"  Status: {Colors.GREEN}CONNECTED{Colors.RESET}")
+                print(f"  IP: {state.get('ip', 'N/A')}")
+                print(f"  SSID: {state.get('ssid', 'N/A')}")
+                print(f"  RSSI: {state.get('rssi', 0)} dBm")
+                web_url = state.get('url', '')  # Firmware usa 'url', non 'webServerUrl'
+                if web_url:
+                    print(f"  {Colors.BOLD}{Colors.CYAN}📹 Web Server: {web_url}{Colors.RESET}")
+            else:
+                print(f"  Status: {Colors.YELLOW}DISCONNECTED{Colors.RESET}")
+        else:
+            print(f"\n{Colors.CYAN}📶 WiFi Update:{Colors.RESET}")
+            if changes:
+                for key, change in changes.items():
+                    if key == 'connected':
+                        if change['new']:
+                            print(f"  Status → {Colors.GREEN}CONNECTED{Colors.RESET}")
+                        else:
+                            print(f"  Status → {Colors.YELLOW}DISCONNECTED{Colors.RESET}")
+                    elif key == 'ip':
+                        print(f"  IP → {change['new']}")
+                    elif key == 'ssid':
+                        print(f"  SSID → {change['new']}")
+                    elif key == 'rssi':
+                        print(f"  RSSI → {change['new']} dBm")
+                    elif key == 'url':  # Firmware usa 'url', non 'webServerUrl'
+                        if change['new']:
+                            print(f"  {Colors.BOLD}{Colors.CYAN}📹 Web Server → {change['new']}{Colors.RESET}")
+
+            print(f"{Colors.BOLD}>{Colors.RESET} ", end="", flush=True)
 
     def _calculate_changes(self, old_state: dict, new_state: dict) -> dict:
         """Calcola le differenze tra due stati"""
@@ -641,6 +746,42 @@ class LedSaberClient:
         print(f"{Colors.GREEN}✓ Motion config aggiornata: {config}{Colors.RESET}")
 
     # ========================================================================
+    # WIFI METHODS
+    # ========================================================================
+
+    async def wifi_send_command(self, command: str, ssid: str = None, password: str = None):
+        """Invia comando al WiFi service (enable, disable, configure, status)"""
+        if not self.client or not self.client.is_connected:
+            print(f"{Colors.RED}✗ Non connesso{Colors.RESET}")
+            return
+
+        # Costruisci payload JSON
+        payload = {"cmd": command}
+        if command == "configure" and ssid and password:
+            payload["ssid"] = ssid
+            payload["pass"] = password
+
+        command_json = json.dumps(payload)
+        await self.client.write_gatt_char(
+            CHAR_WIFI_CONTROL_UUID,
+            command_json.encode('utf-8')
+        )
+        print(f"{Colors.GREEN}✓ Comando WiFi inviato: {command}{Colors.RESET}")
+
+    async def get_wifi_status(self) -> dict:
+        """Legge stato WiFi"""
+        if not self.client or not self.client.is_connected:
+            return {}
+
+        try:
+            status_data = await self.client.read_gatt_char(CHAR_WIFI_STATUS_UUID)
+            status_json = status_data.decode('utf-8')
+            return json.loads(status_json)
+        except Exception as e:
+            print(f"{Colors.RED}✗ Errore lettura WiFi status: {e}{Colors.RESET}")
+            return {}
+
+    # ========================================================================
     # DEBUG & UTILITIES
     # ========================================================================
 
@@ -748,6 +889,13 @@ class InteractiveCLI:
   {Colors.MAGENTA}motion config{Colors.RESET}        - Mostra configurazione
   {Colors.MAGENTA}motion sensitivity <0-255>{Colors.RESET} - Imposta sensibilità
   {Colors.MAGENTA}motion reset{Colors.RESET}         - Reset statistiche motion
+
+  {Colors.BOLD}📶 WIFI COMMANDS:{Colors.RESET}
+  {Colors.CYAN}wifi setup{Colors.RESET}            - Setup guidato WiFi (raccomandato)
+  {Colors.CYAN}wifi enable{Colors.RESET}           - Abilita WiFi e connetti
+  {Colors.CYAN}wifi disable{Colors.RESET}          - Disabilita WiFi
+  {Colors.CYAN}wifi status{Colors.RESET}           - Mostra stato WiFi
+  {Colors.CYAN}wifi configure <ssid> <pwd>{Colors.RESET} - Configura credenziali WiFi
 
   {Colors.RED}quit{Colors.RESET}              - Esci
   {Colors.BLUE}help{Colors.RESET}              - Mostra questo menu
@@ -1158,6 +1306,107 @@ class InteractiveCLI:
                 else:
                     print(f"{Colors.RED}✗ Comando motion sconosciuto: {subcmd}{Colors.RESET}")
                     print(f"{Colors.YELLOW}💡 Comandi: enable, disable, status, config, sensitivity, reset{Colors.RESET}")
+
+            elif cmd == "wifi":
+                # Gestione comandi WiFi
+                if not args:
+                    print(f"{Colors.RED}✗ Uso: wifi <comando>{Colors.RESET}")
+                    print(f"{Colors.YELLOW}💡 Comandi: setup, enable, disable, status, configure{Colors.RESET}")
+                    return
+
+                subcmd = args[0].lower()
+
+                if subcmd == "setup":
+                    # Setup guidato WiFi
+                    print(f"\n{Colors.BOLD}{Colors.CYAN}🛠️  SETUP GUIDATO WIFI{Colors.RESET}\n")
+
+                    # Chiedi SSID
+                    ssid = (await self.prompt_user(f"{Colors.YELLOW}SSID WiFi:{Colors.RESET} ")).strip()
+                    if not ssid:
+                        print(f"{Colors.RED}✗ SSID non può essere vuoto{Colors.RESET}")
+                        return
+
+                    # Chiedi password
+                    password = (await self.prompt_user(f"{Colors.YELLOW}Password WiFi:{Colors.RESET} ")).strip()
+                    if not password:
+                        print(f"{Colors.RED}✗ Password non può essere vuota{Colors.RESET}")
+                        return
+
+                    # Configura WiFi
+                    print(f"\n{Colors.CYAN}📡 Configurazione WiFi...{Colors.RESET}")
+                    await self.client.wifi_send_command("configure", ssid, password)
+                    await asyncio.sleep(1)
+
+                    # Abilita WiFi
+                    print(f"{Colors.CYAN}📶 Connessione in corso...{Colors.RESET}")
+                    await self.client.wifi_send_command("enable")
+
+                    # Attendi connessione (max 15 secondi)
+                    print(f"{Colors.YELLOW}⏳ Attendi connessione WiFi (fino a 15 secondi)...{Colors.RESET}")
+                    for i in range(15):
+                        await asyncio.sleep(1)
+                        status = await self.client.get_wifi_status()
+                        if status.get('connected', False):
+                            print(f"\n{Colors.GREEN}{Colors.BOLD}✓ CONNESSO!{Colors.RESET}\n")
+                            print(f"  {Colors.CYAN}IP:{Colors.RESET} {status.get('ip', 'N/A')}")
+                            print(f"  {Colors.CYAN}SSID:{Colors.RESET} {status.get('ssid', 'N/A')}")
+                            print(f"  {Colors.CYAN}RSSI:{Colors.RESET} {status.get('rssi', 0)} dBm")
+                            web_url = status.get('url', '')  # Firmware usa 'url'
+                            if web_url:
+                                print(f"\n  {Colors.BOLD}{Colors.GREEN}📹 Web Server Camera:{Colors.RESET}")
+                                print(f"  {Colors.BOLD}{Colors.CYAN}{web_url}{Colors.RESET}")
+                                print(f"\n  {Colors.YELLOW}💡 Apri questo URL nel browser per vedere lo streaming!{Colors.RESET}")
+                            break
+                        print(f"  {i+1}/15...", end="\r", flush=True)
+                    else:
+                        print(f"\n{Colors.RED}✗ Timeout connessione WiFi{Colors.RESET}")
+                        print(f"{Colors.YELLOW}💡 Verifica SSID e password, poi riprova con 'wifi setup'{Colors.RESET}")
+
+                elif subcmd == "enable":
+                    await self.client.wifi_send_command("enable")
+                    await asyncio.sleep(2)
+                    status = await self.client.get_wifi_status()
+                    if status:
+                        self.client._display_wifi_state(status, is_first=True)
+
+                elif subcmd == "disable":
+                    await self.client.wifi_send_command("disable")
+                    await asyncio.sleep(1)
+                    print(f"{Colors.YELLOW}📡 WiFi disabilitato{Colors.RESET}")
+
+                elif subcmd == "status":
+                    status = await self.client.get_wifi_status()
+                    if status:
+                        connected = status.get('connected', False)
+                        print(f"\n{Colors.BOLD}📶 WiFi Status:{Colors.RESET}")
+                        if connected:
+                            print(f"  Status: {Colors.GREEN}CONNECTED{Colors.RESET}")
+                            print(f"  IP: {status.get('ip', 'N/A')}")
+                            print(f"  SSID: {status.get('ssid', 'N/A')}")
+                            print(f"  RSSI: {status.get('rssi', 0)} dBm")
+                            web_url = status.get('url', '')  # Firmware usa 'url'
+                            if web_url:
+                                print(f"\n  {Colors.BOLD}{Colors.CYAN}📹 Web Server: {web_url}{Colors.RESET}")
+                        else:
+                            print(f"  Status: {Colors.YELLOW}DISCONNECTED{Colors.RESET}")
+                    else:
+                        print(f"{Colors.YELLOW}⚠ Nessun dato disponibile{Colors.RESET}")
+
+                elif subcmd == "configure":
+                    if len(args) < 3:
+                        print(f"{Colors.RED}✗ Uso: wifi configure <ssid> <password>{Colors.RESET}")
+                        print(f"{Colors.YELLOW}💡 Oppure usa 'wifi setup' per un setup guidato{Colors.RESET}")
+                        return
+
+                    ssid = args[1]
+                    password = args[2]
+                    await self.client.wifi_send_command("configure", ssid, password)
+                    print(f"{Colors.GREEN}✓ Credenziali WiFi configurate{Colors.RESET}")
+                    print(f"{Colors.YELLOW}💡 Usa 'wifi enable' per connetterti{Colors.RESET}")
+
+                else:
+                    print(f"{Colors.RED}✗ Comando WiFi sconosciuto: {subcmd}{Colors.RESET}")
+                    print(f"{Colors.YELLOW}💡 Comandi: setup, enable, disable, status, configure{Colors.RESET}")
 
             elif cmd == "help":
                 self.print_menu()
