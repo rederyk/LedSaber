@@ -10,8 +10,6 @@
 #include "BLECameraService.h"
 #include "OpticalFlowDetector.h"
 #include "BLEMotionService.h"
-#include "BLEWiFiService.h"
-#include "CameraWebServer.h"
 #include "StatusLedManager.h"
 
 // GPIO
@@ -50,10 +48,6 @@ BLECameraService bleCameraService(&cameraManager);
 // Optical Flow Detector
 OpticalFlowDetector motionDetector;
 BLEMotionService bleMotionService(&motionDetector);
-
-// WiFi and Web Server
-BLEWiFiService bleWiFiService;
-CameraWebServer* webServer = nullptr;
 
 // ============================================================================
 // CALLBACKS GLOBALI DEL SERVER BLE
@@ -545,11 +539,7 @@ void setup() {
     bleMotionService.begin(pServer);
     Serial.println("*** Motion Service avviato ***");
 
-    // 7. Inizializza il servizio WiFi, agganciandolo allo stesso server
-    bleWiFiService.begin(pServer);
-    Serial.println("*** WiFi Service avviato ***");
-
-    // 8. Configura e avvia l'advertising DOPO aver inizializzato tutti i servizi
+    // 7. Configura e avvia l'advertising DOPO aver inizializzato tutti i servizi
     BLEAdvertising* pAdvertising = BLEDevice::getAdvertising();
     pAdvertising->addServiceUUID(LED_SERVICE_UUID);
     pAdvertising->addServiceUUID(OTA_SERVICE_UUID);
@@ -602,25 +592,31 @@ void loop() {
         // Se eravamo in OTA, torna a modalità status LED di default
         if (ledManager.isMode(StatusLedManager::Mode::OTA_BLINK)) {
             ledManager.setMode(StatusLedManager::Mode::STATUS_LED);
+            ledManager.refreshCameraFlashState();
         }
 
         const bool manualFlashActive = cameraManager.isFlashEnabled() && cameraManager.getFlashBrightness() > 0;
 
         // LED FLASH CAMERA: priorità assoluta
         if (manualFlashActive) {
-            ledManager.setMode(StatusLedManager::Mode::CAMERA_FLASH);
-            ledManager.setCameraFlash(cameraManager.getFlashBrightness());
-        } else if (bleCameraService.isCameraActive()) {
+            ledManager.requestCameraFlash(StatusLedManager::FlashSource::MANUAL, cameraManager.getFlashBrightness());
+        } else {
+            ledManager.releaseCameraFlash(StatusLedManager::FlashSource::MANUAL);
+        }
+
+        if (bleCameraService.isCameraActive()) {
             // Modalità FLASH: scrivi direttamente l'intensità del flash
             // NOTA: Il flash viene aggiornato automaticamente da motionDetector
             // che calcola l'intensità ottimale basandosi sulla luminosità del frame
             uint8_t flashIntensity = motionDetectorInitialized ? motionDetector.getRecommendedFlashIntensity() : 150;
 
-            ledManager.setMode(StatusLedManager::Mode::CAMERA_FLASH);
-            ledManager.setCameraFlash(flashIntensity);
+            ledManager.requestCameraFlash(StatusLedManager::FlashSource::AUTO, flashIntensity);
         } else {
+            ledManager.releaseCameraFlash(StatusLedManager::FlashSource::AUTO);
+        }
+
+        if (!ledManager.isCameraFlashActive()) {
             // Modalità NOTIFICA: LED normale solo quando camera spenta
-            ledManager.setMode(StatusLedManager::Mode::STATUS_LED);
             ledManager.updateStatusLed(bleConnected, ledState.statusLedEnabled, ledState.statusLedBrightness);
         }
 
@@ -692,25 +688,6 @@ void loop() {
             lastMotionUpdate = now;
         }
 
-        // Aggiorna WiFi service
-        bleWiFiService.update();
-
-        // Avvia/ferma web server in base a stato WiFi
-        if (bleWiFiService.isConnected() && webServer == nullptr) {
-            // Avvia web server SOLO se la camera è già inizializzata
-            if (cameraManager.isInitialized()) {
-                webServer = new CameraWebServer(80);
-                webServer->begin(&cameraManager, &motionDetector);
-                Serial.println("[MAIN] Web server started");
-            } else {
-                Serial.println("[MAIN] Camera not initialized - web server not started");
-                Serial.println("[MAIN] Use 'cam init' command first");
-            }
-        } else if (!bleWiFiService.isConnected() && webServer != nullptr) {
-            delete webServer;
-            webServer = nullptr;
-            Serial.println("[MAIN] Web server stopped");
-        }
     }
 
     yield();

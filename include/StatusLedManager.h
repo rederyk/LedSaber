@@ -34,6 +34,14 @@ public:
     };
 
     /**
+     * @brief Sources that can request flash control
+     */
+    enum class FlashSource {
+        AUTO,   // Auto intensity calculated by motion detector
+        MANUAL  // Manual override requested via BLE
+    };
+
+    /**
      * @brief Get singleton instance
      */
     static StatusLedManager& getInstance();
@@ -118,6 +126,26 @@ public:
      */
     uint8_t getCameraFlashIntensity() const { return _cameraFlashIntensity; }
 
+    /**
+     * @brief Request camera flash control from a given source
+     */
+    void requestCameraFlash(FlashSource source, uint8_t intensity);
+
+    /**
+     * @brief Release camera flash control for a given source
+     */
+    void releaseCameraFlash(FlashSource source);
+
+    /**
+     * @brief True when any flash source is currently active
+     */
+    bool isCameraFlashActive() const { return _manualFlashActive || _autoFlashActive; }
+
+    /**
+     * @brief Force re-evaluation of flash state (e.g., after OTA ends)
+     */
+    void refreshCameraFlashState();
+
     // ========================================================================
     // OTA BLINK MODE API (only works when mode = OTA_BLINK)
     // ========================================================================
@@ -171,6 +199,10 @@ private:
 
     // Camera flash state (Mode::CAMERA_FLASH)
     uint8_t _cameraFlashIntensity = 0;
+    bool _manualFlashActive = false;
+    bool _autoFlashActive = false;
+    uint8_t _manualFlashIntensity = 0;
+    uint8_t _autoFlashIntensity = 0;
 
     // OTA blink state (Mode::OTA_BLINK)
     unsigned long _lastOtaBlink = 0;
@@ -180,6 +212,9 @@ private:
 
     // Last PWM value written (for optimization)
     uint8_t _lastPwmValue = 0;
+
+    // Internal helpers
+    void _applyCameraFlashState();
 };
 
 #endif // STATUS_LED_MANAGER_H

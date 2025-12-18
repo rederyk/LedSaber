@@ -1,5 +1,7 @@
 # 📸 LedSaber Camera Web Server - Roadmap Implementazione
 
+> ⚠️ **Stato:** roadmap sospesa. Il web server WiFi è stato rimosso dal firmware principale perché troppo pesante per il target attuale. Manteniamo questa guida per riferimento futuro, ma nessuna delle attività sottostanti è in corso.
+
 ## 🎯 Obiettivo
 Implementare un web server leggero ESP32-CAM per streaming MJPEG con overlay real-time dei blocchi optical flow rilevati e direzioni movimento. Attivabile via BLE GATT per training gesture e debug.
 

@@ -152,6 +152,68 @@ void StatusLedManager::setCameraFlash(uint8_t intensity) {
     }
 }
 
+void StatusLedManager::requestCameraFlash(FlashSource source, uint8_t intensity) {
+    bool changed = false;
+
+    if (source == FlashSource::MANUAL) {
+        if (!_manualFlashActive || _manualFlashIntensity != intensity) {
+            _manualFlashActive = true;
+            _manualFlashIntensity = intensity;
+            changed = true;
+        }
+    } else {
+        if (!_autoFlashActive || _autoFlashIntensity != intensity) {
+            _autoFlashActive = true;
+            _autoFlashIntensity = intensity;
+            changed = true;
+        }
+    }
+
+    if (changed) {
+        _applyCameraFlashState();
+    }
+}
+
+void StatusLedManager::releaseCameraFlash(FlashSource source) {
+    bool changed = false;
+
+    if (source == FlashSource::MANUAL) {
+        if (_manualFlashActive) {
+            _manualFlashActive = false;
+            changed = true;
+        }
+    } else {
+        if (_autoFlashActive) {
+            _autoFlashActive = false;
+            changed = true;
+        }
+    }
+
+    if (changed) {
+        _applyCameraFlashState();
+    }
+}
+
+void StatusLedManager::refreshCameraFlashState() {
+    _applyCameraFlashState();
+}
+
+void StatusLedManager::_applyCameraFlashState() {
+    if (_currentMode == Mode::OTA_BLINK) {
+        return; // OTA has priority over any flash request
+    }
+
+    if (_manualFlashActive) {
+        setMode(Mode::CAMERA_FLASH);
+        setCameraFlash(_manualFlashIntensity);
+    } else if (_autoFlashActive) {
+        setMode(Mode::CAMERA_FLASH);
+        setCameraFlash(_autoFlashIntensity);
+    } else if (_currentMode == Mode::CAMERA_FLASH) {
+        setMode(Mode::STATUS_LED);
+    }
+}
+
 // ============================================================================
 // OTA BLINK MODE (Priority 2 - Highest)
 // ============================================================================

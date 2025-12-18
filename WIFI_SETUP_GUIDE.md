@@ -1,5 +1,8 @@
 # Guida Setup WiFi - LedSaber Camera Web Server
 
+> ⚠️ **Componenti WiFi e web server sono stati rimossi dal firmware attuale per motivi di stabilità e consumo RAM.**  
+> Questo documento resta come archivio storico delle vecchie procedure; le istruzioni sotto non sono più applicabili alla build corrente.
+
 ## Overview
 
 Il LedSaber ESP32-CAM ora supporta WiFi e web server per streaming camera via BLE. Puoi configurare il WiFi direttamente dal controller Python senza dover riprogrammare il firmware!
