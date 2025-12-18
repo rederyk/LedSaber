@@ -59,16 +59,17 @@ MotionProcessor motionProcessor;
 LedEffectEngine effectEngine(leds, NUM_LEDS);
 
 struct MotionTaskResult {
-    bool valid;
-    bool motionDetected;
-    uint8_t flashIntensity;
-    uint8_t motionIntensity;
-    OpticalFlowDetector::Direction direction;
-    uint32_t timestamp;
+    bool valid = false;
+    bool motionDetected = false;
+    uint8_t flashIntensity = 150;
+    uint8_t motionIntensity = 0;
+    OpticalFlowDetector::Direction direction = OpticalFlowDetector::Direction::NONE;
+    uint32_t timestamp = 0;
+    MotionProcessor::ProcessedMotion processedMotion{};
 };
 
 static QueueHandle_t gMotionResultQueue = nullptr;
-static MotionTaskResult gCachedMotionResult{false, false, 150, 0, OpticalFlowDetector::Direction::NONE};
+static MotionTaskResult gCachedMotionResult;
 static TaskHandle_t gCameraTaskHandle = nullptr;
 static volatile bool gCameraTaskShouldRun = false;
 static bool gCameraTaskStreaming = false;
@@ -596,19 +597,10 @@ void loop() {
     }
 
     // Process motion data for gesture detection and perturbations
-    MotionProcessor::ProcessedMotion* processedMotion = nullptr;
-    MotionProcessor::ProcessedMotion motionData;
+    const MotionProcessor::ProcessedMotion* processedMotion = nullptr;
 
     if (gCachedMotionResult.valid && bleMotionService.isMotionEnabled()) {
-        // Process raw motion into gestures and perturbations
-        motionData = motionProcessor.process(
-            gCachedMotionResult.motionIntensity,
-            gCachedMotionResult.direction,
-            motionDetector.getMotionSpeed(),
-            gCachedMotionResult.timestamp,
-            motionDetector
-        );
-        processedMotion = &motionData;
+        processedMotion = &gCachedMotionResult.processedMotion;
 
         // Update BLE motion service
         bleMotionService.update(gCachedMotionResult.motionDetected, false);
@@ -749,6 +741,13 @@ static void CameraCaptureTask(void* pvParameters) {
                 result.motionIntensity = motionDetector.getMotionIntensity();
                 result.direction = motionDetector.getMotionDirection();
                 result.timestamp = millis();
+                result.processedMotion = motionProcessor.process(
+                    result.motionIntensity,
+                    result.direction,
+                    motionDetector.getMotionSpeed(),
+                    result.timestamp,
+                    motionDetector
+                );
 
                 if (gMotionResultQueue) {
                     // Usa xQueueSend con timeout 0 per non bloccare (drop se piena)
