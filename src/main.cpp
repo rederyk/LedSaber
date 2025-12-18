@@ -16,7 +16,8 @@
 
 // GPIO
 static constexpr uint8_t STATUS_LED_PIN = 4;   // LED integrato per stato connessione
-static constexpr uint8_t STATUS_LED_PWM_CHANNEL = 0;
+// Usa un canale LEDC diverso da 0: il canale 0 è riservato alla camera per il clock XCLK
+static constexpr uint8_t STATUS_LED_PWM_CHANNEL = 6;
 static constexpr uint16_t STATUS_LED_PWM_FREQ = 5000;
 static constexpr uint8_t STATUS_LED_PWM_RES = 8;
 static constexpr uint8_t LED_STRIP_PIN = 13;   // Striscia WS2812B
