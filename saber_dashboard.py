@@ -629,33 +629,13 @@ class SaberDashboard(App):
         grid-columns: 1fr;
     }
 
-    #grid_console_row {
-        layout: horizontal;
-        padding: 0;
-        margin: 1 0 0 0;
-        height: auto;
-        min-height: 20;
-    }
-
-    #grid_console_row.vertical {
-        layout: vertical;
-        height: auto;
-    }
-
     #optical_flow {
-        width: 2fr;
-        margin-right: 1;
-        height: auto;
-    }
-
-    #grid_console_row.vertical #optical_flow {
         width: 100%;
-        margin-right: 0;
-        margin-bottom: 1;
+        height: auto;
     }
 
     #console_column {
-        width: 1fr;
+        width: 100%;
         min-width: 40;
         layout: vertical;
         height: auto;
@@ -667,10 +647,6 @@ class SaberDashboard(App):
         padding: 1;
         height: 1fr;
         min-height: 15;
-    }
-
-    #grid_console_row.vertical #console_scroll {
-        height: 20;
     }
 
     #console_log {
@@ -749,7 +725,6 @@ class SaberDashboard(App):
         self.device_rssi_map: Dict[str, Optional[int]] = {}
         self.stats_grid: Optional[Container] = None
         self.kpi_row: Optional[Container] = None
-        self.grid_console_row: Optional[Horizontal] = None
         self.main_scroll: Optional[VerticalScroll] = None
 
     def compose(self) -> ComposeResult:
@@ -767,8 +742,8 @@ class SaberDashboard(App):
                     yield CameraPanelWidget(id="camera_panel")
                     yield CameraFramesCard(id="camera_frames_card")
                 yield MotionSection(id="motion_summary")
-
-            with Horizontal(id="grid_console_row"):
+                
+                # Optical Flow e Console ora fanno parte della griglia principale
                 yield OpticalFlowGridWidget(id="optical_flow")
                 with Vertical(id="console_column"):
                     with VerticalScroll(id="console_scroll"):
@@ -791,7 +766,6 @@ class SaberDashboard(App):
         self.fx_card = self.query_one("#active_fx_card", ActiveFXCard)
         self.camera_frames_card = self.query_one("#camera_frames_card", CameraFramesCard)
         self.kpi_row = self.query_one("#kpi_row", Container)
-        self.grid_console_row = self.query_one("#grid_console_row", Horizontal)
         self.main_scroll = self.query_one("#main_body", VerticalScroll)
 
         # Setup callbacks
@@ -839,12 +813,6 @@ class SaberDashboard(App):
                 # Terminale molto stretto: 1 colonna
                 self.kpi_row.add_class("cols-1")
             # else: 2 colonne (default dal CSS)
-
-        # Grid Console Row (Optical Flow + Console)
-        if self.grid_console_row:
-            self.grid_console_row.remove_class("vertical")
-            if width < 130:
-                self.grid_console_row.add_class("vertical")
 
     def _log(self, message: str, style: str = "white") -> None:
         """Scrive sul log in modo thread-safe"""
