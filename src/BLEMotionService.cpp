@@ -1,6 +1,6 @@
 #include "BLEMotionService.h"
 
-BLEMotionService::BLEMotionService(MotionDetector* motionDetector)
+BLEMotionService::BLEMotionService(OpticalFlowDetector* motionDetector)
     : _motion(motionDetector)
     , _pService(nullptr)
     , _pCharStatus(nullptr)
@@ -101,7 +101,7 @@ void BLEMotionService::notifyEvent(const String& eventType) {
     doc["intensity"] = _motion->getMotionIntensity();
 
     // Aggiungi traiettoria se presente
-    MotionDetector::TrajectoryPoint trajectory[MotionDetector::MAX_TRAJECTORY_POINTS];
+    OpticalFlowDetector::TrajectoryPoint trajectory[OpticalFlowDetector::MAX_TRAJECTORY_POINTS];
     uint8_t points = _motion->getTrajectory(trajectory);
 
     if (points > 0) {
@@ -156,7 +156,7 @@ void BLEMotionService::update(bool motionDetected, bool shakeDetected) {
 
 String BLEMotionService::_getStatusJson() {
     JsonDocument doc;
-    MotionDetector::Metrics metrics = _motion->getMetrics();
+    OpticalFlowDetector::Metrics metrics = _motion->getMetrics();
 
     doc["enabled"] = _motionEnabled;
     doc["motionDetected"] = _wasMotionActive;
@@ -167,6 +167,13 @@ String BLEMotionService::_getStatusJson() {
 
     doc["totalFrames"] = metrics.totalFramesProcessed;
     doc["motionFrames"] = metrics.motionFrameCount;
+
+    // NUOVI campi optical flow
+    doc["direction"] = OpticalFlowDetector::directionToString(metrics.dominantDirection);
+    doc["speed"] = round(metrics.avgSpeed * 10.0f) / 10.0f;  // 1 decimal
+    doc["confidence"] = round(metrics.avgConfidence * 100.0f);  // 0-100%
+    doc["activeBlocks"] = metrics.avgActiveBlocks;
+    doc["computeTimeMs"] = metrics.avgComputeTimeMs;
 
     // NON includere trajectory nello status (troppo grande per BLE notification)
     // La trajectory è disponibile solo tramite eventi

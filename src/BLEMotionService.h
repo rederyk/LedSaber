@@ -7,7 +7,7 @@
 #include <BLEUtils.h>
 #include <BLE2902.h>
 #include <ArduinoJson.h>
-#include "MotionDetector.h"
+#include "OpticalFlowDetector.h"
 
 // UUIDs per Motion Service
 #define MOTION_SERVICE_UUID        "6fafc401-1fb5-459e-8fcc-c5c9c331914b"
@@ -27,7 +27,7 @@
  */
 class BLEMotionService {
 public:
-    BLEMotionService(MotionDetector* motionDetector);
+    BLEMotionService(OpticalFlowDetector* motionDetector);
 
     /**
      * @brief Inizializza servizio BLE
@@ -64,7 +64,7 @@ public:
     void update(bool motionDetected, bool shakeDetected);
 
 private:
-    MotionDetector* _motion;
+    OpticalFlowDetector* _motion;
     BLEService* _pService;
     BLECharacteristic* _pCharStatus;
     BLECharacteristic* _pCharControl;

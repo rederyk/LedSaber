@@ -8,7 +8,7 @@
 #include "ConfigManager.h"
 #include "CameraManager.h"
 #include "BLECameraService.h"
-#include "MotionDetector.h"
+#include "OpticalFlowDetector.h"
 #include "BLEMotionService.h"
 
 // GPIO
@@ -58,8 +58,8 @@ ConfigManager configManager(&ledState);
 CameraManager cameraManager;
 BLECameraService bleCameraService(&cameraManager);
 
-// Motion Detector
-MotionDetector motionDetector;
+// Optical Flow Detector
+OpticalFlowDetector motionDetector;
 BLEMotionService bleMotionService(&motionDetector);
 
 // ============================================================================
