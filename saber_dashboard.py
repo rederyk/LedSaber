@@ -212,7 +212,7 @@ class MotionStatusCard(Static):
             title="[bold magenta]⚡ STATUS[/]",
             border_style="magenta",
             box=box.ROUNDED,
-            height=6
+            height=5
         )
 
 
@@ -259,22 +259,18 @@ class MotionIntensityCard(Static):
         # Sparkline
         sparkline = self._sparkline(list(self.intensity_history))
 
-        table = Table.grid(padding=0)
+        table = Table.grid(padding=(0, 1))
         table.add_column(justify="left")
-        table.add_row(f"[cyan]Intensity: {intensity:3d}[/]")
-        table.add_row(intensity_bar)
-        table.add_row("")
-        table.add_row("[dim]History:[/]")
-        table.add_row(sparkline)
-        table.add_row("")
-        table.add_row(f"[dim]Pixels: {changed_pixels:,}[/]")
+        table.add_row(f"[cyan]Int: {intensity:<3}[/] {intensity_bar}")
+        table.add_row(f"[dim]Hist:[/]{sparkline}")
+        table.add_row(f"[dim]Px: {changed_pixels:,}[/]")
 
         return Panel(
             table,
             title="[bold yellow]📊 INTENSITY[/]",
             border_style="yellow",
             box=box.ROUNDED,
-            height=9
+            height=5
         )
 
 
@@ -303,13 +299,10 @@ class MotionDirectionCard(Static):
         else:
             gesture_display = "[dim]no gesture[/]"
 
-        table = Table.grid(padding=(0, 1))
+        table = Table.grid(padding=(0, 1), expand=True)
         table.add_column(justify="center")
-        table.add_row(f"[cyan bold]{dir_arrow}[/]")
-        table.add_row(f"[cyan]{direction.upper()}[/]")
-        table.add_row("")
+        table.add_row(f"[cyan bold]{dir_arrow}[/] [cyan]{direction.upper()}[/]")
         table.add_row("─" * 15)
-        table.add_row("")
         table.add_row(gesture_display)
 
         return Panel(
@@ -317,7 +310,7 @@ class MotionDirectionCard(Static):
             title="[bold cyan]🧭 DIRECTION[/]",
             border_style="cyan",
             box=box.ROUNDED,
-            height=9
+            height=5
         )
 
 
@@ -584,25 +577,25 @@ class SaberDashboard(App):
         grid-columns: 1fr 1fr 1fr;
         padding: 0;
         margin: 0;
-        height: 12;  /* Altezza fissa per 1 riga */
+        height: auto;
     }
 
     #stats_grid.cols-3 {
         grid-size: 3;
         grid-columns: 1fr 1fr 1fr;
-        height: 12;  /* 1 riga: 3 widget affiancati */
+        height: auto;
     }
 
     #stats_grid.cols-2 {
         grid-size: 2;
         grid-columns: 1fr 1fr;
-        height: 24;  /* 2 righe: 2+1 widget */
+        height: auto;
     }
 
     #stats_grid.cols-1 {
         grid-size: 1;
         grid-columns: 1fr;
-        height: 36;  /* 3 righe: tutti i widget impilati */
+        height: auto;
     }
 
     #kpi_row, #camera_frames_card {
@@ -614,6 +607,7 @@ class SaberDashboard(App):
         grid-size: 3;
         grid-columns: 1fr 1fr 1fr;
         padding-left: 1;
+        height: auto;
         margin: 0;
     }
 
@@ -627,6 +621,7 @@ class SaberDashboard(App):
         grid-size: 2;
         grid-columns: 1fr 1fr;
         margin: 0;
+        height: auto;
     }
 
     #kpi_row.cols-1 {
@@ -638,20 +633,32 @@ class SaberDashboard(App):
         layout: horizontal;
         padding: 0;
         margin: 1 0 0 0;
-        height: 22;  /* Altezza fissa per optical flow e console */
+        height: auto;
+        min-height: 20;
+    }
+
+    #grid_console_row.vertical {
+        layout: vertical;
+        height: auto;
     }
 
     #optical_flow {
         width: 2fr;
         margin-right: 1;
-        height: 100%;
+        height: auto;
+    }
+
+    #grid_console_row.vertical #optical_flow {
+        width: 100%;
+        margin-right: 0;
+        margin-bottom: 1;
     }
 
     #console_column {
         width: 1fr;
         min-width: 40;
         layout: vertical;
-        height: 100%;
+        height: auto;
     }
 
     #console_scroll {
@@ -659,6 +666,11 @@ class SaberDashboard(App):
         background: $panel;
         padding: 1;
         height: 1fr;
+        min-height: 15;
+    }
+
+    #grid_console_row.vertical #console_scroll {
+        height: 20;
     }
 
     #console_log {
@@ -802,10 +814,10 @@ class SaberDashboard(App):
         # Stats grid: cambia solo il numero di colonne, non l'altezza dei widget
         if self.stats_grid:
             self.stats_grid.remove_class("cols-2", "cols-1", "cols-3")
-            if width < 110:
+            if width < 120:
                 # Terminale stretto: 1 colonna (widget impilati verticalmente)
                 self.stats_grid.add_class("cols-1")
-            elif width < 160:
+            elif width < 170:
                 # Terminale medio: 2 colonne
                 self.stats_grid.add_class("cols-2")
             else:
@@ -827,6 +839,12 @@ class SaberDashboard(App):
                 # Terminale molto stretto: 1 colonna
                 self.kpi_row.add_class("cols-1")
             # else: 2 colonne (default dal CSS)
+
+        # Grid Console Row (Optical Flow + Console)
+        if self.grid_console_row:
+            self.grid_console_row.remove_class("vertical")
+            if width < 130:
+                self.grid_console_row.add_class("vertical")
 
     def _log(self, message: str, style: str = "white") -> None:
         """Scrive sul log in modo thread-safe"""
