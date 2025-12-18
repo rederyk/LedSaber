@@ -127,7 +127,9 @@ void BLECameraService::_executeCommand(const String& command) {
 
     } else if (command == "capture") {
         // Test capture singolo
-        if (_camera->isInitialized()) {
+        if (_cameraActive) {
+            Serial.println("[CAM BLE] ✗ Cannot capture while continuous mode is active");
+        } else if (_camera->isInitialized()) {
             uint8_t* buffer = nullptr;
             size_t length = 0;
 

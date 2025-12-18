@@ -2,6 +2,9 @@
 #include <FastLED.h>
 #include <BLEDevice.h>
 #include <esp_gap_ble_api.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
+#include <freertos/queue.h>
 
 #include "BLELedController.h"
 #include "OTAManager.h"
@@ -48,6 +51,23 @@ BLECameraService bleCameraService(&cameraManager);
 // Optical Flow Detector
 OpticalFlowDetector motionDetector;
 BLEMotionService bleMotionService(&motionDetector);
+
+struct MotionTaskResult {
+    bool valid;
+    bool motionDetected;
+    uint8_t flashIntensity;
+    uint8_t motionIntensity;
+    OpticalFlowDetector::Direction direction;
+    uint32_t timestamp;
+};
+
+static QueueHandle_t gMotionResultQueue = nullptr;
+static MotionTaskResult gCachedMotionResult{false, false, 150, 0, OpticalFlowDetector::Direction::NONE};
+static TaskHandle_t gCameraTaskHandle = nullptr;
+static volatile bool gCameraTaskShouldRun = false;
+static bool gCameraTaskStreaming = false;
+
+static void CameraCaptureTask(void* pvParameters);
 
 // ============================================================================
 // CALLBACKS GLOBALI DEL SERVER BLE
@@ -551,6 +571,29 @@ void setup() {
     pAdvertising->setMinPreferred(0x12);
     pAdvertising->start();
 
+    gMotionResultQueue = xQueueCreate(1, sizeof(MotionTaskResult));
+    if (!gMotionResultQueue) {
+        Serial.println("[MAIN] ✗ Failed to create motion result queue");
+    } else {
+        Serial.println("[MAIN] ✓ Motion result queue ready");
+    }
+
+    BaseType_t taskCreated = xTaskCreatePinnedToCore(
+        CameraCaptureTask,
+        "CameraCaptureTask",
+        8192,
+        nullptr,
+        5,
+        &gCameraTaskHandle,
+        0
+    );
+    if (taskCreated != pdPASS) {
+        Serial.println("[MAIN] ✗ Failed to create CameraCaptureTask");
+        gCameraTaskHandle = nullptr;
+    } else {
+        Serial.println("[MAIN] ✓ CameraCaptureTask created on core 0");
+    }
+
     Serial.printf("Free heap: %u bytes\n", ESP.getFreeHeap());
     Serial.println("*** SISTEMA PRONTIssimo ***");
 }
@@ -560,11 +603,44 @@ void loop() {
     static unsigned long lastLoopDebug = 0;
     static unsigned long lastConfigSave = 0;
     static unsigned long lastCameraUpdate = 0;
-    static unsigned long lastMotionUpdate = 0;
-    static bool motionDetectorInitialized = false;
+    static unsigned long lastCameraTaskInitWarning = 0;
+    static unsigned long lastMotionStatusNotify = 0;
     const unsigned long now = millis();
 
     const bool bleConnected = bleController.isConnected();
+    const bool cameraActive = bleCameraService.isCameraActive();
+
+    // Gestisce stato del task camera/motion
+    if (cameraActive && !gCameraTaskStreaming) {
+        if (cameraManager.isInitialized() && gCameraTaskHandle != nullptr) {
+            gCameraTaskShouldRun = true;
+            gCameraTaskStreaming = true;
+            xTaskNotifyGive(gCameraTaskHandle);
+            Serial.println("[MAIN] Camera streaming task started");
+        } else if (now - lastCameraTaskInitWarning > 5000) {
+            Serial.println("[MAIN] Camera start requested but camera not initialized or task missing");
+            lastCameraTaskInitWarning = now;
+        }
+    } else if (!cameraActive && gCameraTaskStreaming) {
+        gCameraTaskShouldRun = false;
+        gCameraTaskStreaming = false;
+        Serial.println("[MAIN] Camera streaming task stopping");
+    }
+
+    if (gMotionResultQueue) {
+        MotionTaskResult result;
+        if (xQueueReceive(gMotionResultQueue, &result, 0) == pdTRUE) {
+            gCachedMotionResult = result;
+        }
+    }
+
+    if (gCachedMotionResult.valid && bleMotionService.isMotionEnabled()) {
+        bleMotionService.update(gCachedMotionResult.motionDetected, false);
+        if (now - lastMotionStatusNotify > 1000) {
+            bleMotionService.notifyStatus();
+            lastMotionStatusNotify = now;
+        }
+    }
 
     // Debug loop ogni 10 secondi (disabilitato durante OTA per non rallentare)
     if (!otaManager.isOTAInProgress() && now - lastLoopDebug > 10000) {
@@ -604,11 +680,10 @@ void loop() {
             ledManager.releaseCameraFlash(StatusLedManager::FlashSource::MANUAL);
         }
 
-        if (bleCameraService.isCameraActive()) {
+        if (cameraActive) {
             // Modalità FLASH: scrivi direttamente l'intensità del flash
-            // NOTA: Il flash viene aggiornato automaticamente da motionDetector
-            // che calcola l'intensità ottimale basandosi sulla luminosità del frame
-            uint8_t flashIntensity = motionDetectorInitialized ? motionDetector.getRecommendedFlashIntensity() : 150;
+            // NOTA: Il flash viene aggiornato automaticamente dal task camera/motion
+            uint8_t flashIntensity = gCachedMotionResult.valid ? gCachedMotionResult.flashIntensity : 150;
 
             ledManager.requestCameraFlash(StatusLedManager::FlashSource::AUTO, flashIntensity);
         } else {
@@ -646,49 +721,69 @@ void loop() {
             lastCameraUpdate = now;
         }
 
-        // Cattura continua camera se attiva
-        if (bleCameraService.isCameraActive()) {
-            uint8_t* frameBuffer = nullptr;
-            size_t frameLength = 0;
-
-            // Auto flash basato su luminosità
-            static bool wasMotionDetected = false;
-
-            if (cameraManager.captureFrame(&frameBuffer, &frameLength)) {
-                // Frame catturato con successo
-
-                // Inizializza motion detector al primo frame (dimensioni note)
-                if (!motionDetectorInitialized && frameLength > 0) {
-                    // QVGA = 320x240 = 76800 bytes
-                    if (motionDetector.begin(320, 240)) {
-                        motionDetectorInitialized = true;
-                        Serial.println("[MAIN] Motion detector initialized");
-                    }
-                }
-
-                // Processa frame SEMPRE per calcolare auto-flash (anche se motion disabled)
-                if (motionDetectorInitialized) {
-                    bool motionDetected = motionDetector.processFrame(frameBuffer, frameLength);
-
-                    // Aggiorna BLE motion service SOLO se motion detection abilitato
-                    if (bleMotionService.isMotionEnabled()) {
-                        wasMotionDetected = motionDetected;
-                        bleMotionService.update(motionDetected, false);
-                    }
-                }
-
-                cameraManager.releaseFrame();
-            }
-            // Non aggiungiamo delay - lasciamo che la camera catturi al max FPS
-        }
-
-        // Aggiorna metriche motion ogni 1 secondo
-        if (motionDetectorInitialized && now - lastMotionUpdate > 1000) {
-            bleMotionService.notifyStatus();
-            lastMotionUpdate = now;
-        }
-
     }
 
     yield();
+}
+
+static void CameraCaptureTask(void* pvParameters) {
+    (void)pvParameters;
+
+    bool motionInitialized = false;
+
+    for (;;) {
+        // Attende un segnale d'avvio
+        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+
+        while (gCameraTaskShouldRun) {
+            if (!cameraManager.isInitialized() || !bleCameraService.isCameraActive()) {
+                vTaskDelay(pdMS_TO_TICKS(50));
+                continue;
+            }
+
+            uint8_t* frameBuffer = nullptr;
+            size_t frameLength = 0;
+            if (!cameraManager.captureFrame(&frameBuffer, &frameLength)) {
+                vTaskDelay(pdMS_TO_TICKS(10));
+                continue;
+            }
+
+            if (!motionInitialized && frameLength > 0) {
+                if (motionDetector.begin(320, 240)) {
+                    motionInitialized = true;
+                    Serial.println("[CAM TASK] Motion detector initialized");
+                } else {
+                    Serial.println("[CAM TASK] Motion detector init failed");
+                }
+            }
+
+            bool motionDetected = false;
+            if (motionInitialized) {
+                motionDetected = motionDetector.processFrame(frameBuffer, frameLength);
+            }
+
+            cameraManager.releaseFrame();
+
+            if (motionInitialized) {
+                MotionTaskResult result;
+                result.valid = true;
+                result.motionDetected = motionDetected;
+                result.flashIntensity = motionDetector.getRecommendedFlashIntensity();
+                result.motionIntensity = motionDetector.getMotionIntensity();
+                result.direction = motionDetector.getMotionDirection();
+                result.timestamp = millis();
+
+                if (gMotionResultQueue) {
+                    xQueueOverwrite(gMotionResultQueue, &result);
+                }
+            }
+
+            if (!gCameraTaskShouldRun) {
+                break;
+            }
+
+            taskYIELD();
+            vTaskDelay(pdMS_TO_TICKS(1));
+        }
+    }
 }
