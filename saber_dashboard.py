@@ -13,6 +13,7 @@ from datetime import datetime
 from typing import Optional, Dict, List
 from collections import deque
 
+from textual import events
 from textual.app import App, ComposeResult
 from textual.containers import Container, Horizontal, Vertical, VerticalScroll
 from textual.widgets import Static, Input, Footer
@@ -37,39 +38,51 @@ from ledsaber_control import LedSaberClient
 # ═══════════════════════════════════════════════════════════════════════════
 
 class HeaderWidget(Static):
-    """Header con titolo e status BLE"""
+    """Header responsive con titolo e status BLE - senza ASCII art fisso"""
 
     connected: reactive[bool] = reactive(False)
     device_name: reactive[str] = reactive("NO DEVICE")
     device_address: reactive[str] = reactive("")
 
     def render(self):
+        # Status BLE
         if self.connected:
-            device_info = f"[green]◉[/] {self.device_name} [dim]({self.device_address})[/]"
+            ble_status = f"[green]◉[/] {self.device_name}"
+            ble_detail = f"[dim]{self.device_address}[/]"
         else:
-            device_info = f"[red]●[/] DISCONNECTED"
+            ble_status = f"[red]●[/] DISCONNECTED"
+            ble_detail = "[dim]No device[/]"
 
-        title = Text()
-        title.append("╔═══════════════════════════════════════════════════════════════════════╗\n", style="cyan bold")
-        title.append("║   ", style="cyan bold")
-        title.append("⚔️  LEDSABER LIVE DASHBOARD", style="yellow bold")
-        title.append("  ─  ", style="cyan bold")
-        title.append(f"Resistance Edition", style="magenta")
-        title.append("   ║\n", style="cyan bold")
-        title.append("╠═══════════════════════════════════════════════════════════════════════╣\n", style="cyan bold")
-        title.append("║  BLE: ", style="cyan bold")
+        # Crea tabella a 2 colonne
+        table = Table.grid(padding=(0, 2), expand=True)
+        table.add_column(justify="left", ratio=1)
+        table.add_column(justify="right", ratio=1)
 
-        # Calcola spazi per allineare a destra
-        device_str = device_info
-        # Rimuovi markup per calcolare lunghezza effettiva
-        clean_device = self.device_name if self.connected else "DISCONNECTED"
-        padding = 59 - len(clean_device)
-        title.append(device_info)
-        title.append(" " * max(0, padding))
-        title.append("║\n", style="cyan bold")
-        title.append("╚═══════════════════════════════════════════════════════════════════════╝", style="cyan bold")
+        # Row 1: Titolo + Modalità
+        title_text = Text()
+        title_text.append("⚔️  ", style="yellow bold")
+        title_text.append("LEDSABER DASHBOARD", style="cyan bold")
 
-        return Align.center(title)
+        mode_text = Text("Resistance Edition", style="magenta")
+
+        table.add_row(title_text, mode_text)
+
+        # Row 2: BLE status
+        ble_text = Text()
+        ble_text.append("BLE: ", style="cyan")
+        ble_text.append(ble_status)
+
+        table.add_row(ble_text, ble_detail)
+
+        width = self.size.width or 100
+        horizontal_padding = 1 if width < 100 else 2
+
+        return Panel(
+            table,
+            border_style="cyan bold",
+            box=box.DOUBLE,
+            padding=(0, horizontal_padding)
+        )
 
 
 class LEDPanelWidget(Static):
@@ -173,20 +186,50 @@ class CameraPanelWidget(Static):
         )
 
 
-class MotionLiveWidget(Static):
-    """Widget MASSIVO per motion detection live - optical flow grid centrale"""
+class MotionStatusCard(Static):
+    """Card compatta per status motion + shake"""
 
     motion_state: reactive[Dict] = reactive({})
-    intensity_history: deque = deque(maxlen=60)
+
+    def render(self):
+        state = self.motion_state or {}
+        enabled = state.get('enabled', False)
+        motion_detected = state.get('motionDetected', False)
+        shake_detected = state.get('shakeDetected', False)
+
+        status_icon = "[green]◉ ENABLED[/]" if enabled else "[red]● DISABLED[/]"
+        motion_icon = "[yellow]⚡[/]" if motion_detected else "[dim]○[/]"
+        shake_icon = "[red blink]⚠[/]" if shake_detected else "[dim]·[/]"
+
+        table = Table.grid(padding=(0, 1))
+        table.add_column(justify="left")
+        table.add_row(f"Status: {status_icon}")
+        table.add_row(f"Motion: {motion_icon}")
+        table.add_row(f"Shake: {shake_icon}")
+
+        return Panel(
+            table,
+            title="[bold magenta]⚡ STATUS[/]",
+            border_style="magenta",
+            box=box.ROUNDED,
+            height=7
+        )
+
+
+class MotionIntensityCard(Static):
+    """Card per intensity bar + sparkline + pixel count"""
+
+    motion_state: reactive[Dict] = reactive({})
+    intensity_history: deque = deque(maxlen=40)
 
     def watch_motion_state(self, new_state: Dict):
         if new_state:
             intensity = new_state.get('intensity', 0)
             self.intensity_history.append(intensity)
 
-    def _sparkline(self, data: List[int], max_val: int = 255) -> str:
+    def _sparkline(self, data: List[int], max_val: int = 255, width: int = 40) -> str:
         if not data:
-            return "░" * 60
+            return "░" * width
 
         blocks = "▁▂▃▄▅▆▇█"
         result = []
@@ -206,25 +249,45 @@ class MotionLiveWidget(Static):
 
     def render(self):
         state = self.motion_state or {}
-
-        enabled = state.get('enabled', False)
-        motion_detected = state.get('motionDetected', False)
         intensity = state.get('intensity', 0)
-        direction = state.get('direction', 'none')
         changed_pixels = state.get('changedPixels', 0)
-        shake_detected = state.get('shakeDetected', False)
+
+        # Intensity bar
+        intensity_pct = int((intensity / 255) * 20)
+        intensity_bar = f"[yellow]{'█' * intensity_pct}{'░' * (20 - intensity_pct)}[/]"
+
+        # Sparkline
+        sparkline = self._sparkline(list(self.intensity_history))
+
+        table = Table.grid(padding=0)
+        table.add_column(justify="left")
+        table.add_row(f"[cyan]Intensity: {intensity:3d}[/]")
+        table.add_row(intensity_bar)
+        table.add_row("")
+        table.add_row("[dim]History:[/]")
+        table.add_row(sparkline)
+        table.add_row("")
+        table.add_row(f"[dim]Pixels: {changed_pixels:,}[/]")
+
+        return Panel(
+            table,
+            title="[bold yellow]📊 INTENSITY[/]",
+            border_style="yellow",
+            box=box.ROUNDED,
+            height=12
+        )
+
+
+class MotionDirectionCard(Static):
+    """Card per direzione + gesture"""
+
+    motion_state: reactive[Dict] = reactive({})
+
+    def render(self):
+        state = self.motion_state or {}
+        direction = state.get('direction', 'none')
         gesture = state.get('gesture', 'none')
         gesture_confidence = state.get('gestureConfidence', 0)
-
-        # Grid optical flow
-        grid_rows = state.get('grid', [])
-        grid_cols = state.get('gridCols', 8)
-        block_size = state.get('blockSize', 40)
-
-        # Status icons
-        status_icon = "[green]◉ ENABLED[/]" if enabled else "[red]● DISABLED[/]"
-        motion_icon = "[yellow]⚡ MOTION[/]" if motion_detected else "[dim]○ STILL[/]"
-        shake_icon = "[red blink]⚠ SHAKE![/]" if shake_detected else ""
 
         # Direction arrows
         direction_arrows = {
@@ -234,71 +297,42 @@ class MotionLiveWidget(Static):
         }
         dir_arrow = direction_arrows.get(direction, '·')
 
-        # Intensity bar
-        intensity_pct = int((intensity / 255) * 30)
-        intensity_bar = f"[yellow]{'█' * intensity_pct}{'░' * (30 - intensity_pct)}[/]"
-
-        # Intensity sparkline
-        intensity_graph = self._sparkline(list(self.intensity_history))
-
-        # === BUILD CONTENT ===
-        content = Text()
-
-        # Row 1: Status + Motion + Shake
-        content.append("┌─ STATUS ──────────────────────────────────────────────────────────┐\n", style="magenta bold")
-        content.append(f"│ {status_icon}  │  {motion_icon}", style="")
-        if shake_icon:
-            content.append(f"  │  {shake_icon}", style="")
-        content.append(" " * (67 - len(f"  │  {motion_icon}") - (len("  │  ⚠ SHAKE!") if shake_icon else 0)))
-        content.append(" │\n", style="magenta bold")
-
-        # Row 2: Intensity bar
-        content.append("├─ INTENSITY ───────────────────────────────────────────────────────┤\n", style="magenta bold")
-        content.append(f"│ ", style="magenta bold")
-        content.append(f"[cyan]I:{intensity:3d}[/]  {intensity_bar}  ", style="")
-        content.append(f"[dim]Pixels:{changed_pixels:,}[/]", style="")
-        # Padding
-        pixel_str = f"Pixels:{changed_pixels:,}"
-        padding = 61 - len(pixel_str) - 4 - 30 - 4
-        content.append(" " * max(0, padding))
-        content.append("│\n", style="magenta bold")
-
-        # Row 3: Intensity history sparkline
-        content.append("├─ HISTORY ─────────────────────────────────────────────────────────┤\n", style="magenta bold")
-        content.append(f"│ {intensity_graph}", style="magenta bold")
-        content.append(" │\n", style="magenta bold")
-
-        # Row 4: Direction + Gesture
-        content.append("├─ DIRECTION & GESTURE ─────────────────────────────────────────────┤\n", style="magenta bold")
-        dir_display = f"[cyan]{dir_arrow} {direction.upper()}[/]"
-
-        gesture_display = ""
+        # Gesture display
         if gesture != 'none' and gesture_confidence > 50:
-            gesture_display = f"[bold yellow]⚔ {gesture.upper()}[/] [dim]({gesture_confidence}%)[/]"
+            gesture_display = f"[bold yellow]⚔ {gesture.upper()}[/]\n[dim]{gesture_confidence}%[/]"
         else:
             gesture_display = "[dim]no gesture[/]"
 
-        content.append(f"│ Dir: {dir_display}", style="magenta bold")
-        content.append("  │  ", style="")
-        content.append(f"Gesture: {gesture_display}", style="")
-        # Padding dinamico
-        clean_dir = direction.upper()
-        clean_gest = gesture.upper() if gesture != 'none' and gesture_confidence > 50 else "no gesture"
-        used_len = len(f"Dir:  {clean_dir}  │  Gesture: {clean_gest}")
-        if gesture != 'none' and gesture_confidence > 50:
-            used_len += len(f"({gesture_confidence}%)")
-        padding = 67 - used_len
-        content.append(" " * max(0, padding))
-        content.append(" │\n", style="magenta bold")
+        table = Table.grid(padding=(0, 1))
+        table.add_column(justify="center")
+        table.add_row(f"[cyan bold]{dir_arrow}[/]")
+        table.add_row(f"[cyan]{direction.upper()}[/]")
+        table.add_row("")
+        table.add_row("─" * 15)
+        table.add_row("")
+        table.add_row(gesture_display)
 
-        # === OPTICAL FLOW GRID (MASSIVE) ===
-        content.append("╞═══════════════════════════════════════════════════════════════════╡\n", style="magenta bold")
-        content.append(f"│         [bold cyan]OPTICAL FLOW GRID ({grid_cols}x{len(grid_rows)} @ {block_size}px)[/]", style="magenta bold")
-        grid_title = f"OPTICAL FLOW GRID ({grid_cols}x{len(grid_rows)} @ {block_size}px)"
-        padding = 67 - len(grid_title) - 9
-        content.append(" " * max(0, padding))
-        content.append(" │\n", style="magenta bold")
-        content.append("├───────────────────────────────────────────────────────────────────┤\n", style="magenta bold")
+        return Panel(
+            table,
+            title="[bold cyan]🧭 DIRECTION[/]",
+            border_style="cyan",
+            box=box.ROUNDED,
+            height=12
+        )
+
+
+class OpticalFlowGridWidget(Static):
+    """Widget griglia optical flow - full width"""
+
+    motion_state: reactive[Dict] = reactive({})
+
+    def render(self):
+        state = self.motion_state or {}
+
+        # Grid optical flow
+        grid_rows = state.get('grid', [])
+        grid_cols = state.get('gridCols', 8)
+        block_size = state.get('blockSize', 40)
 
         # Mappa simboli -> colori
         symbol_colors = {
@@ -313,52 +347,150 @@ class MotionLiveWidget(Static):
             'D': 'magenta',
         }
 
+        # Crea griglia con Table Rich
+        grid_table = Table(
+            show_header=False,
+            show_edge=True,
+            box=box.MINIMAL_DOUBLE_HEAD,
+            padding=(0, 1),
+            collapse_padding=True,
+            expand=True
+        )
+
+        # Aggiungi colonne per ogni cella della griglia
+        for _ in range(grid_cols):
+            grid_table.add_column(justify="center", width=2)
+
         if not grid_rows:
-            content.append("│                       [dim]No motion data yet[/]", style="magenta bold")
-            content.append(" " * 22)
-            content.append("│\n", style="magenta bold")
+            grid_table.add_row(*["[dim].[/]"] * grid_cols)
         else:
-            # Calcola padding per centrare la griglia
-            grid_width = grid_cols * 2 + 1  # Ogni char + spazio
-            grid_padding_left = (67 - grid_width) // 2
-
             for row_str in grid_rows:
-                content.append("│", style="magenta bold")
-                content.append(" " * grid_padding_left, style="")
-
+                colored_cells = []
                 for char in row_str:
                     color = symbol_colors.get(char, 'white')
-                    content.append(f"[{color}]{char}[/] ", style="")
+                    colored_cells.append(f"[{color}]{char}[/]")
+                grid_table.add_row(*colored_cells)
 
-                # Padding a destra
-                grid_padding_right = 67 - grid_padding_left - grid_width
-                content.append(" " * grid_padding_right, style="")
-                content.append(" │\n", style="magenta bold")
+        legend = Table.grid(expand=True, padding=0)
+        legend.add_column(justify="left")
+        legend_text = Text()
+        legend_text.append("Legend: ", style="dim")
+        legend_text.append(". idle  ", style="dim white")
+        legend_text.append("^ v up/down  ", style="cyan")
+        legend_text.append("< > left/right  ", style="yellow")
+        legend_text.append("A B C D diagonals", style="green")
+        legend.add_row(legend_text)
 
-        # Legend
-        content.append("├───────────────────────────────────────────────────────────────────┤\n", style="magenta bold")
-        content.append("│ [dim]Legend: ", style="magenta bold")
-        content.append(". idle  ", style="dim white")
-        content.append("^ v", style="cyan")
-        content.append(" up/down  ", style="dim white")
-        content.append("< >", style="yellow")
-        content.append(" left/right  ", style="dim white")
-        content.append("A B C D", style="green")
-        content.append(" diagonals[/]", style="dim white")
-        # Padding finale
-        legend_len = len("Legend: . idle  ^ v up/down  < > left/right  A B C D diagonals")
-        padding = 67 - legend_len - 2
-        content.append(" " * max(0, padding))
-        content.append(" │\n", style="magenta bold")
-        content.append("└───────────────────────────────────────────────────────────────────┘", style="magenta bold")
+        width = self.size.width or 100
+        pad_x = 1 if width < 100 else 2
+
+        content = Group(
+            Align.center(Text(f"Grid: {grid_cols}x{len(grid_rows)} @ {block_size}px", style="dim cyan")),
+            grid_table,
+            legend
+        )
 
         return Panel(
             content,
-            title="[bold magenta]🔍 MOTION DETECTION LIVE[/]",
+            title="[bold magenta]🔍 OPTICAL FLOW GRID[/]",
             border_style="magenta",
-            box=box.DOUBLE_EDGE,
-            padding=(0, 1)
+            box=box.MINIMAL_DOUBLE_HEAD,
+            padding=(1, pad_x)
         )
+
+
+class BLERSSICard(Static):
+    """Mini card RSSI BLE"""
+
+    rssi: reactive[int] = reactive(-99)
+    connected: reactive[bool] = reactive(False)
+
+    def render(self):
+        if not self.connected:
+            display = "[dim]N/A[/]"
+            color = "dim"
+        else:
+            display = f"{self.rssi} dBm"
+            if self.rssi > -60:
+                color = "green"
+            elif self.rssi > -75:
+                color = "yellow"
+            else:
+                color = "red"
+
+        content = Text(display, style=color, justify="center")
+
+        return Panel(
+            content,
+            title="[cyan]📡 RSSI[/]",
+            border_style="cyan",
+            box=box.ROUNDED,
+            height=5
+        )
+
+
+class ActiveFXCard(Static):
+    """Mini card effetto LED attivo"""
+
+    effect: reactive[str] = reactive("none")
+    speed: reactive[int] = reactive(0)
+
+    def render(self):
+        if self.effect == "none" or self.effect == "unknown":
+            display = "[dim]No FX[/]"
+        else:
+            display = f"[magenta bold]{self.effect.upper()}[/]\n[dim]{self.speed}ms[/]"
+
+        return Panel(
+            Align.center(display, vertical="middle"),
+            title="[magenta]✨ FX[/]",
+            border_style="magenta",
+            box=box.ROUNDED,
+            height=5
+        )
+
+
+class CameraFramesCard(Static):
+    """Mini card frame count camera"""
+
+    total_frames: reactive[int] = reactive(0)
+    active: reactive[bool] = reactive(False)
+
+    def render(self):
+        if not self.active:
+            display = "[dim]Idle[/]"
+        else:
+            display = f"[green bold]{self.total_frames:,}[/]\n[dim]frames[/]"
+
+        return Panel(
+            Align.center(display, vertical="middle"),
+            title="[green]🎬 Frames[/]",
+            border_style="green",
+            box=box.ROUNDED,
+            height=5
+        )
+
+
+class MotionSection(Container):
+    """Container responsive per widget Motion summary"""
+
+    motion_state: reactive[Dict] = reactive({})
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.status_card = MotionStatusCard(id="motion_status_card")
+        self.intensity_card = MotionIntensityCard(id="motion_intensity_card")
+        self.direction_card = MotionDirectionCard(id="motion_direction_card")
+
+    def compose(self) -> ComposeResult:
+        yield self.status_card
+        yield self.intensity_card
+        yield self.direction_card
+
+    def watch_motion_state(self, new_state: Dict):
+        self.status_card.motion_state = new_state or {}
+        self.intensity_card.motion_state = new_state or {}
+        self.direction_card.motion_state = new_state or {}
 
 
 class ConsoleWidget(Static):
@@ -385,11 +517,14 @@ class ConsoleWidget(Static):
         else:
             log_content = "\n".join(recent_lines)
 
+        width = max(40, (self.size.width or 80) - 4)
+        separator = "─" * width
+
         content = Text()
         content.append("CONSOLE LOG (last 5 lines)\n", style="cyan bold")
-        content.append("─" * 71 + "\n", style="dim")
+        content.append(separator + "\n", style="dim")
         content.append(log_content + "\n")
-        content.append("─" * 71 + "\n", style="dim")
+        content.append(separator + "\n", style="dim")
         content.append("[cyan]>[/] ", style="bold")
 
         return content
@@ -416,44 +551,78 @@ class SaberDashboard(App):
     }
 
     #header {
-        height: auto;
-        background: $panel;
+        margin: 1 1 0 1;
     }
 
-    #main_panels {
-        height: auto;
+    #stats_grid {
+        layout: grid;
+        grid-size: 3;
+        grid-columns: 1fr 1fr 1fr;
+        grid-rows: auto;
+        grid-gutter: 1 2;
+        padding: 0 1;
     }
 
-    #led_panel {
-        height: 3;
+    #kpi_row, #camera_frames_card {
+        margin-top: 1;
     }
 
-    #camera_panel {
-        height: 3;
+    #motion_summary {
+        layout: grid;
+        grid-size: 1;
+        grid-columns: 1fr;
+        grid-gutter: 1;
+    }
+    #motion_summary.cols-3 {
+        grid-size: 3;
+        grid-columns: 1fr 1fr 1fr;
     }
 
-    #motion_panel {
-        height: auto;
-        min-height: 20;
+    #kpi_row {
+        layout: grid;
+        grid-size: 2;
+        grid-columns: 1fr 1fr;
+        grid-gutter: 1;
+    }
+    #kpi_row.single {
+        grid-size: 1;
+        grid-columns: 1fr;
+    }
+
+    #stats_grid.cols-2 {
+        grid-size: 2;
+        grid-columns: 1fr 1fr;
+    }
+
+    #stats_grid.cols-1 {
+        grid-size: 1;
+        grid-columns: 1fr;
+    }
+
+    #optical_flow {
+        margin: 0 1;
     }
 
     #console_container {
-        height: auto;
-        dock: bottom;
         background: $panel;
+        margin: 1;
+        padding: 1;
+        border: round cyan;
     }
 
     #console_log {
-        height: auto;
-        padding: 1;
         background: $surface;
+        padding: 1;
+        height: auto;
+        max-height: 8;
     }
 
     #cmd_input {
         border: solid cyan;
-        background: $panel;
-        margin: 0 1;
+        background: $surface;
+        margin-top: 1;
     }
+
     """
 
     BINDINGS = [
@@ -475,26 +644,37 @@ class SaberDashboard(App):
         self.header_widget: Optional[HeaderWidget] = None
         self.led_widget: Optional[LEDPanelWidget] = None
         self.camera_widget: Optional[CameraPanelWidget] = None
-        self.motion_widget: Optional[MotionLiveWidget] = None
+        self.motion_section: Optional[MotionSection] = None
+        self.optical_widget: Optional[OpticalFlowGridWidget] = None
         self.console_widget: Optional[ConsoleWidget] = None
+        self.rssi_card: Optional[BLERSSICard] = None
+        self.fx_card: Optional[ActiveFXCard] = None
+        self.camera_frames_card: Optional[CameraFramesCard] = None
+        self.device_rssi_map: Dict[str, Optional[int]] = {}
+        self.stats_grid: Optional[Container] = None
+        self.kpi_row: Optional[Container] = None
 
     def compose(self) -> ComposeResult:
         """Componi layout"""
-        # Header
         yield HeaderWidget(id="header")
 
-        # Main panels container
-        with Container(id="main_panels"):
-            yield LEDPanelWidget(id="led_panel")
-            yield CameraPanelWidget(id="camera_panel")
-            yield MotionLiveWidget(id="motion_panel")
+        with Container(id="stats_grid"):
+            with Vertical(id="led_column"):
+                yield LEDPanelWidget(id="led_panel")
+                with Container(id="kpi_row"):
+                    yield BLERSSICard(id="ble_rssi_card")
+                    yield ActiveFXCard(id="active_fx_card")
+            with Vertical(id="camera_column"):
+                yield CameraPanelWidget(id="camera_panel")
+                yield CameraFramesCard(id="camera_frames_card")
+            yield MotionSection(id="motion_summary")
 
-        # Console container (bottom)
+        yield OpticalFlowGridWidget(id="optical_flow")
+
         with Container(id="console_container"):
             yield ConsoleWidget(id="console_log")
             yield CommandInputWidget()
 
-        # Footer con shortcuts
         yield Footer()
 
     def on_mount(self) -> None:
@@ -502,8 +682,14 @@ class SaberDashboard(App):
         self.header_widget = self.query_one("#header", HeaderWidget)
         self.led_widget = self.query_one("#led_panel", LEDPanelWidget)
         self.camera_widget = self.query_one("#camera_panel", CameraPanelWidget)
-        self.motion_widget = self.query_one("#motion_panel", MotionLiveWidget)
+        self.stats_grid = self.query_one("#stats_grid", Container)
+        self.motion_section = self.query_one("#motion_summary", MotionSection)
+        self.optical_widget = self.query_one("#optical_flow", OpticalFlowGridWidget)
         self.console_widget = self.query_one("#console_log", ConsoleWidget)
+        self.rssi_card = self.query_one("#ble_rssi_card", BLERSSICard)
+        self.fx_card = self.query_one("#active_fx_card", ActiveFXCard)
+        self.camera_frames_card = self.query_one("#camera_frames_card", CameraFramesCard)
+        self.kpi_row = self.query_one("#kpi_row", Container)
 
         # Setup callbacks
         self.client.state_callback = self._on_led_update
@@ -513,6 +699,30 @@ class SaberDashboard(App):
 
         self.console_widget.add_log("Dashboard initialized. Press F1 for help.", "green")
         self.console_widget.add_log("Quick start: Ctrl+S to scan and connect", "cyan")
+        self._update_responsive_layout(self.size.width)
+
+    def on_resize(self, event: events.Resize) -> None:
+        """Aggiorna classi responsive al resize"""
+        self._update_responsive_layout(event.size.width)
+
+    def _update_responsive_layout(self, width: int) -> None:
+        """Applica classi CSS in base alla larghezza corrente"""
+        if self.stats_grid:
+            self.stats_grid.remove_class("cols-2", "cols-1")
+            if width < 110:
+                self.stats_grid.add_class("cols-1")
+            elif width < 160:
+                self.stats_grid.add_class("cols-2")
+
+        if self.motion_section:
+            self.motion_section.remove_class("cols-3")
+            if width >= 140:
+                self.motion_section.add_class("cols-3")
+
+        if self.kpi_row:
+            self.kpi_row.remove_class("single")
+            if width < 100:
+                self.kpi_row.add_class("single")
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         """Gestisce comando"""
@@ -541,6 +751,7 @@ class SaberDashboard(App):
                 auto = bool(args and args[0].lower() == "auto")
                 self.console_widget.add_log("Scanning for devices...", "cyan")
                 devices = await self.client.scan()
+                self.device_rssi_map = {dev.address: getattr(dev, "rssi", None) for dev in devices if getattr(dev, "address", None)}
 
                 if not devices:
                     self.console_widget.add_log("No LedSaber devices found", "yellow")
@@ -548,7 +759,7 @@ class SaberDashboard(App):
 
                 if auto and len(devices) == 1:
                     device = devices[0]
-                    await self._connect_device(device.address, device.name)
+                    await self._connect_device(device.address, device.name, getattr(device, "rssi", None))
                 else:
                     for dev in devices:
                         self.console_widget.add_log(f"Found: {dev.name} ({dev.address})", "green")
@@ -557,12 +768,15 @@ class SaberDashboard(App):
                 if not args:
                     self.console_widget.add_log("Usage: connect <address>", "red")
                     return
-                await self._connect_device(args[0], "LedSaber")
+                cached_rssi = self.device_rssi_map.get(args[0])
+                await self._connect_device(args[0], "LedSaber", cached_rssi)
 
             elif cmd == "disconnect":
                 await self.client.disconnect()
                 self.header_widget.connected = False
                 self.header_widget.device_name = "NO DEVICE"
+                if self.rssi_card:
+                    self.rssi_card.connected = False
                 self.console_widget.add_log("Disconnected", "yellow")
 
             # === LED COMMANDS ===
@@ -679,7 +893,7 @@ class SaberDashboard(App):
         except Exception as e:
             self.console_widget.add_log(f"Error: {e}", "red")
 
-    async def _connect_device(self, address: str, name: str):
+    async def _connect_device(self, address: str, name: str, rssi: Optional[int] = None):
         """Connette a dispositivo"""
         self.console_widget.add_log(f"Connecting to {address}...", "cyan")
         success = await self.client.connect(address)
@@ -689,6 +903,12 @@ class SaberDashboard(App):
             self.header_widget.device_address = address
             self.header_widget.device_name = name
             self.console_widget.add_log(f"Connected to {name}", "green")
+            if self.rssi_card:
+                self.rssi_card.connected = True
+                if rssi is None:
+                    rssi = self.device_rssi_map.get(address)
+                if rssi is not None:
+                    self.rssi_card.rssi = rssi
 
             # Leggi stato iniziale
             state = await self.client.get_state()
@@ -704,6 +924,9 @@ class SaberDashboard(App):
     def _on_led_update(self, state: Dict, is_first: bool = False, changes: Dict = None):
         """Callback LED state"""
         self.led_widget.led_state = state
+        if self.fx_card:
+            self.fx_card.effect = state.get('effect', 'none')
+            self.fx_card.speed = state.get('speed', 0)
 
         if not is_first and changes:
             for key in changes:
@@ -719,6 +942,9 @@ class SaberDashboard(App):
     def _on_camera_update(self, state: Dict, is_first: bool = False, changes: Dict = None):
         """Callback camera state"""
         self.camera_widget.camera_state = state
+        if self.camera_frames_card:
+            self.camera_frames_card.total_frames = state.get('totalFrames', 0)
+            self.camera_frames_card.active = state.get('active', False)
 
         if not is_first and changes:
             for key, change in changes.items():
@@ -730,7 +956,10 @@ class SaberDashboard(App):
 
     def _on_motion_update(self, state: Dict, is_first: bool = False, changes: Dict = None):
         """Callback motion state"""
-        self.motion_widget.motion_state = state
+        if self.motion_section:
+            self.motion_section.motion_state = state
+        if self.optical_widget:
+            self.optical_widget.motion_state = state
 
         if not is_first and changes:
             for key, change in changes.items():
@@ -791,7 +1020,10 @@ class SaberDashboard(App):
     def action_motion_toggle(self) -> None:
         """F5: Toggle motion detection"""
         # Check current state and toggle
-        if self.motion_widget.motion_state.get('enabled', False):
+        enabled = False
+        if self.motion_section:
+            enabled = self.motion_section.motion_state.get('enabled', False)
+        if enabled:
             self.run_worker(self._execute_command("motion disable"))
         else:
             self.run_worker(self._execute_command("motion enable"))

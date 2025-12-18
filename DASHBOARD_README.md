@@ -5,11 +5,21 @@
 Dashboard interattiva live per il controllo e monitoraggio della spada laser LED tramite BLE.
 
 ```
-╔═══════════════════════════════════════════════════════════════════════╗
-║   ⚔️  LEDSABER LIVE DASHBOARD  ─  Resistance Edition   ║
-╠═══════════════════════════════════════════════════════════════════════╣
-║  BLE: ◉ LedSaber_BT (A4:CF:12:XX:XX:XX)                               ║
-╚═══════════════════════════════════════════════════════════════════════╝
+┌──────────────────────────────────────────────────────────────────────┐
+│ ⚔️  LEDSABER DASHBOARD                               Resistance Edition │
+│ BLE: ◉ LedSaber_BT (A4:CF:12:XX:XX:XX)                RSSI: -55 dBm     │
+└──────────────────────────────────────────────────────────────────────┘
+┌──────────────┬──────────────┬────────────────────────────────────────┐
+│ ⚡ LED STATUS │ 📸 CAMERA    │ ⚡ STATUS │ 📊 INTENSITY │ 🧭 DIRECTION │
+│ ◉ ON  │ FX   │ FPS + spark  │ mini-card │ mini-card   │ mini-card    │
+│ 📡 RSSI  ✨ FX│ 🎬 Frames    │ (stack or span 3 cols based on width)  │
+└──────────────┴──────────────┴────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────┐
+│ 🔍 OPTICAL FLOW GRID (8x6 @ 40px) — double-head box + legend          │
+└──────────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────┐
+│ Console log (5 righe) + prompt compatto                              │
+└──────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -40,60 +50,79 @@ python saber_dashboard.py
 - ✅ **Aggiornamenti live istantanei** - Griglia motion si aggiorna in tempo reale
 - ✅ **Stile btop/htop** - Dashboard-first, comandi secondari
 
+## 🧩 Layout Responsive a Griglia
+
+- **Fila 1 – HeaderWidget**: pannello Rich con due colonne (titolo/modalità e stato BLE) che adatta automaticamente il padding e rimuove l'ASCII art rigido.
+- **Fila 2 – `#stats_grid`**: tre colonne responsive (LED/BLE, Camera, Motion summary). Il codice `on_resize` del Dashboard applica classi CSS diverse (`cols-3`, `cols-2`, `cols-1`) per collassare le colonne automaticamente in base alla larghezza (≥160 → 3, 110-159 → 2, <110 → 1).
+- **Fila 3 – OpticalFlowGrid**: tabella full-width con `box.MINIMAL_DOUBLE_HEAD`, legenda dedicata e padding dinamico per valorizzare i terminali larghi.
+- **Fila 4 – Console**: contenitore compatto con bordo dedicato, linee orizzontali ridimensionate runtime e prompt che non occupa colonne inutili.
+
+Le mini-card KPI (`📡 BLE RSSI`, `✨ Active FX`, `🎬 Camera Frames`) popolano automaticamente gli spazi vuoti delle colonne per enfatizzare il carattere “dashboard-first” quando il terminale è molto ampio e si impilano ordinatamente su schermi stretti.
+
+> **Tip**: ridimensiona il terminale (es. 80 → 120 → 160 colonne) per verificare il comportamento della griglia senza riavviare l’app; le classi responsive vengono aggiornate live e Textual ricompone le colonne (`1fr`, `1fr 1fr`, `1fr 1fr 1fr`) in tempo reale.
+
 ### 📺 Panels
 
-#### 1. **LED Status Panel** (compatto, 3 righe)
+#### 1. **LED Column** (LED Panel + mini KPI)
 ```
 ┌─ ⚡ LED STATUS ──────────────────────────────────────────┐
 │   ◉ ON  │  R:255 G:  0 B:  0  │  Bright:200 ████░░  │  FX:rainbow   │
 └──────────────────────────────────────────────────────────┘
+┌─ 📡 RSSI ─────┐┌─ ✨ FX ───────┐
+│  -55 dBm     ││  RAINBOW     │
+│  (live)      ││  150 ms      │
+└──────────────┘└──────────────┘
 ```
+Il container `#led_column` ospita il pannello principale e due mini-card (`BLERSSICard`, `ActiveFXCard`) che mostrano RSSI live (ricavato dallo scan/connection) e l’effetto LED attuale.
 
-#### 2. **Camera Panel** (compatto, 3 righe + sparkline FPS)
+#### 2. **Camera Column** (pannello + Frames KPI)
 ```
 ┌─ 📸 CAMERA ─────────────────────────────────────────────┐
-│   ◉ ACTIVE  │  Init:✓  │  FPS: 25.3  │  ▁▂▃▄▅▆▇█▇▆  │  Frames:1234   │
+│   ◉ ACTIVE  │  Init:✓  │  FPS: 25.3  │  ▁▂▃▄▅▆▇█▇▆  │  │
 └─────────────────────────────────────────────────────────┘
+┌─ 🎬 Frames ─────────────────┐
+│   12,345                    │
+│   live counter + activity   │
+└─────────────────────────────┘
 ```
+Il pannello camera resta compatto mentre `CameraFramesCard` offre un contatore dedicato che riempie la colonna quando il terminale è ampio.
 
-#### 3. **Motion Detection Panel** (MASSIVO, espanso)
+#### 3. **Motion Summary Cards**
 ```
-╔═ 🔍 MOTION DETECTION LIVE ════════════════════════════════════════════╗
-║ ┌─ STATUS ──────────────────────────────────────────────────────────┐ ║
-║ │ ◉ ENABLED  │  ⚡ MOTION  │  ⚠ SHAKE!                              │ ║
-║ ├─ INTENSITY ───────────────────────────────────────────────────────┤ ║
-║ │ I:156  ████████░░░░  Pixels:1,245                                 │ ║
-║ ├─ HISTORY ─────────────────────────────────────────────────────────┤ ║
-║ │ ▁▂▃▄▅▆▇█▇▆▅▄▃▂▁▂▃▄▅▆▇█▇▆▅▄▃▂▁▂▃▄▅▆▇█▇▆▅▄▃▂▁▂▃▄▅▆▇█▇▆               │ ║
-║ ├─ DIRECTION & GESTURE ─────────────────────────────────────────────┤ ║
-║ │ Dir: → RIGHT  │  Gesture: ⚔ SLASH (87%)                           │ ║
-║ ╞═══════════════════════════════════════════════════════════════════╡ ║
-║ │         OPTICAL FLOW GRID (8x6 @ 40px)                            │ ║
-║ ├───────────────────────────────────────────────────────────────────┤ ║
-║ │                    > > > . . . . .                                │ ║
-║ │                    > > > . . . . .                                │ ║
-║ │                    > > . . . . . .                                │ ║
-║ │                    . . . . . . . .                                │ ║
-║ │                    . . . . . . . .                                │ ║
-║ │                    . . . . . . . .                                │ ║
-║ ├───────────────────────────────────────────────────────────────────┤ ║
-║ │ Legend: . idle  ^ v up/down  < > left/right  A B C D diagonals    │ ║
-║ └───────────────────────────────────────────────────────────────────┘ ║
-╚═══════════════════════════════════════════════════════════════════════╝
+┌─ ⚡ STATUS ─────────────┐┌─ 📊 INTENSITY ────────────┐┌─ 🧭 DIRECTION ─────┐
+│ ◉ ENABLED               ││ Intensity: 156            ││   ↗ SWING UP        │
+│ ⚡ MOTION               ││ ████████░░░░░░░░          ││ GESTURE: SLASH 87%  │
+│ ⚠ SHAKE                ││ History: ▁▂▃▄▅▆▇█         ││                     │
+└────────────────────────┘└───────────────────────────┘└────────────────────┘
 ```
+`MotionSection` distribuisce tre sotto-widget reattivi (status, intensity, direction) che possono disporsi in tre colonne sui terminali larghi o impilarsi verticalmente sui terminali compatti.
 
-#### 4. **Console Widget** (minimale in basso, 5 righe visibili)
+#### 4. **Optical Flow Grid full-width**
+```
+┌──────────────────────────────────────────────────────────────────────┐
+│ 🔍 OPTICAL FLOW GRID (8x6 @ 40px)                                    │
+│ ┌╥════════════════════════════════════════════════════════════════╥┐ │
+│ │║ > > > . . . . .                                                ║│ │
+│ │║ > > > . . . . .                                                ║│ │
+│ │║ > > . . . . . .                                                ║│ │
+│ │║ . . . . . . . .                                                ║│ │
+│ │╚════════════════════════════════════════════════════════════════╝│ │
+│ │Legend: . idle   ^v up/down   <> left/right   A B C D diagonals  │ │
+└──────────────────────────────────────────────────────────────────────┘
+```
+La griglia sfrutta `box.MINIMAL_DOUBLE_HEAD`, padding adattivo e una legenda separata per essere leggibile tanto su 90 quanto su 200 colonne.
+
+#### 5. **Console Widget** (5 righe visibili)
 ```
 CONSOLE LOG (last 5 lines)
-───────────────────────────────────────────────────────────────────────
-14:32:15 Dashboard initialized. Press F1 for help.
-14:32:20 Connected to LedSaber_BT
+───────────────────────────────────────────────
 14:32:25 LED → RGB(255,0,0)
 14:32:30 ⚡ MOTION_STARTED (I:156)
 14:32:31 ⚔ GESTURE: SLASH (87%)
-───────────────────────────────────────────────────────────────────────
+───────────────────────────────────────────────
 > _
 ```
+Le linee divisorie si adattano automaticamente alla larghezza del contenitore (`max(40, width-4)`) così il prompt non occupa più colonne del necessario.
 
 ---
 
@@ -223,13 +252,15 @@ Testato su:
 saber_dashboard.py
 ├── HeaderWidget              # Header con status BLE
 ├── LEDPanelWidget           # Panel LED compatto (3 righe)
+│   ├── BLERSSICard          # Mini-card KPI
+│   └── ActiveFXCard         # Mini-card effetto/speed
 ├── CameraPanelWidget        # Panel camera + FPS sparkline (3 righe)
-├── MotionLiveWidget         # Panel motion MASSIVO (espandibile)
-│   ├── Status row
-│   ├── Intensity bar
-│   ├── History sparkline (60 samples)
-│   ├── Direction + Gesture
-│   └── Optical Flow Grid (8x6, centered, colored)
+│   └── CameraFramesCard     # KPI dedicato ai frame
+├── MotionSection            # Container responsivo per motion summary
+│   ├── MotionStatusCard     # Stato + shake
+│   ├── MotionIntensityCard  # Barra + sparkline + pixels
+│   └── MotionDirectionCard  # Direzione + gesture confidence
+├── OpticalFlowGridWidget    # Griglia full-width con legenda
 ├── ConsoleWidget            # Log console (5 righe visibili, 100 salvate)
 └── CommandInputWidget       # Input comandi
 ```
@@ -238,21 +269,21 @@ saber_dashboard.py
 I callback GATT sono collegati direttamente ai widget:
 - `state_callback` → `LEDPanelWidget.led_state` (reactive update)
 - `camera_callback` → `CameraPanelWidget.camera_state` (reactive update)
-- `motion_callback` → `MotionLiveWidget.motion_state` (reactive update)
+- `motion_callback` → `MotionSection.motion_state` + `OpticalFlowGridWidget.motion_state`
 - `motion_event_callback` → `ConsoleWidget.add_log()`
 
 **Reactive Updates:**
 Textual usa il sistema `reactive` per aggiornamenti automatici. Quando cambia `led_state`, `camera_state` o `motion_state`, i widget si ri-renderizzano automaticamente senza lag.
 
 ### Auto-Resize
-Il layout usa **frazioni dinamiche** e **height: auto** per adattarsi:
-- Header: altezza fissa
-- LED Panel: 3 righe fisse
-- Camera Panel: 3 righe fisse
-- Motion Panel: espandibile (min 20 righe, max disponibile)
-- Console: minimale in basso (dock bottom)
+Il layout sfrutta `grid-columns` dinamici controllati programmaticamente da `_update_responsive_layout()`:
+- **Header:** padding adattivo (1 → 2 spazi) basato sulla larghezza runtime.
+- **Stats grid:** classi `cols-3/cols-2/cols-1` applicate on-the-fly per distribuire 3, 2 o 1 colonne.
+- **Motion summary:** `MotionSection` riceve la classe `cols-3` quando il terminale supera ~140 colonne, altrimenti impila i card verticalmente.
+- **Optical Flow:** pannello full-width con padding calcolato (`pad_x` variabile) per sfruttare l’ampiezza laterale.
+- **Console:** contenitore con `max-height` 8 e righe divisorie calcolate (`max(40, width-4)`).
 
-Quando ridimensioni il terminale, Textual ricalcola automaticamente il layout.
+Ridimensionando il terminale puoi quindi verificare la ricomposizione live senza riavviare l’app.
 
 ---
 
