@@ -122,7 +122,7 @@ class LEDPanelWidget(Static):
             title="[bold cyan]⚡ LED STATUS[/]",
             border_style="cyan",
             box=box.ROUNDED,
-            height=5
+            height=3
         )
 
 
@@ -182,7 +182,7 @@ class CameraPanelWidget(Static):
             title="[bold green]📸 CAMERA[/]",
             border_style="green",
             box=box.ROUNDED,
-            height=5
+            height=3
         )
 
 
@@ -212,7 +212,7 @@ class MotionStatusCard(Static):
             title="[bold magenta]⚡ STATUS[/]",
             border_style="magenta",
             box=box.ROUNDED,
-            height=9
+            height=6
         )
 
 
@@ -274,7 +274,7 @@ class MotionIntensityCard(Static):
             title="[bold yellow]📊 INTENSITY[/]",
             border_style="yellow",
             box=box.ROUNDED,
-            height=15
+            height=9
         )
 
 
@@ -317,7 +317,7 @@ class MotionDirectionCard(Static):
             title="[bold cyan]🧭 DIRECTION[/]",
             border_style="cyan",
             box=box.ROUNDED,
-            height=15
+            height=9
         )
 
 
@@ -444,7 +444,7 @@ class BLERSSICard(Static):
             title="[cyan]📡 RSSI[/]",
             border_style="cyan",
             box=box.ROUNDED,
-            height=6
+            height=4
         )
 
 
@@ -465,7 +465,7 @@ class ActiveFXCard(Static):
             title="[magenta]✨ FX[/]",
             border_style="magenta",
             box=box.ROUNDED,
-            height=6
+            height=4
         )
 
 
@@ -486,7 +486,7 @@ class CameraFramesCard(Static):
             title="[green]🎬 Frames[/]",
             border_style="green",
             box=box.ROUNDED,
-            height=6
+            height=4
         )
 
 
@@ -568,28 +568,29 @@ class SaberDashboard(App):
     }
 
     #header {
-        margin: 1 1 0 1;
+        height: 5;
+        margin: 0 1;
+        padding: 0;
     }
 
     #main_body {
         layout: vertical;
         height: 1fr;
-        padding: 0 1 0 1;
+        padding: 0 1;
     }
 
     #stats_grid {
         layout: grid;
         grid-size: 3;
         grid-columns: 1fr 1fr 1fr;
-        grid-rows: auto;
         padding: 0;
-        margin-bottom: 1;
-        height: 50vh;
-        max-height: 50vh;
+        margin: 0;
+        height: 12;
+        max-height: 12;
     }
 
     #kpi_row, #camera_frames_card {
-        margin-top: 0;
+        margin: 0;
     }
 
     #motion_summary {
@@ -597,7 +598,7 @@ class SaberDashboard(App):
         grid-size: 1;
         grid-columns: 1fr;
         padding-left: 1;
-        margin-top: 1;
+        margin: 0;
     }
     #motion_summary.cols-3 {
         grid-size: 3;
@@ -608,7 +609,7 @@ class SaberDashboard(App):
         layout: grid;
         grid-size: 2;
         grid-columns: 1fr 1fr;
-        margin-top: 0;
+        margin: 0;
     }
     #kpi_row.single {
         grid-size: 1;
@@ -628,9 +629,9 @@ class SaberDashboard(App):
     #grid_console_row {
         layout: horizontal;
         padding: 0;
-        margin-top: 0;
-        height: 35vh;
-        max-height: 35vh;
+        margin: 1 0 0 0;
+        height: 20;
+        max-height: 20;
     }
 
     #optical_flow {
@@ -650,7 +651,8 @@ class SaberDashboard(App):
         border: round cyan;
         background: $panel;
         padding: 1;
-        height: 1fr;
+        height: 14;
+        max-height: 14;
     }
 
     #console_log {
@@ -665,7 +667,7 @@ class SaberDashboard(App):
     }
 
     #led_column {
-        padding-right: 1;
+        padding: 0 1 0 0;
     }
 
     #camera_column {
@@ -674,29 +676,28 @@ class SaberDashboard(App):
 
     #led_panel,
     #camera_panel {
-        margin-bottom: 0;
+        margin: 0;
     }
 
     #ble_rssi_card {
         margin-right: 1;
+        margin-bottom: 0;
+    }
+
+    #active_fx_card,
+    #camera_frames_card {
+        margin: 0;
     }
 
     #motion_status_card,
     #motion_intensity_card,
     #motion_direction_card {
-        margin-bottom: 0;
+        margin: 0;
     }
 
     #motion_status_card,
     #motion_intensity_card {
         margin-right: 1;
-    }
-
-    #motion_summary.cols-3 #motion_status_card,
-    #motion_summary.cols-3 #motion_intensity_card,
-    #motion_summary.cols-3 #motion_direction_card {
-        margin-bottom: 0;
-        margin-top: 0;
     }
 
     """
