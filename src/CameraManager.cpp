@@ -70,9 +70,8 @@ bool CameraManager::begin(uint8_t flashPin) {
 
     _flashPin = flashPin;
 
-    // Configura flash LED pin
-    pinMode(_flashPin, OUTPUT);
-    digitalWrite(_flashPin, LOW);
+    // NOTA: Non configurare il pin qui, è già configurato come PWM in main.cpp
+    // per evitare conflitti con il LED di stato (stesso pin, stesso canale PWM 0)
 
     Serial.println("[CAMERA] Initializing ESP32-CAM...");
 
@@ -194,14 +193,13 @@ void CameraManager::releaseFrame() {
 void CameraManager::setFlash(bool enabled, uint8_t brightness) {
     _flashEnabled = enabled;
 
+    // NOTA: Il pin del flash (pin 4) usa il canale PWM 0, già configurato in main.cpp
+    // Non riconfigurare il canale PWM qui per evitare conflitti.
+    // Scrivi direttamente sul canale 0 (condiviso con status LED)
     if (enabled && brightness > 0) {
-        // PWM per controllo intensità flash
-        ledcSetup(1, 5000, 8);  // Channel 1, 5kHz, 8-bit resolution
-        ledcAttachPin(_flashPin, 1);
-        ledcWrite(1, brightness);
+        ledcWrite(0, brightness);  // Canale 0 condiviso
     } else {
-        digitalWrite(_flashPin, LOW);
-        ledcDetachPin(_flashPin);
+        ledcWrite(0, 0);  // Spegni LED
     }
 }
 

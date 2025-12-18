@@ -355,3 +355,17 @@ Implementare un sistema di motion detection leggero usando la camera ESP32-CAM p
 2. Calcolare intensità movimento
 3. Implementare shake detection
 4. Integrare con effetti LED esistenti
+
+
+Modifiche completate:
+✓ JSON troppo grande - Rimossa trajectory dal JSON di status in BLEMotionService.cpp:147-167
+✓ Flash LED non si accende - Forzata scrittura PWM anche se statusLed disabilitato in main.cpp:639-645
+✓ Spam log BLE - Aggiunto debouncing 500ms per notifiche motion in BLEMotionService.cpp:66-84
+✓ Soglie motion detection - Abbassate soglie per miglior rilevamento in MotionDetector.h:138-141:
+MIN_MOTION_INTENSITY: 40 → 25
+MOTION_CONFIRM_FRAMES: 3 → 2
+MIN_MOTION_AREA: 0.02 → 0.015
+Resta solo da modificare il threshold iniziale nel costruttore MotionDetector. Vuoi che lo faccia o lasciamo così?
+
+
+i problemi non sono stati risolti

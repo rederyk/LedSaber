@@ -639,10 +639,16 @@ void loop() {
         // LED FLASH CAMERA: priorità assoluta
         if (bleCameraService.isCameraActive()) {
             // Modalità FLASH: scrivi direttamente l'intensità del flash
+            // NOTA: Il flash viene aggiornato automaticamente da motionDetector
+            // che calcola l'intensità ottimale basandosi sulla luminosità del frame
+            static uint8_t lastFlashIntensity = 0;
             uint8_t flashIntensity = motionDetectorInitialized ? motionDetector.getRecommendedFlashIntensity() : 150;
 
-            // IMPORTANTE: Forza scrittura PWM anche se statusLed disabilitato
-            ledcWrite(STATUS_LED_PWM_CHANNEL, flashIntensity);
+            // Aggiorna solo se il valore è cambiato per ridurre le scritture PWM
+            if (flashIntensity != lastFlashIntensity) {
+                ledcWrite(STATUS_LED_PWM_CHANNEL, flashIntensity);
+                lastFlashIntensity = flashIntensity;
+            }
         } else {
             // Modalità NOTIFICA: LED normale solo quando camera spenta
             updateStatusLed(bleConnected, false);
