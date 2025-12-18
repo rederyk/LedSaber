@@ -14,6 +14,8 @@
 #include "OpticalFlowDetector.h"
 #include "BLEMotionService.h"
 #include "StatusLedManager.h"
+#include "MotionProcessor.h"
+#include "LedEffectEngine.h"
 
 // GPIO
 static constexpr uint8_t STATUS_LED_PIN = 4;   // LED integrato per stato connessione
@@ -51,6 +53,10 @@ BLECameraService bleCameraService(&cameraManager);
 // Optical Flow Detector
 OpticalFlowDetector motionDetector;
 BLEMotionService bleMotionService(&motionDetector);
+
+// Motion Processor & LED Effect Engine
+MotionProcessor motionProcessor;
+LedEffectEngine effectEngine(leds, NUM_LEDS);
 
 struct MotionTaskResult {
     bool valid;
@@ -110,61 +116,10 @@ class MainServerCallbacks: public BLEServerCallbacks {
 };
 
 // ============================================================================
-// MAPPING LED FISICI PER STRISCIA PIEGATA E ACCOPPIATA
+// LEGACY CODE - NOW HANDLED BY LedEffectEngine
 // ============================================================================
-
-/**
- * Scala un colore applicando la brightness globale PRIMA di scriverlo nel buffer.
- * Questo preserva il contrasto relativo negli effetti con fading/dimming interno.
- *
- * @param color Colore da scalare
- * @param brightness Brightness globale (0-255)
- * @return Colore scalato
- */
-static inline CRGB scaleColorByBrightness(CRGB color, uint8_t brightness) {
-    return CRGB(
-        scale8(color.r, brightness),
-        scale8(color.g, brightness),
-        scale8(color.b, brightness)
-    );
-}
-
-/**
- * Imposta il colore di una COPPIA di LED accoppiati sulla striscia piegata.
- *
- * IMPORTANTE: La striscia LED è PIEGATA e i LED sono ACCOPPIATI con i LED rivolti
- * verso l'esterno su entrambi i lati. Questo significa che ogni posizione logica
- * corrisponde a DUE LED fisici che devono essere accesi insieme.
- *
- * ESEMPIO con NUM_LEDS=144 e foldPoint=72:
- * - Posizione logica 0   -> accende LED fisici 0 E 143 (base della spada, entrambi i lati)
- * - Posizione logica 1   -> accende LED fisici 1 E 142
- * - Posizione logica 35  -> accende LED fisici 35 E 108
- * - Posizione logica 71  -> accende LED fisici 71 E 72  (punta della spada)
- *
- * @param logicalIndex Posizione logica dalla base (0) alla punta (foldPoint-1)
- * @param foldPoint Punto di piegatura della striscia (tipicamente NUM_LEDS/2)
- * @param color Colore da impostare per entrambi i LED
- */
-static void setLedPair(uint16_t logicalIndex, uint16_t foldPoint, CRGB color) {
-    // Limita logicalIndex al range valido (0 a foldPoint-1)
-    if (logicalIndex >= foldPoint) {
-        return;
-    }
-
-    // LED del primo lato (mappatura diretta)
-    uint16_t led1 = logicalIndex;
-
-    // LED del secondo lato (mappatura invertita)
-    // logicalIndex=0 -> led2=143 (NUM_LEDS-1)
-    // logicalIndex=1 -> led2=142 (NUM_LEDS-2)
-    // logicalIndex=71 -> led2=72 (foldPoint)
-    uint16_t led2 = (NUM_LEDS - 1) - logicalIndex;
-
-    // Imposta entrambi i LED
-    leds[led1] = color;
-    leds[led2] = color;
-}
+// Note: scaleColorByBrightness() and setLedPair() moved to LedEffectEngine class
+// renderLedStrip() replaced by effectEngine.render()
 
 // ============================================================================
 // FUNZIONI DI STATO E GRAFICA
@@ -181,6 +136,10 @@ static void initPeripherals() {
 }
 
 
+/*
+// ============================================================================
+// LEGACY renderLedStrip() - NOW REPLACED BY LedEffectEngine
+// ============================================================================
 static void renderLedStrip() {
     static unsigned long lastUpdate = 0;
     static uint8_t hue = 0;
@@ -525,6 +484,8 @@ static void renderLedStrip() {
 
     lastUpdate = now;
 }
+*/
+// END LEGACY renderLedStrip()
 
 void setup() {
     Serial.begin(115200);
@@ -634,9 +595,23 @@ void loop() {
         }
     }
 
+    // Process motion data for gesture detection and perturbations
+    MotionProcessor::ProcessedMotion* processedMotion = nullptr;
+    MotionProcessor::ProcessedMotion motionData;
+
     if (gCachedMotionResult.valid && bleMotionService.isMotionEnabled()) {
+        // Process raw motion into gestures and perturbations
+        motionData = motionProcessor.process(
+            gCachedMotionResult.motionIntensity,
+            gCachedMotionResult.direction,
+            motionDetector.getMotionSpeed(),
+            gCachedMotionResult.timestamp,
+            motionDetector
+        );
+        processedMotion = &motionData;
+
+        // Update BLE motion service
         bleMotionService.update(gCachedMotionResult.motionDetected, false);
-        // Ridotto da 1000ms a 300ms per feedback più rapido
         if (now - lastMotionStatusNotify > 300) {
             bleMotionService.notifyStatus();
             lastMotionStatusNotify = now;
@@ -696,7 +671,8 @@ void loop() {
             ledManager.updateStatusLed(bleConnected, ledState.statusLedEnabled, ledState.statusLedBrightness);
         }
 
-        renderLedStrip();
+        // Render LED strip with motion integration
+        effectEngine.render(ledState, processedMotion);
 
         // Notifica stato BLE ogni 500ms se c'è una connessione
         if (bleConnected && now - lastBleNotify > 500) {
