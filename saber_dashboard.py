@@ -102,20 +102,35 @@ class LEDPanelWidget(Static):
         speed = state.get('speed', 0)
 
         # Status icon
-        status_icon = "[green]◉ ON[/]" if enabled else "[red]● OFF[/]"
+        status_icon = Text("◉ ON", style="bold green") if enabled else Text("● OFF", style="bold red")
 
-        # RGB bar
-        rgb_bar = f"[red]R:{r:3d}[/] [green]G:{g:3d}[/] [blue]B:{b:3d}[/]"
+        # RGB values with colors
+        rgb_bar = Text()
+        rgb_bar.append("R:", style="red")
+        rgb_bar.append(f"{r:3d}", style="red bold")
+        rgb_bar.append("  ")
+        rgb_bar.append("G:", style="green")
+        rgb_bar.append(f"{g:3d}", style="green bold")
+        rgb_bar.append("  ")
+        rgb_bar.append("B:", style="blue")
+        rgb_bar.append(f"{b:3d}", style="blue bold")
 
-        # Brightness bar (compatta)
+        # Brightness indicator
         bright_pct = int((brightness / 255) * 20)
-        bright_bar = f"[yellow]{'█' * bright_pct}{'░' * (20 - bright_pct)}[/]"
+        bright_bar = Text()
+        bright_bar.append("█" * bright_pct, style="yellow")
+        bright_bar.append("░" * (20 - bright_pct), style="dim")
 
         content = Text()
-        content.append(f"{status_icon}  │  {rgb_bar}  │  ", style="")
-        content.append(f"Bright:{brightness:3d} ", style="cyan")
-        content.append(f"{bright_bar}", style="")
-        content.append(f"  │  FX:[magenta]{effect}[/]", style="")
+        content.append(status_icon)
+        content.append("  │  ")
+        content.append(rgb_bar)
+        content.append("  │  ")
+        content.append("Bright:", style="cyan")
+        content.append(f"{brightness:3d} ", style="cyan bold")
+        content.append(bright_bar)
+        content.append("  │  FX: ", style="")
+        content.append(effect, style="magenta")
 
         return Panel(
             Align.center(content),
@@ -137,26 +152,20 @@ class CameraPanelWidget(Static):
             fps = new_state.get('fps', 0)
             self.fps_history.append(fps)
 
-    def _sparkline(self, data: List[float], max_val: float = 30.0) -> str:
+    def _sparkline(self, data: List[float], max_val: float = 30.0) -> Text:
         if not data:
-            return "░" * 40
+            return Text("░" * 40, style="dim")
 
         blocks = "▁▂▃▄▅▆▇█"
-        result = []
+        sparkline = Text()
         for val in data:
             idx = int((val / max_val) * (len(blocks) - 1))
             idx = max(0, min(len(blocks) - 1, idx))
-            result.append(blocks[idx])
+            block = blocks[idx]
+            style = "green" if val > 20 else "yellow" if val > 10 else "red"
+            sparkline.append(block, style=style)
 
-        # Colora in base al valore
-        colored = "".join([
-            f"[green]{c}[/]" if data[i] > 20 else
-            f"[yellow]{c}[/]" if data[i] > 10 else
-            f"[red]{c}[/]"
-            for i, c in enumerate(result)
-        ])
-
-        return colored
+        return sparkline
 
     def render(self):
         state = self.camera_state or {}
@@ -166,16 +175,24 @@ class CameraPanelWidget(Static):
         fps = state.get('fps', 0.0)
         total_frames = state.get('totalFrames', 0)
 
-        status_icon = "[green]◉ ACTIVE[/]" if active else "[yellow]◎ IDLE[/]"
-        init_icon = "[green]✓[/]" if initialized else "[red]✗[/]"
+        status_icon = Text("◉ ACTIVE", style="bold green") if active else Text("◎ IDLE", style="yellow")
+        init_icon = Text("✓", style="green") if initialized else Text("✗", style="red")
 
         sparkline = self._sparkline(list(self.fps_history))
 
         content = Text()
-        content.append(f"{status_icon}  │  Init:{init_icon}  │  ", style="")
-        content.append(f"FPS:[bold yellow]{fps:5.1f}[/]  ", style="")
-        content.append(f"│  {sparkline}  ", style="")
-        content.append(f"│  Frames:[dim]{total_frames}[/]", style="")
+        content.append(status_icon)
+        content.append("  │  ")
+        content.append("Init:", style="")
+        content.append(init_icon)
+        content.append("  │  ")
+        content.append("FPS:", style="")
+        content.append(f"{fps:5.1f}  ", style="bold yellow")
+        content.append("│  ")
+        content.append(sparkline)
+        content.append("  │  ")
+        content.append("Frames:", style="dim")
+        content.append(f"{total_frames}", style="dim")
 
         return Panel(
             Align.center(content),
@@ -747,8 +764,14 @@ class SaberDashboard(App):
 
     #optical_flow {
         width: 100%;
-        height: 1fr;
+        height: auto;
         min-height: 15;
+        margin: 0;
+        padding: 1;
+        border: round purple;
+
+
+
     }
 
     #console_column {
