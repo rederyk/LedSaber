@@ -366,9 +366,11 @@ class OpticalFlowGridWidget(Static):
         # Vertical: ~4 lines (border minimo)
         usable_height = max(5, height - 4)
 
-        # I caratteri terminale sono ~2x più alti che larghi
-        # Per proporzioni visive corrette: h_gap deve essere ~2x v_gap
-        CHAR_ASPECT_RATIO = 2.0
+        # I caratteri terminale sono più alti che larghi
+        # Per proporzioni visive corrette: h_gap deve essere maggiore di v_gap
+        # Tipicamente i caratteri hanno aspect ratio height/width ~ 2.0-2.5
+        # Ma per compensare la spaziatura visiva usiamo un valore più alto
+        CHAR_ASPECT_RATIO = 3.5
 
         # Calcola il gap massimo possibile per ogni dimensione
         if grid_cols > 1:
