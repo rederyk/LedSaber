@@ -329,10 +329,13 @@ class OpticalFlowGridWidget(Static):
     def render(self):
         state = self.motion_state or {}
 
-        # Grid optical flow
-        grid_rows = state.get('grid', [])
-        grid_cols = state.get('gridCols', 8)
+        raw_rows = state.get('grid', [])
+        grid_cols = state.get('gridCols') or (len(raw_rows[0]) if raw_rows else 8)
+        grid_rows_count = state.get('gridRows') or (len(raw_rows) if raw_rows else 8)
+        grid_cols = max(1, grid_cols)
+        grid_rows_count = max(1, grid_rows_count)
         block_size = state.get('blockSize', 40)
+        has_live_data = bool(raw_rows)
 
         # Mappa simboli -> colori
         symbol_colors = {
@@ -347,29 +350,31 @@ class OpticalFlowGridWidget(Static):
             'D': 'magenta',
         }
 
-        # Crea griglia con Table Rich
-        grid_table = Table(
-            show_header=False,
-            show_edge=True,
-            box=box.MINIMAL_DOUBLE_HEAD,
-            padding=(0, 1),
-            collapse_padding=True,
-            expand=True
-        )
-
-        # Aggiungi colonne per ogni cella della griglia
-        for _ in range(grid_cols):
-            grid_table.add_column(justify="center", width=2)
-
-        if not grid_rows:
-            grid_table.add_row(*["[dim].[/]"] * grid_cols)
+        # Normalizza righe (garantisce sempre una matrice completa)
+        normalized_rows: List[str] = []
+        if not raw_rows:
+            normalized_rows = ["." * grid_cols for _ in range(grid_rows_count)]
         else:
-            for row_str in grid_rows:
-                colored_cells = []
-                for char in row_str:
-                    color = symbol_colors.get(char, 'white')
-                    colored_cells.append(f"[{color}]{char}[/]")
-                grid_table.add_row(*colored_cells)
+            for row_str in raw_rows[:grid_rows_count]:
+                padded = row_str[:grid_cols].ljust(grid_cols, ".")
+                normalized_rows.append(padded)
+            # Se dati ricevuti ma meno righe del previsto, completa con placeholder
+            if len(normalized_rows) < grid_rows_count:
+                missing = grid_rows_count - len(normalized_rows)
+                normalized_rows.extend(["." * grid_cols for _ in range(missing)])
+
+        grid_lines: List[str] = []
+        for row_str in normalized_rows:
+            colored_cells = []
+            for char in row_str:
+                color = symbol_colors.get(char, 'white')
+                if not has_live_data and char == '.':
+                    color = "dim"
+                colored_cells.append(f"[{color}]{char}[/]")
+            grid_lines.append("  ".join(colored_cells))
+
+        grid_markup = "\n".join(grid_lines)
+        grid_text = Text.from_markup(grid_markup)
 
         legend = Table.grid(expand=True, padding=0)
         legend.add_column(justify="left")
@@ -383,10 +388,21 @@ class OpticalFlowGridWidget(Static):
 
         width = self.size.width or 100
         pad_x = 1 if width < 100 else 2
+        grid_label = "Live optical flow" if has_live_data else "Waiting for motion data"
+        info_line = Text(f"Grid: {grid_cols}x{grid_rows_count} @ {block_size}px  •  {grid_label}", style="dim cyan")
+
+        grid_box = Panel(
+            Align.center(grid_text, vertical="middle"),
+            border_style="cyan",
+            box=box.SQUARE,
+            padding=(1, 2),
+            width=max(24, grid_cols * 3),
+            height=max(10, grid_rows_count + 4),
+        )
 
         content = Group(
-            Align.center(Text(f"Grid: {grid_cols}x{len(grid_rows)} @ {block_size}px", style="dim cyan")),
-            grid_table,
+            Align.center(info_line),
+            grid_box,
             legend
         )
 
@@ -559,7 +575,6 @@ class SaberDashboard(App):
         grid-size: 3;
         grid-columns: 1fr 1fr 1fr;
         grid-rows: auto;
-        grid-gutter: 1 2;
         padding: 0 1;
     }
 
@@ -571,7 +586,7 @@ class SaberDashboard(App):
         layout: grid;
         grid-size: 1;
         grid-columns: 1fr;
-        grid-gutter: 1;
+        padding-left: 1;
     }
     #motion_summary.cols-3 {
         grid-size: 3;
@@ -582,7 +597,6 @@ class SaberDashboard(App):
         layout: grid;
         grid-size: 2;
         grid-columns: 1fr 1fr;
-        grid-gutter: 1;
     }
     #kpi_row.single {
         grid-size: 1;
@@ -621,6 +635,40 @@ class SaberDashboard(App):
         border: solid cyan;
         background: $surface;
         margin-top: 1;
+    }
+
+    #led_column {
+        padding-right: 1;
+    }
+
+    #camera_column {
+        padding: 0 1;
+    }
+
+    #led_panel,
+    #camera_panel {
+        margin-bottom: 1;
+    }
+
+    #ble_rssi_card {
+        margin-right: 1;
+    }
+
+    #motion_status_card,
+    #motion_intensity_card,
+    #motion_direction_card {
+        margin-bottom: 1;
+    }
+
+    #motion_status_card,
+    #motion_intensity_card {
+        margin-right: 1;
+    }
+
+    #motion_summary.cols-3 #motion_status_card,
+    #motion_summary.cols-3 #motion_intensity_card,
+    #motion_summary.cols-3 #motion_direction_card {
+        margin-bottom: 0;
     }
 
     """
