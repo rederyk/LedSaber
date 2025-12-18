@@ -84,8 +84,9 @@ bool CameraManager::begin(uint8_t flashPin) {
 
     // Configurazione
     config.xclk_freq_hz = 20000000;  // 20MHz clock
-    config.ledc_timer = LEDC_TIMER_0;
-    config.ledc_channel = LEDC_CHANNEL_0;
+    // Usa TIMER_1 e CHANNEL_1 per evitare conflitti con STATUS_LED (TIMER_0/CHANNEL_0)
+    config.ledc_timer = LEDC_TIMER_1;
+    config.ledc_channel = LEDC_CHANNEL_1;
 
     // Formato immagine: QVGA grayscale per prestazioni
     config.pixel_format = PIXFORMAT_GRAYSCALE;  // 1 byte/pixel

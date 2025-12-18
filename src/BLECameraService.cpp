@@ -121,6 +121,8 @@ void BLECameraService::_executeCommand(const String& command) {
             }
         } else {
             Serial.println("[CAM BLE] Camera already initialized");
+            // Assicurati che lo stato sia corretto anche se già inizializzata
+            _cameraActive = false;
         }
 
     } else if (command == "capture") {
