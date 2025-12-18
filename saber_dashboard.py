@@ -212,7 +212,7 @@ class MotionStatusCard(Static):
             title="[bold magenta]⚡ STATUS[/]",
             border_style="magenta",
             box=box.ROUNDED,
-            height=5
+            height=7
         )
 
 
@@ -270,7 +270,7 @@ class MotionIntensityCard(Static):
             title="[bold yellow]📊 INTENSITY[/]",
             border_style="yellow",
             box=box.ROUNDED,
-            height=5
+            height=7
         )
 
 
@@ -310,7 +310,7 @@ class MotionDirectionCard(Static):
             title="[bold cyan]🧭 DIRECTION[/]",
             border_style="cyan",
             box=box.ROUNDED,
-            height=5
+            height=7
         )
 
 
@@ -356,8 +356,34 @@ class OpticalFlowGridWidget(Static):
                 missing = grid_rows_count - len(normalized_rows)
                 normalized_rows.extend(["." * grid_cols for _ in range(missing)])
 
+        # Calculate available space first to determine cell gap
+        available_width = max(60, self.size.width or 120)
+        available_height = max(12, (self.size.height or 40) - 12)
+
+        # Calculate dynamic cell gap based on available width
+        # Reserve space for panel borders and padding (~8 chars)
+        usable_width = max(30, available_width - 8)
+        # Calculate how many spaces we can fit between cells
+        min_gap = 2  # Minimum gap
+        max_gap = 8  # Maximum gap
+        if grid_cols > 1:
+            # Available space minus the characters themselves
+            space_for_gaps = usable_width - grid_cols
+            gap_count = grid_cols - 1
+            calculated_gap = max(min_gap, min(max_gap, space_for_gaps // gap_count))
+        else:
+            calculated_gap = min_gap
+
+        cell_gap = " " * calculated_gap
+
+        # Calculate vertical scaling (duplicate rows to fill height)
+        usable_height = max(12, available_height - 6)  # Reserve space for title, info, legend
+        if grid_rows_count > 0:
+            lines_per_row = max(1, min(4, usable_height // grid_rows_count))  # Max 4x duplication
+        else:
+            lines_per_row = 1
+
         grid_lines: List[str] = []
-        cell_gap = "  "  # Ridotto da 4 a 2 spazi
         for row_str in normalized_rows:
             colored_cells = []
             for char in row_str:
@@ -365,7 +391,10 @@ class OpticalFlowGridWidget(Static):
                 if not has_live_data and char == '.':
                     color = "dim"
                 colored_cells.append(f"[{color}]{char}[/]")
-            grid_lines.append(cell_gap.join(colored_cells))
+            row_line = cell_gap.join(colored_cells)
+            # Duplicate each row to fill vertical space
+            for _ in range(lines_per_row):
+                grid_lines.append(row_line)
 
         grid_markup = "\n".join(grid_lines)
         grid_text = Text.from_markup(grid_markup)
@@ -380,20 +409,16 @@ class OpticalFlowGridWidget(Static):
         legend_text.append("A B C D diagonals", style="green")
         legend.add_row(legend_text)
 
-        available_width = self.size.width or 120
         pad_x = 1
         grid_label = "Live optical flow" if has_live_data else "Waiting for motion data"
         info_line = Text(f"Grid: {grid_cols}x{grid_rows_count} @ {block_size}px  •  {grid_label}", style="dim cyan")
-        target_width = max(50, int(available_width * 0.90))
-        target_height = grid_rows_count + 2  # Altezza compatta basata sulle righe effettive
 
         grid_panel = Panel(
             Align.center(grid_text, vertical="middle"),
             border_style="cyan",
             box=box.SQUARE,
             padding=(0, 2),  # Ridotto padding verticale e orizzontale
-            width=target_width,
-            height=target_height,
+            # Remove fixed dimensions to allow expansion
         )
 
         content = Group(
@@ -407,7 +432,8 @@ class OpticalFlowGridWidget(Static):
             title="[bold magenta]🔍 OPTICAL FLOW GRID[/]",
             border_style="magenta",
             box=box.ROUNDED,  # Più accattivante
-            padding=(0, pad_x)  # Ridotto padding esterno
+            padding=(0, pad_x),  # Ridotto padding esterno
+            expand=True  # Allow panel to expand with terminal
         )
 
 
