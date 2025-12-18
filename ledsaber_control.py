@@ -869,7 +869,7 @@ class InteractiveCLI:
   {Colors.MAGENTA}presets{Colors.RESET}          - Mostra preset colori
   {Colors.MAGENTA}preset <name>{Colors.RESET}    - Applica preset
 
-  {Colors.YELLOW}notify{Colors.RESET}            - Toggle notifiche automatiche LED+Camera
+  {Colors.YELLOW}notify{Colors.RESET}            - Toggle notifiche automatiche LED+Camera+Motion
 
   {Colors.BOLD}🎥 CAMERA COMMANDS:{Colors.RESET}
   {Colors.CYAN}cam init{Colors.RESET}          - Inizializza camera
@@ -1142,7 +1142,7 @@ class InteractiveCLI:
             elif cmd == "notify":
                 self.notifications_enabled = not self.notifications_enabled
                 status = f"{Colors.GREEN}ABILITATE{Colors.RESET}" if self.notifications_enabled else f"{Colors.RED}DISABILITATE{Colors.RESET}"
-                print(f"📢 Notifiche automatiche LED/Camera: {status}")
+                print(f"📢 Notifiche automatiche LED/Camera/Motion: {status}")
 
             elif cmd == "cam":
                 # Gestione comandi camera
@@ -1501,6 +1501,78 @@ class InteractiveCLI:
             print(f"{Colors.BOLD}>{Colors.RESET} ", end="", flush=True)
 
         self.client.camera_callback = on_camera_update
+
+        def on_motion_update(state, is_first=False, changes=None):
+            if not self.notifications_enabled:
+                return
+
+            state = state or {}
+            if is_first:
+                print(f"\n{Colors.GREEN}✓ Motion stato iniziale ricevuto{Colors.RESET}")
+                print(f"  Enabled: {state.get('enabled', False)}")
+                print(f"  Intensity: {state.get('intensity', 0)}")
+                print(f"  Direction: {state.get('direction', 'none')}")
+                print(f"  Shake Detected: {state.get('shakeDetected', False)}")
+            else:
+                print(f"\n{Colors.MAGENTA}🔍 Motion Update:{Colors.RESET}")
+                if changes:
+                    for key, change in changes.items():
+                        if key == 'enabled':
+                            status = "ENABLED" if change['new'] else "DISABLED"
+                            print(f"  Motion Detection → {status}")
+                        elif key == 'motionDetected':
+                            status = "DETECTED" if change['new'] else "ENDED"
+                            print(f"  Motion → {status}")
+                        elif key == 'intensity':
+                            print(f"  Intensity → {change['new']}")
+                        elif key == 'direction':
+                            print(f"  Direction → {Colors.CYAN}{change['new']}{Colors.RESET}")
+                        elif key == 'gesture':
+                            gesture = change['new']
+                            confidence = state.get('gestureConfidence', 0)
+                            if gesture != 'none' and confidence > 50:
+                                print(f"  {Colors.BOLD}{Colors.GREEN}⚔️  GESTURE: {gesture.upper()} ({confidence}%){Colors.RESET}")
+                        elif key == 'shakeDetected' and change['new']:
+                            print(f"  {Colors.YELLOW}🔔 SHAKE DETECTED!{Colors.RESET}")
+                else:
+                    print("  (Nessun cambiamento significativo)")
+            print(f"{Colors.BOLD}>{Colors.RESET} ", end="", flush=True)
+
+        self.client.motion_callback = on_motion_update
+
+        def on_motion_event(event):
+            if not self.notifications_enabled:
+                return
+
+            event = event or {}
+            event_type = event.get('event', 'unknown')
+            intensity = event.get('intensity', 0)
+            pixels = event.get('changedPixels', 0)
+            direction = event.get('direction', 'none')
+            gesture = event.get('gesture', 'none')
+            gesture_confidence = event.get('gestureConfidence', 0)
+
+            emoji = "🔔"
+            if event_type == "shake_detected":
+                emoji = "⚡"
+            elif event_type == "motion_started":
+                emoji = "▶️ "
+            elif event_type == "motion_ended":
+                emoji = "⏹️ "
+            elif event_type == "still_detected":
+                emoji = "😴"
+
+            print(f"\n{Colors.YELLOW}{emoji} Motion Event: {event_type.upper()}{Colors.RESET}")
+            print(f"  Intensity: {intensity}")
+            print(f"  Changed Pixels: {pixels}")
+            if direction != 'none':
+                print(f"  Direction: {Colors.CYAN}{direction}{Colors.RESET}")
+
+            if gesture != 'none' and gesture_confidence > 50:
+                print(f"  {Colors.BOLD}{Colors.GREEN}⚔️  GESTURE: {gesture.upper()} ({gesture_confidence}%){Colors.RESET}")
+            print(f"{Colors.BOLD}>{Colors.RESET} ", end="", flush=True)
+
+        self.client.motion_event_callback = on_motion_event
 
         print(f"{Colors.YELLOW}💡 Suggerimento: inizia con 'scan' per cercare dispositivi{Colors.RESET}\n")
 
