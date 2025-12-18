@@ -13,10 +13,10 @@ from datetime import datetime
 from typing import Optional, Dict, List
 from collections import deque
 
-from textual import events
+from textual import events, on
 from textual.app import App, ComposeResult
 from textual.containers import Container, Horizontal, Vertical, VerticalScroll
-from textual.widgets import Static, Input, Footer
+from textual.widgets import Static, Input, Footer, RichLog, TextArea
 from textual.reactive import reactive
 from textual.binding import Binding
 from rich.panel import Panel
@@ -558,39 +558,80 @@ class MotionSection(Container):
         self.direction_card.motion_state = new_state or {}
 
 
-class ConsoleWidget(Static):
-    """Console per log + input comandi (minimale in basso)"""
+class ConsoleWidget(TextArea):
+    """Console per log con TextArea - testo completamente selezionabile e copiabile
+
+    Keybindings:
+    - F8: Copia la selezione
+    - F9: Copia tutto il log
+    - Ctrl+A: Seleziona tutto
+    """
+
+    BINDINGS = [
+        Binding("f8", "copy_selection", "Copy Selection", show=True),
+        Binding("f9", "copy_all", "Copy All", show=True),
+        Binding("ctrl+a", "select_all_text", "Select All", show=False),
+    ]
 
     def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        self.log_lines: deque = deque(maxlen=400)  # Buffer più ampio
+        super().__init__(
+            text="",
+            language="",
+            theme="monokai",
+            read_only=True,
+            show_line_numbers=False,
+            **kwargs
+        )
+        self.log_lines: deque = deque(maxlen=400)
 
     def add_log(self, message: str, style: str = "white"):
-        """Aggiungi messaggio al log"""
+        """Aggiungi messaggio al log - senza markup Rich per garantire selezione"""
         timestamp = datetime.now().strftime("%H:%M:%S")
-        line = f"[dim]{timestamp}[/] [{style}]{message}[/]"
+
+        # Mappa stili a simboli ASCII per mantenere colori visibili come testo
+        style_prefix = {
+            "green": "✓",
+            "cyan": "ℹ",
+            "yellow": "⚠",
+            "red": "✗",
+            "magenta": "★"
+        }.get(style, "•")
+
+        line = f"{timestamp} {style_prefix} {message}"
         self.log_lines.append(line)
-        self.refresh()
 
-    def render(self):
-        lines = list(self.log_lines)
+        # Aggiorna il contenuto completo
+        full_text = "\n".join(self.log_lines)
+        self.load_text(full_text)
 
-        if not lines:
-            log_content = "[dim]No logs yet. Type 'help' for commands.[/]"
+        # Scroll alla fine
+        self.scroll_end(animate=False)
+
+    def action_copy_selection(self) -> None:
+        """Copia il testo selezionato nella clipboard di sistema"""
+        selected_text = self.selected_text
+        if selected_text:
+            self.app.copy_to_clipboard(selected_text)
+            self.app.notify("Selection copied!", severity="information", timeout=1.5)
         else:
-            log_content = "\n".join(lines)
+            self.app.notify("No text selected. Use Ctrl+A to select all, or F9 to copy all.",
+                          severity="warning", timeout=2)
 
-        width = max(40, (self.size.width or 80) - 4)
-        separator = "─" * width
+    def action_copy_all(self) -> None:
+        """Copia tutto il log nella clipboard"""
+        if self.text:
+            self.app.copy_to_clipboard(self.text)
+            lines_count = len(self.log_lines)
+            self.app.notify(f"All log copied! ({lines_count} lines)",
+                          severity="information", timeout=1.5)
+        else:
+            self.app.notify("Log is empty.", severity="warning", timeout=1.5)
 
-        content = Text()
-        content.append("CONSOLE LOG (scroll with mouse/keys)\n", style="cyan bold")
-        content.append(separator + "\n", style="dim")
-        content.append(log_content + "\n")
-        content.append(separator + "\n", style="dim")
-        content.append("[cyan]>[/] ", style="bold")
-
-        return content
+    def action_select_all_text(self) -> None:
+        """Seleziona tutto il testo"""
+        self.select_all()
+        self.app.notify("All text selected. Press F8 to copy selection.",
+                       severity="information", timeout=1.5)
 
 
 class CommandInputWidget(Static):
@@ -715,23 +756,16 @@ class SaberDashboard(App):
         min-width: 40;
         layout: vertical;
         height: auto;
-        max-height: 0.9fr;
-
-
-    }
-
-    #console_scroll {
-        border: round cyan;
-        background: $panel;
-        padding: 1;
-        height: auto;
-        min-height: 15;
-        margin: 0 0 0 0;
+        max-height: 1fr;
     }
 
     #console_log {
         background: $surface;
-        padding: 0 0 1 0;
+        border: round cyan;
+        padding: 1;
+        height: auto;
+        min-height: 15;
+        margin: 0;
     }
 
     #cmd_input {
@@ -798,7 +832,6 @@ class SaberDashboard(App):
         self.motion_section: Optional[MotionSection] = None
         self.optical_widget: Optional[OpticalFlowGridWidget] = None
         self.console_widget: Optional[ConsoleWidget] = None
-        self.console_scroll: Optional[VerticalScroll] = None
         self.rssi_card: Optional[BLERSSICard] = None
         self.fx_card: Optional[ActiveFXCard] = None
         self.camera_frames_card: Optional[CameraFramesCard] = None
@@ -827,8 +860,7 @@ class SaberDashboard(App):
                 yield OpticalFlowGridWidget(id="optical_flow")
                 with Vertical(id="console_column"):
                     yield CommandInputWidget()
-                    with VerticalScroll(id="console_scroll"):
-                        yield ConsoleWidget(id="console_log")
+                    yield ConsoleWidget(id="console_log")
 
         yield Footer()
 
@@ -841,7 +873,6 @@ class SaberDashboard(App):
         self.motion_section = self.query_one("#motion_summary", MotionSection)
         self.optical_widget = self.query_one("#optical_flow", OpticalFlowGridWidget)
         self.console_widget = self.query_one("#console_log", ConsoleWidget)
-        self.console_scroll = self.query_one("#console_scroll", VerticalScroll)
         self.rssi_card = self.query_one("#ble_rssi_card", BLERSSICard)
         self.fx_card = self.query_one("#active_fx_card", ActiveFXCard)
         self.camera_frames_card = self.query_one("#camera_frames_card", CameraFramesCard)
@@ -856,6 +887,7 @@ class SaberDashboard(App):
 
         self._log("Dashboard initialized. Press F1 for help.", "green")
         self._log("Quick start: Ctrl+S to scan and connect", "cyan")
+        self._log("Console: Click to focus, Ctrl+A=select all, F8=copy selection, F9=copy all", "cyan")
         self._update_responsive_layout(self.size.width)
 
     def on_resize(self, event: events.Resize) -> None:
@@ -901,8 +933,7 @@ class SaberDashboard(App):
 
         def _write():
             self.console_widget.add_log(message, style)
-            if self.console_scroll:
-                self.console_scroll.scroll_end(animate=False)
+            # RichLog ha auto_scroll=True, non serve scroll_end manuale
 
         try:
             self.call_from_thread(_write)
