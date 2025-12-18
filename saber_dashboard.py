@@ -514,8 +514,7 @@ class ConsoleWidget(Static):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self.log_lines: deque = deque(maxlen=100)  # Salva fino a 100 righe
-        self.visible_lines = 5  # Mostra solo ultime 5
+        self.log_lines: deque = deque(maxlen=400)  # Buffer più ampio
 
     def add_log(self, message: str, style: str = "white"):
         """Aggiungi messaggio al log"""
@@ -525,19 +524,18 @@ class ConsoleWidget(Static):
         self.refresh()
 
     def render(self):
-        # Prendi ultime N righe
-        recent_lines = list(self.log_lines)[-self.visible_lines:]
+        lines = list(self.log_lines)
 
-        if not recent_lines:
+        if not lines:
             log_content = "[dim]No logs yet. Type 'help' for commands.[/]"
         else:
-            log_content = "\n".join(recent_lines)
+            log_content = "\n".join(lines)
 
         width = max(40, (self.size.width or 80) - 4)
         separator = "─" * width
 
         content = Text()
-        content.append("CONSOLE LOG (last 5 lines)\n", style="cyan bold")
+        content.append("CONSOLE LOG (scroll with mouse/keys)\n", style="cyan bold")
         content.append(separator + "\n", style="dim")
         content.append(log_content + "\n")
         content.append(separator + "\n", style="dim")
@@ -613,28 +611,40 @@ class SaberDashboard(App):
         grid-columns: 1fr;
     }
 
-    #optical_flow {
-        margin: 0 1;
+    #grid_console_row {
+        layout: horizontal;
+        padding: 0 1 1 1;
+        height: 1fr;
     }
 
-    #console_container {
-        background: $panel;
-        margin: 1;
-        padding: 1;
+    #optical_flow {
+        width: 2fr;
+        margin-right: 1;
+    }
+
+    #console_column {
+        width: 1fr;
+        min-width: 40;
+        layout: vertical;
+    }
+
+    #console_scroll {
         border: round cyan;
+        background: $panel;
+        padding: 1;
+        height: 1fr;
+        min-height: 15;
     }
 
     #console_log {
         background: $surface;
-        padding: 1;
-        height: auto;
-        max-height: 8;
+        padding: 0 0 1 0;
     }
 
     #cmd_input {
         border: solid cyan;
         background: $surface;
-        margin-top: 1;
+        margin: 1 0 0 0;
     }
 
     #led_column {
@@ -717,11 +727,12 @@ class SaberDashboard(App):
                 yield CameraFramesCard(id="camera_frames_card")
             yield MotionSection(id="motion_summary")
 
-        yield OpticalFlowGridWidget(id="optical_flow")
-
-        with Container(id="console_container"):
-            yield ConsoleWidget(id="console_log")
-            yield CommandInputWidget()
+        with Horizontal(id="grid_console_row"):
+            yield OpticalFlowGridWidget(id="optical_flow")
+            with Vertical(id="console_column"):
+                with VerticalScroll(id="console_scroll"):
+                    yield ConsoleWidget(id="console_log")
+                yield CommandInputWidget()
 
         yield Footer()
 
