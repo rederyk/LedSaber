@@ -589,6 +589,22 @@ class SaberDashboard(App):
         max-height: 12;
     }
 
+    /* Dynamic height classes based on layout */
+    #stats_grid.height-compact {
+        height: 12;
+        max-height: 12;
+    }
+
+    #stats_grid.height-medium {
+        height: 18;
+        max-height: 18;
+    }
+
+    #stats_grid.height-tall {
+        height: 28;
+        max-height: 28;
+    }
+
     #kpi_row, #camera_frames_card {
         margin: 0;
     }
@@ -634,6 +650,22 @@ class SaberDashboard(App):
         max-height: 20;
     }
 
+    /* Dynamic height classes for grid_console_row */
+    #grid_console_row.height-compact {
+        height: 20;
+        max-height: 20;
+    }
+
+    #grid_console_row.height-medium {
+        height: 16;
+        max-height: 16;
+    }
+
+    #grid_console_row.height-tall {
+        height: 12;
+        max-height: 12;
+    }
+
     #optical_flow {
         width: 2fr;
         margin-right: 1;
@@ -651,8 +683,7 @@ class SaberDashboard(App):
         border: round cyan;
         background: $panel;
         padding: 1;
-        height: 14;
-        max-height: 14;
+        height: 1fr;
     }
 
     #console_log {
@@ -731,6 +762,7 @@ class SaberDashboard(App):
         self.device_rssi_map: Dict[str, Optional[int]] = {}
         self.stats_grid: Optional[Container] = None
         self.kpi_row: Optional[Container] = None
+        self.grid_console_row: Optional[Horizontal] = None
 
     def compose(self) -> ComposeResult:
         """Componi layout"""
@@ -771,6 +803,7 @@ class SaberDashboard(App):
         self.fx_card = self.query_one("#active_fx_card", ActiveFXCard)
         self.camera_frames_card = self.query_one("#camera_frames_card", CameraFramesCard)
         self.kpi_row = self.query_one("#kpi_row", Container)
+        self.grid_console_row = self.query_one("#grid_console_row", Horizontal)
 
         # Setup callbacks
         self.client.state_callback = self._on_led_update
@@ -788,12 +821,32 @@ class SaberDashboard(App):
 
     def _update_responsive_layout(self, width: int) -> None:
         """Applica classi CSS in base alla larghezza corrente"""
+        height_class = ""
+
         if self.stats_grid:
-            self.stats_grid.remove_class("cols-2", "cols-1")
+            # Remove all layout and height classes
+            self.stats_grid.remove_class("cols-2", "cols-1", "height-compact", "height-medium", "height-tall")
+
+            # Apply column layout and corresponding height
             if width < 110:
+                # 1-column: widgets stack vertically = tallest
                 self.stats_grid.add_class("cols-1")
+                self.stats_grid.add_class("height-tall")  # 28 lines
+                height_class = "height-tall"
             elif width < 160:
+                # 2-column: medium height
                 self.stats_grid.add_class("cols-2")
+                self.stats_grid.add_class("height-medium")  # 18 lines
+                height_class = "height-medium"
+            else:
+                # 3-column: most compact (default)
+                self.stats_grid.add_class("height-compact")  # 12 lines
+                height_class = "height-compact"
+
+        # Apply same height class to grid_console_row for inverse sizing
+        if self.grid_console_row and height_class:
+            self.grid_console_row.remove_class("height-compact", "height-medium", "height-tall")
+            self.grid_console_row.add_class(height_class)
 
         if self.motion_section:
             self.motion_section.remove_class("cols-3")
