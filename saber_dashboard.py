@@ -360,38 +360,53 @@ class OpticalFlowGridWidget(Static):
         width = self.size.width or 120
         height = self.size.height or 40
 
-        # Reserve space for borders/padding
-        # Horizontal: ~8 chars (border + padding)
-        usable_width = max(20, width - 8)
-        # Vertical: ~8 lines (border + title + legend + info)
-        usable_height = max(5, height - 8)
+        # Reserve space for borders/padding (riduciamo per massimizzare lo spazio)
+        # Horizontal: ~6 chars (border + padding)
+        usable_width = max(20, width - 6)
+        # Vertical: ~4 lines (border minimo)
+        usable_height = max(5, height - 4)
 
-        # Calculate Max Scale based on Height
-        # We want: scale * grid_rows_count <= usable_height
-        max_scale_h = max(1, usable_height // grid_rows_count)
+        # I caratteri terminale sono ~2x più alti che larghi
+        # Per proporzioni visive corrette: h_gap deve essere ~2x v_gap
+        CHAR_ASPECT_RATIO = 2.0
 
-        # Calculate Max Scale based on Width
-        # We want: grid_cols + (grid_cols - 1) * gap <= usable_width
-        # Heuristic: gap = 2 * scale to maintain aspect ratio
+        # Calcola il gap massimo possibile per ogni dimensione
         if grid_cols > 1:
-            max_scale_w = max(1, (usable_width - grid_cols) // (2 * (grid_cols - 1)))
+            max_h_gap = (usable_width - grid_cols) // (grid_cols - 1)
         else:
-            max_scale_w = 4
+            max_h_gap = 1
 
-        # Unified scale (min of both dimensions)
-        scale = min(max_scale_h, max_scale_w)
+        if grid_rows_count > 1:
+            max_v_gap = (usable_height - grid_rows_count) // (grid_rows_count - 1)
+        else:
+            max_v_gap = 1
 
-        # Clamp scale (1 to 4)
-        scale = max(1, min(4, scale))
+        # Calcola quale dimensione è più limitante considerando l'aspect ratio
+        # Se usiamo tutto lo spazio verticale, quanto h_gap avremmo bisogno?
+        needed_h_gap_for_max_v = int(max_v_gap * CHAR_ASPECT_RATIO)
 
-        # Apply scale
-        lines_per_row = scale
-        calculated_gap = 2 * scale
+        # Se usiamo tutto lo spazio orizzontale, quanto v_gap avremmo bisogno?
+        needed_v_gap_for_max_h = int(max_h_gap / CHAR_ASPECT_RATIO)
 
-        cell_gap = " " * calculated_gap
+        # Scegli l'opzione che massimizza l'uso dello spazio mantenendo le proporzioni
+        if needed_h_gap_for_max_v <= max_h_gap:
+            # Possiamo usare tutto lo spazio verticale
+            v_gap = max_v_gap
+            h_gap = needed_h_gap_for_max_v
+        else:
+            # Limitati dallo spazio orizzontale
+            h_gap = max_h_gap
+            v_gap = needed_v_gap_for_max_h
+
+        # Assicurati che non siano zero
+        v_gap = max(1, v_gap)
+        h_gap = max(1, h_gap)
+
+        cell_gap = " " * h_gap
+        row_gap = "\n" * v_gap if v_gap > 0 else ""
 
         grid_lines: List[str] = []
-        for row_str in normalized_rows:
+        for i, row_str in enumerate(normalized_rows):
             colored_cells = []
             for char in row_str:
                 color = symbol_colors.get(char, 'white')
@@ -399,9 +414,12 @@ class OpticalFlowGridWidget(Static):
                     color = "dim"
                 colored_cells.append(f"[{color}]{char}[/]")
             row_line = cell_gap.join(colored_cells)
-            # Duplicate each row to fill vertical space
-            for _ in range(lines_per_row):
-                grid_lines.append(row_line)
+            grid_lines.append(row_line)
+
+            # Aggiungi gap verticale tra le righe (ma non dopo l'ultima)
+            if i < len(normalized_rows) - 1 and v_gap > 0:
+                for _ in range(v_gap):
+                    grid_lines.append("")
 
         grid_markup = "\n".join(grid_lines)
         grid_text = Text.from_markup(grid_markup)
@@ -686,7 +704,8 @@ class SaberDashboard(App):
 
     #optical_flow {
         width: 100%;
-        height: auto;
+        height: 1fr;
+        min-height: 15;
     }
 
     #console_column {
