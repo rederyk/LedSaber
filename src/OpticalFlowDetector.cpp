@@ -8,10 +8,10 @@ OpticalFlowDetector::OpticalFlowDetector()
     , _frameHeight(0)
     , _frameSize(0)
     , _previousFrame(nullptr)
-    , _searchRange(6)        // Ridotto da 10 a 6 (movimento max ~20px/frame è sufficiente)
-    , _searchStep(3)         // Aumentato da 2 a 3 (meno posizioni da testare)
-    , _minConfidence(40)     // Abbassato da 50 a 40 (più sensibile)
-    , _minActiveBlocks(4)    // Ridotto da 6 a 4 (reagisce prima)
+    , _searchRange(10)       // Compromesso: copre ~25px movimento (era 6, tentato 12)
+    , _searchStep(5)         // Step largo: 5×5=25 posizioni (uguale a prima, ma range maggiore)
+    , _minConfidence(35)     // Ulteriormente abbassato da 40 a 35 (più sensibile per compensare)
+    , _minActiveBlocks(3)    // Ridotto da 4 a 3 (ancora più reattivo)
     , _motionActive(false)
     , _motionIntensity(0)
     , _motionDirection(Direction::NONE)
@@ -157,12 +157,13 @@ void OpticalFlowDetector::_calculateBlockMotion(uint8_t row, uint8_t col, const 
                 continue;
             }
 
-            // Compute SAD
+            // Compute SAD con early termination
             uint16_t sad = _computeSAD(
                 _previousFrame, currentFrame,
                 blockX, blockY,
                 searchX, searchY,
-                BLOCK_SIZE
+                BLOCK_SIZE,
+                minSAD  // Passa best SAD per early exit
             );
 
             if (sad < minSAD) {
@@ -191,7 +192,8 @@ uint16_t OpticalFlowDetector::_computeSAD(
     const uint8_t* frame2,
     uint16_t x1, uint16_t y1,
     uint16_t x2, uint16_t y2,
-    uint8_t blockSize
+    uint8_t blockSize,
+    uint16_t currentMinSAD
 ) {
     uint32_t sad = 0;
 
@@ -202,6 +204,11 @@ uint16_t OpticalFlowDetector::_computeSAD(
 
             int16_t diff = (int16_t)frame1[idx1] - (int16_t)frame2[idx2];
             sad += abs(diff);
+
+            // Early termination: interrompi se già peggiore del best
+            if (sad >= currentMinSAD) {
+                return currentMinSAD;  // Ritorna subito, tanto è già peggiore
+            }
         }
     }
 
@@ -419,12 +426,15 @@ uint8_t OpticalFlowDetector::_calculateAverageBrightness(const uint8_t* frame) {
         return 0;
     }
 
+    // Sample 1 pixel ogni 4 per ridurre calcoli (76800 → 19200 ops, -75%)
     uint64_t total = 0;
-    for (size_t i = 0; i < _frameSize; i++) {
+    uint32_t sampleCount = 0;
+    for (size_t i = 0; i < _frameSize; i += 4) {
         total += frame[i];
+        sampleCount++;
     }
 
-    return (uint8_t)(total / _frameSize);
+    return (uint8_t)(total / sampleCount);
 }
 
 void OpticalFlowDetector::_updateFlashIntensity() {

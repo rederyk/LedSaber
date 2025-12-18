@@ -84,7 +84,7 @@ bool CameraManager::begin(uint8_t flashPin) {
     _configurePinout(config);
 
     // Configurazione
-    config.xclk_freq_hz = 20000000;  // 20MHz clock
+    config.xclk_freq_hz = 24000000;  // 24MHz clock (OV2640 max, era 20MHz)
     config.ledc_timer = LEDC_TIMER_0;
     config.ledc_channel = LEDC_CHANNEL_0;
 
@@ -113,10 +113,10 @@ bool CameraManager::begin(uint8_t flashPin) {
         s->set_whitebal(s, 1);       // White balance auto
         s->set_awb_gain(s, 1);       // Auto white balance gain
         s->set_wb_mode(s, 0);        // White balance mode auto
-        s->set_exposure_ctrl(s, 1);  // Auto exposure
+        s->set_exposure_ctrl(s, 0);  // Auto exposure DISABLED (era 1, rallenta FPS)
         s->set_aec2(s, 0);           // AEC DSP
         s->set_ae_level(s, 0);       // AE level: -2 to 2
-        s->set_aec_value(s, 300);    // AEC value: 0 to 1200
+        s->set_aec_value(s, 400);    // AEC value fisso: 0 to 1200 (era 300, aumentato per compensare)
         s->set_gain_ctrl(s, 1);      // Auto gain
         s->set_agc_gain(s, 0);       // AGC gain: 0 to 30
         s->set_gainceiling(s, (gainceiling_t)0);  // Gain ceiling

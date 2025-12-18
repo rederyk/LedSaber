@@ -262,7 +262,8 @@ private:
     void _calculateBlockMotion(uint8_t row, uint8_t col, const uint8_t* currentFrame);
 
     /**
-     * @brief Calcola SAD tra due blocchi
+     * @brief Calcola SAD tra due blocchi con early termination
+     * @param currentMinSAD Best SAD attuale, per early exit
      * @return Sum of Absolute Differences
      */
     uint16_t _computeSAD(
@@ -270,7 +271,8 @@ private:
         const uint8_t* frame2,
         uint16_t x1, uint16_t y1,
         uint16_t x2, uint16_t y2,
-        uint8_t blockSize
+        uint8_t blockSize,
+        uint16_t currentMinSAD = UINT16_MAX
     );
 
     /**
