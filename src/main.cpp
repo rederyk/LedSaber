@@ -571,17 +571,17 @@ void setup() {
     pAdvertising->setMinPreferred(0x12);
     pAdvertising->start();
 
-    gMotionResultQueue = xQueueCreate(1, sizeof(MotionTaskResult));
+    gMotionResultQueue = xQueueCreate(3, sizeof(MotionTaskResult));  // Aumentato da 1 a 3
     if (!gMotionResultQueue) {
         Serial.println("[MAIN] ✗ Failed to create motion result queue");
     } else {
-        Serial.println("[MAIN] ✓ Motion result queue ready");
+        Serial.println("[MAIN] ✓ Motion result queue ready (size=3)");
     }
 
     BaseType_t taskCreated = xTaskCreatePinnedToCore(
         CameraCaptureTask,
         "CameraCaptureTask",
-        8192,
+        10240,  // Aumentato da 8192 a 10240 bytes per sicurezza
         nullptr,
         5,
         &gCameraTaskHandle,
@@ -636,7 +636,8 @@ void loop() {
 
     if (gCachedMotionResult.valid && bleMotionService.isMotionEnabled()) {
         bleMotionService.update(gCachedMotionResult.motionDetected, false);
-        if (now - lastMotionStatusNotify > 1000) {
+        // Ridotto da 1000ms a 300ms per feedback più rapido
+        if (now - lastMotionStatusNotify > 300) {
             bleMotionService.notifyStatus();
             lastMotionStatusNotify = now;
         }
@@ -737,14 +738,14 @@ static void CameraCaptureTask(void* pvParameters) {
 
         while (gCameraTaskShouldRun) {
             if (!cameraManager.isInitialized() || !bleCameraService.isCameraActive()) {
-                vTaskDelay(pdMS_TO_TICKS(50));
+                vTaskDelay(pdMS_TO_TICKS(10));
                 continue;
             }
 
             uint8_t* frameBuffer = nullptr;
             size_t frameLength = 0;
             if (!cameraManager.captureFrame(&frameBuffer, &frameLength)) {
-                vTaskDelay(pdMS_TO_TICKS(10));
+                vTaskDelay(pdMS_TO_TICKS(5));
                 continue;
             }
 
@@ -774,7 +775,8 @@ static void CameraCaptureTask(void* pvParameters) {
                 result.timestamp = millis();
 
                 if (gMotionResultQueue) {
-                    xQueueOverwrite(gMotionResultQueue, &result);
+                    // Usa xQueueSend con timeout 0 per non bloccare (drop se piena)
+                    xQueueSend(gMotionResultQueue, &result, 0);
                 }
             }
 
@@ -782,7 +784,7 @@ static void CameraCaptureTask(void* pvParameters) {
                 break;
             }
 
-            taskYIELD();
+            // Minimo delay per evitare watchdog timeout e permettere altre task
             vTaskDelay(pdMS_TO_TICKS(1));
         }
     }

@@ -68,11 +68,11 @@ void BLEMotionService::notifyStatus() {
         return;
     }
 
-    // Debouncing: evita notifiche troppo frequenti (max 1 ogni 500ms)
+    // Debouncing: evita notifiche troppo frequenti (ridotto a 200ms per reattività)
     unsigned long now = millis();
     static unsigned long lastNotifyTime = 0;
 
-    if (now - lastNotifyTime < 500) {
+    if (now - lastNotifyTime < 200) {
         return;  // Troppo presto, skip
     }
 
@@ -90,8 +90,8 @@ void BLEMotionService::notifyEvent(const String& eventType) {
 
     unsigned long now = millis();
 
-    // Debouncing: max 1 evento ogni 200ms
-    if (now - _lastEventTime < 200) {
+    // Debouncing: ridotto a 100ms per eventi più rapidi
+    if (now - _lastEventTime < 100) {
         return;
     }
 
