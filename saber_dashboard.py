@@ -356,32 +356,39 @@ class OpticalFlowGridWidget(Static):
                 missing = grid_rows_count - len(normalized_rows)
                 normalized_rows.extend(["." * grid_cols for _ in range(missing)])
 
-        # Calculate available space first to determine cell gap
-        available_width = max(60, self.size.width or 120)
-        available_height = max(12, (self.size.height or 40) - 12)
+        # Calculate available space
+        width = self.size.width or 120
+        height = self.size.height or 40
 
-        # Calculate dynamic cell gap based on available width
-        # Reserve space for panel borders and padding (~8 chars)
-        usable_width = max(30, available_width - 8)
-        # Calculate how many spaces we can fit between cells
-        min_gap = 2  # Minimum gap
-        max_gap = 8  # Maximum gap
+        # Reserve space for borders/padding
+        # Horizontal: ~8 chars (border + padding)
+        usable_width = max(20, width - 8)
+        # Vertical: ~8 lines (border + title + legend + info)
+        usable_height = max(5, height - 8)
+
+        # Calculate Max Scale based on Height
+        # We want: scale * grid_rows_count <= usable_height
+        max_scale_h = max(1, usable_height // grid_rows_count)
+
+        # Calculate Max Scale based on Width
+        # We want: grid_cols + (grid_cols - 1) * gap <= usable_width
+        # Heuristic: gap = 2 * scale to maintain aspect ratio
         if grid_cols > 1:
-            # Available space minus the characters themselves
-            space_for_gaps = usable_width - grid_cols
-            gap_count = grid_cols - 1
-            calculated_gap = max(min_gap, min(max_gap, space_for_gaps // gap_count))
+            max_scale_w = max(1, (usable_width - grid_cols) // (2 * (grid_cols - 1)))
         else:
-            calculated_gap = min_gap
+            max_scale_w = 4
+
+        # Unified scale (min of both dimensions)
+        scale = min(max_scale_h, max_scale_w)
+
+        # Clamp scale (1 to 4)
+        scale = max(1, min(4, scale))
+
+        # Apply scale
+        lines_per_row = scale
+        calculated_gap = 2 * scale
 
         cell_gap = " " * calculated_gap
-
-        # Calculate vertical scaling (duplicate rows to fill height)
-        usable_height = max(12, available_height - 6)  # Reserve space for title, info, legend
-        if grid_rows_count > 0:
-            lines_per_row = max(1, min(4, usable_height // grid_rows_count))  # Max 4x duplication
-        else:
-            lines_per_row = 1
 
         grid_lines: List[str] = []
         for row_str in normalized_rows:
