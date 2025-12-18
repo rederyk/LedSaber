@@ -384,7 +384,7 @@ class OpticalFlowGridWidget(Static):
         pad_x = 1
         grid_label = "Live optical flow" if has_live_data else "Waiting for motion data"
         info_line = Text(f"Grid: {grid_cols}x{grid_rows_count} @ {block_size}px  •  {grid_label}", style="dim cyan")
-        target_width = max(50, int(available_width * 0.70))
+        target_width = max(50, int(available_width * 0.90))
         target_height = grid_rows_count + 2  # Altezza compatta basata sulle righe effettive
 
         grid_panel = Panel(
@@ -573,16 +573,16 @@ class SaberDashboard(App):
 
     #stats_grid {
         layout: grid;
-        grid-size: 3;
-        grid-columns: 1fr 1fr 1fr;
+        grid-size: 6;
+        grid-columns: 1fr 1fr 1fr 1fr 1fr 1fr;
         padding: 0;
         margin: 0;
         height: auto;
     }
 
     #stats_grid.cols-3 {
-        grid-size: 3;
-        grid-columns: 1fr 1fr 1fr;
+        grid-size: 6;
+        grid-columns: 1fr 1fr 1fr 1fr 1fr 1fr;
         height: auto;
     }
 
@@ -600,6 +600,28 @@ class SaberDashboard(App):
 
     #kpi_row, #camera_frames_card {
         margin: 0;
+    }
+
+    /* Prima riga 3x (1/3), seconda riga 2x (1/2) su desktop */
+    #led_column,
+    #camera_column,
+    #motion_summary {
+        column-span: 2;
+    }
+
+    #optical_flow,
+    #console_column {
+        column-span: 3;
+    }
+
+    /* Su layout 2-colonne riportiamo a span=1 */
+    #stats_grid.cols-2 > * {
+        column-span: 1;
+    }
+
+    /* Su layout 1-colonna forziamo span singolo */
+    #stats_grid.cols-1 > * {
+        column-span: 1;
     }
 
     #motion_summary {
