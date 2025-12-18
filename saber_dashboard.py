@@ -364,6 +364,7 @@ class OpticalFlowGridWidget(Static):
                 normalized_rows.extend(["." * grid_cols for _ in range(missing)])
 
         grid_lines: List[str] = []
+        cell_gap = "    "
         for row_str in normalized_rows:
             colored_cells = []
             for char in row_str:
@@ -371,7 +372,7 @@ class OpticalFlowGridWidget(Static):
                 if not has_live_data and char == '.':
                     color = "dim"
                 colored_cells.append(f"[{color}]{char}[/]")
-            grid_lines.append("  ".join(colored_cells))
+            grid_lines.append(cell_gap.join(colored_cells))
 
         grid_markup = "\n".join(grid_lines)
         grid_text = Text.from_markup(grid_markup)
@@ -386,23 +387,25 @@ class OpticalFlowGridWidget(Static):
         legend_text.append("A B C D diagonals", style="green")
         legend.add_row(legend_text)
 
-        width = self.size.width or 100
-        pad_x = 1 if width < 100 else 2
+        available_width = self.size.width or 120
+        pad_x = 1 if available_width < 100 else 2
         grid_label = "Live optical flow" if has_live_data else "Waiting for motion data"
         info_line = Text(f"Grid: {grid_cols}x{grid_rows_count} @ {block_size}px  •  {grid_label}", style="dim cyan")
+        target_width = max(60, int(available_width * 0.65))
+        target_height = max(18, grid_rows_count * 2 + 8)
 
-        grid_box = Panel(
+        grid_panel = Panel(
             Align.center(grid_text, vertical="middle"),
             border_style="cyan",
             box=box.SQUARE,
-            padding=(1, 2),
-            width=max(24, grid_cols * 3),
-            height=max(10, grid_rows_count + 4),
+            padding=(2, 4),
+            width=target_width,
+            height=target_height,
         )
 
         content = Group(
             Align.center(info_line),
-            grid_box,
+            Align.center(grid_panel),
             legend
         )
 
@@ -615,17 +618,20 @@ class SaberDashboard(App):
         layout: horizontal;
         padding: 0 1 1 1;
         height: 1fr;
+        min-height: 20;
     }
 
     #optical_flow {
         width: 2fr;
         margin-right: 1;
+        min-height: 20;
     }
 
     #console_column {
         width: 1fr;
         min-width: 40;
         layout: vertical;
+        min-height: 20;
     }
 
     #console_scroll {
@@ -633,7 +639,7 @@ class SaberDashboard(App):
         background: $panel;
         padding: 1;
         height: 1fr;
-        min-height: 15;
+        min-height: 20;
     }
 
     #console_log {
@@ -705,6 +711,7 @@ class SaberDashboard(App):
         self.motion_section: Optional[MotionSection] = None
         self.optical_widget: Optional[OpticalFlowGridWidget] = None
         self.console_widget: Optional[ConsoleWidget] = None
+        self.console_scroll: Optional[VerticalScroll] = None
         self.rssi_card: Optional[BLERSSICard] = None
         self.fx_card: Optional[ActiveFXCard] = None
         self.camera_frames_card: Optional[CameraFramesCard] = None
@@ -745,6 +752,7 @@ class SaberDashboard(App):
         self.motion_section = self.query_one("#motion_summary", MotionSection)
         self.optical_widget = self.query_one("#optical_flow", OpticalFlowGridWidget)
         self.console_widget = self.query_one("#console_log", ConsoleWidget)
+        self.console_scroll = self.query_one("#console_scroll", VerticalScroll)
         self.rssi_card = self.query_one("#ble_rssi_card", BLERSSICard)
         self.fx_card = self.query_one("#active_fx_card", ActiveFXCard)
         self.camera_frames_card = self.query_one("#camera_frames_card", CameraFramesCard)
@@ -756,8 +764,8 @@ class SaberDashboard(App):
         self.client.motion_callback = self._on_motion_update
         self.client.motion_event_callback = self._on_motion_event
 
-        self.console_widget.add_log("Dashboard initialized. Press F1 for help.", "green")
-        self.console_widget.add_log("Quick start: Ctrl+S to scan and connect", "cyan")
+        self._log("Dashboard initialized. Press F1 for help.", "green")
+        self._log("Quick start: Ctrl+S to scan and connect", "cyan")
         self._update_responsive_layout(self.size.width)
 
     def on_resize(self, event: events.Resize) -> None:
@@ -783,6 +791,21 @@ class SaberDashboard(App):
             if width < 100:
                 self.kpi_row.add_class("single")
 
+    def _log(self, message: str, style: str = "white") -> None:
+        """Scrive sul log in modo thread-safe"""
+        if not self.console_widget:
+            return
+
+        def _write():
+            self.console_widget.add_log(message, style)
+            if self.console_scroll:
+                self.console_scroll.scroll_end(animate=False)
+
+        try:
+            self.call_from_thread(_write)
+        except Exception:
+            _write()
+
     def on_input_submitted(self, event: Input.Submitted) -> None:
         """Gestisce comando"""
         command = event.value.strip()
@@ -802,18 +825,18 @@ class SaberDashboard(App):
         try:
             # === BLE COMMANDS ===
             if cmd in ["quit", "exit", "q"]:
-                self.console_widget.add_log("Shutting down...", "yellow")
+                self._log("Shutting down...", "yellow")
                 await self.client.disconnect()
                 self.exit()
 
             elif cmd == "scan":
                 auto = bool(args and args[0].lower() == "auto")
-                self.console_widget.add_log("Scanning for devices...", "cyan")
+                self._log("Scanning for devices...", "cyan")
                 devices = await self.client.scan()
                 self.device_rssi_map = {dev.address: getattr(dev, "rssi", None) for dev in devices if getattr(dev, "address", None)}
 
                 if not devices:
-                    self.console_widget.add_log("No LedSaber devices found", "yellow")
+                    self._log("No LedSaber devices found", "yellow")
                     return
 
                 if auto and len(devices) == 1:
@@ -821,11 +844,11 @@ class SaberDashboard(App):
                     await self._connect_device(device.address, device.name, getattr(device, "rssi", None))
                 else:
                     for dev in devices:
-                        self.console_widget.add_log(f"Found: {dev.name} ({dev.address})", "green")
+                        self._log(f"Found: {dev.name} ({dev.address})", "green")
 
             elif cmd == "connect":
                 if not args:
-                    self.console_widget.add_log("Usage: connect <address>", "red")
+                    self._log("Usage: connect <address>", "red")
                     return
                 cached_rssi = self.device_rssi_map.get(args[0])
                 await self._connect_device(args[0], "LedSaber", cached_rssi)
@@ -836,132 +859,132 @@ class SaberDashboard(App):
                 self.header_widget.device_name = "NO DEVICE"
                 if self.rssi_card:
                     self.rssi_card.connected = False
-                self.console_widget.add_log("Disconnected", "yellow")
+                self._log("Disconnected", "yellow")
 
             # === LED COMMANDS ===
             elif cmd == "color":
                 if len(args) < 3:
-                    self.console_widget.add_log("Usage: color <r> <g> <b>", "red")
+                    self._log("Usage: color <r> <g> <b>", "red")
                     return
                 r, g, b = int(args[0]), int(args[1]), int(args[2])
                 await self.client.set_color(r, g, b)
-                self.console_widget.add_log(f"Color set: RGB({r},{g},{b})", "magenta")
+                self._log(f"Color set: RGB({r},{g},{b})", "magenta")
 
             elif cmd == "effect":
                 if not args:
-                    self.console_widget.add_log("Usage: effect <mode> [speed]", "red")
+                    self._log("Usage: effect <mode> [speed]", "red")
                     return
                 mode = args[0]
                 speed = int(args[1]) if len(args) > 1 else 150
                 await self.client.set_effect(mode, speed)
-                self.console_widget.add_log(f"Effect: {mode} @ {speed}ms", "magenta")
+                self._log(f"Effect: {mode} @ {speed}ms", "magenta")
 
             elif cmd == "brightness":
                 if not args:
-                    self.console_widget.add_log("Usage: brightness <0-255>", "red")
+                    self._log("Usage: brightness <0-255>", "red")
                     return
                 brightness = int(args[0])
                 await self.client.set_brightness(brightness, True)
-                self.console_widget.add_log(f"Brightness: {brightness}", "magenta")
+                self._log(f"Brightness: {brightness}", "magenta")
 
             elif cmd == "on":
                 await self.client.set_brightness(255, True)
-                self.console_widget.add_log("LED ON", "green")
+                self._log("LED ON", "green")
 
             elif cmd == "off":
                 await self.client.set_brightness(0, False)
-                self.console_widget.add_log("LED OFF", "red")
+                self._log("LED OFF", "red")
 
             # === CAMERA COMMANDS ===
             elif cmd == "cam":
                 if not args:
-                    self.console_widget.add_log("Usage: cam <init|start|stop|status>", "red")
+                    self._log("Usage: cam <init|start|stop|status>", "red")
                     return
 
                 subcmd = args[0].lower()
 
                 if subcmd == "init":
                     await self.client.camera_send_command("init")
-                    self.console_widget.add_log("Camera init sent", "green")
+                    self._log("Camera init sent", "green")
                     await asyncio.sleep(1)
                     status = await self.client.get_camera_status()
                     if status:
-                        self.console_widget.add_log(f"Camera initialized: {status.get('initialized', False)}", "cyan")
+                        self._log(f"Camera initialized: {status.get('initialized', False)}", "cyan")
 
                 elif subcmd == "start":
                     await self.client.camera_send_command("start")
-                    self.console_widget.add_log("Camera start sent", "green")
+                    self._log("Camera start sent", "green")
 
                 elif subcmd == "stop":
                     await self.client.camera_send_command("stop")
-                    self.console_widget.add_log("Camera stop sent", "yellow")
+                    self._log("Camera stop sent", "yellow")
 
                 elif subcmd == "status":
                     status = await self.client.get_camera_status()
                     if status:
-                        self.console_widget.add_log(f"Cam: init={status.get('initialized')} active={status.get('active')} fps={status.get('fps', 0):.1f}", "cyan")
+                        self._log(f"Cam: init={status.get('initialized')} active={status.get('active')} fps={status.get('fps', 0):.1f}", "cyan")
                     else:
-                        self.console_widget.add_log("No camera status available", "yellow")
+                        self._log("No camera status available", "yellow")
 
                 else:
-                    self.console_widget.add_log(f"Unknown cam command: {subcmd}", "red")
+                    self._log(f"Unknown cam command: {subcmd}", "red")
 
             # === MOTION COMMANDS ===
             elif cmd == "motion":
                 if not args:
-                    self.console_widget.add_log("Usage: motion <enable|disable|status|sensitivity N>", "red")
+                    self._log("Usage: motion <enable|disable|status|sensitivity N>", "red")
                     return
 
                 subcmd = args[0].lower()
 
                 if subcmd == "enable":
                     await self.client.motion_send_command("enable")
-                    self.console_widget.add_log("Motion detection enabled", "green")
+                    self._log("Motion detection enabled", "green")
 
                 elif subcmd == "disable":
                     await self.client.motion_send_command("disable")
-                    self.console_widget.add_log("Motion detection disabled", "yellow")
+                    self._log("Motion detection disabled", "yellow")
 
                 elif subcmd == "status":
                     status = await self.client.get_motion_status()
                     if status:
-                        self.console_widget.add_log(f"Motion: enabled={status.get('enabled')} detected={status.get('motionDetected')} intensity={status.get('intensity')}", "cyan")
+                        self._log(f"Motion: enabled={status.get('enabled')} detected={status.get('motionDetected')} intensity={status.get('intensity')}", "cyan")
                     else:
-                        self.console_widget.add_log("No motion status available", "yellow")
+                        self._log("No motion status available", "yellow")
 
                 elif subcmd == "sensitivity":
                     if len(args) < 2:
-                        self.console_widget.add_log("Usage: motion sensitivity <0-255>", "red")
+                        self._log("Usage: motion sensitivity <0-255>", "red")
                         return
                     sensitivity = int(args[1])
                     await self.client.motion_send_command(f"sensitivity {sensitivity}")
-                    self.console_widget.add_log(f"Sensitivity set: {sensitivity}", "green")
+                    self._log(f"Sensitivity set: {sensitivity}", "green")
 
                 else:
-                    self.console_widget.add_log(f"Unknown motion command: {subcmd}", "red")
+                    self._log(f"Unknown motion command: {subcmd}", "red")
 
             # === HELP ===
             elif cmd == "help":
-                self.console_widget.add_log("Commands: scan, connect, disconnect, color, effect, brightness, on, off", "cyan")
-                self.console_widget.add_log("          cam <init|start|stop|status>, motion <enable|disable|status|sensitivity N>", "cyan")
-                self.console_widget.add_log("Shortcuts: Ctrl+S=scan, Ctrl+D=disconnect, F2=cam init, F3=start, F4=stop, F5=motion toggle", "cyan")
+                self._log("Commands: scan, connect, disconnect, color, effect, brightness, on, off", "cyan")
+                self._log("          cam <init|start|stop|status>, motion <enable|disable|status|sensitivity N>", "cyan")
+                self._log("Shortcuts: Ctrl+S=scan, Ctrl+D=disconnect, F2=cam init, F3=start, F4=stop, F5=motion toggle", "cyan")
 
             else:
-                self.console_widget.add_log(f"Unknown command: {cmd}. Type 'help' for list.", "red")
+                self._log(f"Unknown command: {cmd}. Type 'help' for list.", "red")
 
         except Exception as e:
-            self.console_widget.add_log(f"Error: {e}", "red")
+            self._log(f"Error: {e}", "red")
 
     async def _connect_device(self, address: str, name: str, rssi: Optional[int] = None):
         """Connette a dispositivo"""
-        self.console_widget.add_log(f"Connecting to {address}...", "cyan")
+        self._log(f"Connecting to {address}...", "cyan")
         success = await self.client.connect(address)
 
         if success:
             self.header_widget.connected = True
             self.header_widget.device_address = address
             self.header_widget.device_name = name
-            self.console_widget.add_log(f"Connected to {name}", "green")
+            self._log(f"Connected to {name}", "green")
             if self.rssi_card:
                 self.rssi_card.connected = True
                 if rssi is None:
@@ -974,7 +997,7 @@ class SaberDashboard(App):
             if state:
                 self.led_widget.led_state = state
         else:
-            self.console_widget.add_log("Connection failed", "red")
+            self._log("Connection failed", "red")
 
     # ═══════════════════════════════════════════════════════════════════════
     # CALLBACKS
@@ -991,12 +1014,12 @@ class SaberDashboard(App):
             for key in changes:
                 if key in ['r', 'g', 'b']:
                     r, g, b = state.get('r', 0), state.get('g', 0), state.get('b', 0)
-                    self.console_widget.add_log(f"LED → RGB({r},{g},{b})", "magenta")
+                    self._log(f"LED → RGB({r},{g},{b})", "magenta")
                     break
                 elif key == 'effect':
-                    self.console_widget.add_log(f"LED → Effect: {changes[key]['new']}", "magenta")
+                    self._log(f"LED → Effect: {changes[key]['new']}", "magenta")
                 elif key == 'brightness':
-                    self.console_widget.add_log(f"LED → Brightness: {changes[key]['new']}", "magenta")
+                    self._log(f"LED → Brightness: {changes[key]['new']}", "magenta")
 
     def _on_camera_update(self, state: Dict, is_first: bool = False, changes: Dict = None):
         """Callback camera state"""
@@ -1008,10 +1031,10 @@ class SaberDashboard(App):
         if not is_first and changes:
             for key, change in changes.items():
                 if key == 'fps':
-                    self.console_widget.add_log(f"Camera → FPS: {change['new']:.1f}", "green")
+                    self._log(f"Camera → FPS: {change['new']:.1f}", "green")
                 elif key == 'active':
                     status = "ACTIVE" if change['new'] else "STOPPED"
-                    self.console_widget.add_log(f"Camera → {status}", "green")
+                    self._log(f"Camera → {status}", "green")
 
     def _on_motion_update(self, state: Dict, is_first: bool = False, changes: Dict = None):
         """Callback motion state"""
@@ -1024,14 +1047,14 @@ class SaberDashboard(App):
             for key, change in changes.items():
                 if key == 'motionDetected':
                     status = "DETECTED" if change['new'] else "ENDED"
-                    self.console_widget.add_log(f"Motion {status}", "yellow")
+                    self._log(f"Motion {status}", "yellow")
                 elif key == 'gesture':
                     gesture = change['new']
                     confidence = state.get('gestureConfidence', 0)
                     if gesture != 'none' and confidence > 50:
-                        self.console_widget.add_log(f"⚔ GESTURE: {gesture.upper()} ({confidence}%)", "magenta")
+                        self._log(f"⚔ GESTURE: {gesture.upper()} ({confidence}%)", "magenta")
                 elif key == 'shakeDetected' and change['new']:
-                    self.console_widget.add_log("⚠ SHAKE DETECTED!", "red")
+                    self._log("⚠ SHAKE DETECTED!", "red")
 
     def _on_motion_event(self, event: Dict):
         """Callback motion events"""
@@ -1046,7 +1069,7 @@ class SaberDashboard(App):
         }
 
         emoji = emoji_map.get(event_type, "🔔")
-        self.console_widget.add_log(f"{emoji} {event_type.upper()} (I:{intensity})", "yellow")
+        self._log(f"{emoji} {event_type.upper()} (I:{intensity})", "yellow")
 
     # ═══════════════════════════════════════════════════════════════════════
     # ACTIONS (KEYBOARD SHORTCUTS)
