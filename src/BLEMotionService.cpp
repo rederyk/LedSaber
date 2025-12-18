@@ -175,6 +175,20 @@ String BLEMotionService::_getStatusJson() {
     doc["activeBlocks"] = metrics.avgActiveBlocks;
     doc["computeTimeMs"] = metrics.avgComputeTimeMs;
 
+    // 8x6 grid tags for quick visualization via BLE
+    doc["gridRows"] = OpticalFlowDetector::GRID_ROWS;
+    doc["gridCols"] = OpticalFlowDetector::GRID_COLS;
+    doc["blockSize"] = OpticalFlowDetector::BLOCK_SIZE;
+    JsonArray gridArray = doc["grid"].to<JsonArray>();
+    for (uint8_t row = 0; row < OpticalFlowDetector::GRID_ROWS; row++) {
+        String rowStr;
+        rowStr.reserve(OpticalFlowDetector::GRID_COLS);
+        for (uint8_t col = 0; col < OpticalFlowDetector::GRID_COLS; col++) {
+            rowStr += _motion->getBlockDirectionTag(row, col);
+        }
+        gridArray.add(rowStr);
+    }
+
     // NON includere trajectory nello status (troppo grande per BLE notification)
     // La trajectory è disponibile solo tramite eventi
 

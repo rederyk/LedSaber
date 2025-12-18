@@ -18,6 +18,12 @@
  */
 class OpticalFlowDetector {
 public:
+    // Configurazione griglia (condivisa con renderer/servizi BLE)
+    static constexpr uint8_t BLOCK_SIZE = 40;
+    static constexpr uint8_t GRID_COLS = 8;
+    static constexpr uint8_t GRID_ROWS = 6;
+    static constexpr uint8_t TOTAL_BLOCKS = GRID_COLS * GRID_ROWS;
+
     OpticalFlowDetector();
     ~OpticalFlowDetector();
 
@@ -117,6 +123,14 @@ public:
      */
     bool getBlockVector(uint8_t row, uint8_t col, int8_t* outDx, int8_t* outDy, uint8_t* outConfidence) const;
 
+    /**
+     * @brief Restituisce tag ASCII compatto per descrivere il blocco
+     * @param row Riga (0-GRID_ROWS)
+     * @param col Colonna (0-GRID_COLS)
+     * @return '.' se inattivo, altrimenti simbolo direzione (^-v-<->ABCD)
+     */
+    char getBlockDirectionTag(uint8_t row, uint8_t col) const;
+
     // ═══════════════════════════════════════════════════════════
     // TRAJECTORY TRACKING (compatibile + migliorato)
     // ═══════════════════════════════════════════════════════════
@@ -189,12 +203,6 @@ private:
     uint16_t _frameWidth;
     uint16_t _frameHeight;
     uint32_t _frameSize;
-
-    // Grid configuration
-    static constexpr uint8_t BLOCK_SIZE = 40;
-    static constexpr uint8_t GRID_COLS = 8;   // 320/40 = 8
-    static constexpr uint8_t GRID_ROWS = 6;   // 240/40 = 6
-    static constexpr uint8_t TOTAL_BLOCKS = 48;
 
     // Search parameters
     int8_t _searchRange;        // ±pixels (default: 10)

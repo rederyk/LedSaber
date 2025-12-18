@@ -597,3 +597,41 @@ bool OpticalFlowDetector::getBlockVector(uint8_t row, uint8_t col, int8_t* outDx
 
     return vec.valid;
 }
+
+char OpticalFlowDetector::getBlockDirectionTag(uint8_t row, uint8_t col) const {
+    if (row >= GRID_ROWS || col >= GRID_COLS) {
+        return '?';
+    }
+
+    const BlockMotionVector& vec = _motionVectors[row][col];
+
+    if (!vec.valid) {
+        return '.';
+    }
+
+    int8_t dx = vec.dx;
+    int8_t dy = vec.dy;
+    int absDx = abs(dx);
+    int absDy = abs(dy);
+
+    // Ignore extremely small movements
+    if (absDx <= 1 && absDy <= 1) {
+        return '.';
+    }
+
+    // Determine predominant axis
+    if (absDy > absDx * 2) {
+        return (dy < 0) ? '^' : 'v';
+    }
+    if (absDx > absDy * 2) {
+        return (dx < 0) ? '<' : '>';
+    }
+
+    // Diagonals
+    if (dx > 0 && dy < 0) return 'A';   // Up-right
+    if (dx < 0 && dy < 0) return 'B';   // Up-left
+    if (dx > 0 && dy > 0) return 'C';   // Down-right
+    if (dx < 0 && dy > 0) return 'D';   // Down-left
+
+    return '*';
+}

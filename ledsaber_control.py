@@ -291,6 +291,8 @@ class LedSaberClient:
                 # Ignora totalFrames/motionFrames (troppo frequente)
                 elif key in ['totalFrames', 'motionFrames']:
                     pass
+                elif key in ['grid', 'gridRows', 'gridCols', 'blockSize']:
+                    pass
                 # Altri cambiamenti: notifica sempre
                 elif old_value != new_value:
                     significant_changes[key] = {'old': old_value, 'new': new_value}
@@ -1123,6 +1125,17 @@ class InteractiveCLI:
                             print(f"    {zones[0]:3d} {zones[1]:3d} {zones[2]:3d}")
                             print(f"    {zones[3]:3d} {zones[4]:3d} {zones[5]:3d}")
                             print(f"    {zones[6]:3d} {zones[7]:3d} {zones[8]:3d}")
+
+                        # Mostra griglia optical flow 40px (8x6)
+                        grid_rows = status.get('grid', [])
+                        if grid_rows:
+                            grid_cols = status.get('gridCols', len(grid_rows[0]) if grid_rows else 0)
+                            block_size = status.get('blockSize', 40)
+                            print(f"\n  {Colors.CYAN}Optical Flow Grid ({grid_cols}x{len(grid_rows)} blocchi @ {block_size}px):{Colors.RESET}")
+                            for row_str in grid_rows:
+                                printable = " ".join(list(row_str))
+                                print(f"    {printable}")
+                            print(f"    Legend: . idle, ^/v su/giù, </> sx/dx, A up-right, B up-left, C down-right, D down-left")
                     else:
                         print(f"{Colors.YELLOW}⚠ Nessun dato disponibile{Colors.RESET}")
 
