@@ -424,47 +424,51 @@ void LedEffectEngine::renderPulse(const LedState& state, const uint8_t perturbat
         globalPerturbation = totalPerturb / samples;
     }
 
-    // Calculate EFFECTIVE SPEED: base speed + logarithmic perturbation boost
-    // Logarithmic growth prevents overshooting and creates smooth acceleration
+    // INSTANT RESPONSE ACCELERATION: immediate reaction + progressive boost
+    // Anche con poco movimento, risposta istantanea!
     uint16_t effectiveSpeed = state.speed;
-    if (globalPerturbation > 10) {
-        // Logarithmic boost: fast initial growth, then plateaus
-        // Use quadratic ease-out curve for smooth logarithmic-like behavior
-        uint8_t normalizedPerturb = map(globalPerturbation, 10, 255, 0, 255);
-        // Quadratic ease-out: y = 1 - (1-x)^2, creates logarithmic-like curve
-        uint8_t easedPerturb = 255 - scale8(255 - normalizedPerturb, 255 - normalizedPerturb);
+    if (globalPerturbation > 5) {  // Soglia MOLTO bassa = risposta immediata
+        // LINEAR BOOST con risposta istantanea:
+        // - Anche a movimento minimo (5-20) => +50% velocità immediata
+        // - Movimento medio (20-80) => fino a +150% velocità
+        // - Movimento massimo (80-255) => fino a +300% velocità (5x totale!)
 
-        // Maximum boost: up to 3x the base speed
-        // Works because we cap at HARDWARE LIMIT (travelSpeed min = 1ms), not state.speed
-        uint16_t maxBoost = state.speed * 2;  // Can go up to 3x total (speed + 2*speed)
-        uint16_t perturbBoost = scale8(easedPerturb, min(maxBoost, (uint16_t)255));
+        // Map lineare: da 5 a 255 movimento => da 0 a 255 boost
+        uint8_t normalizedPerturb = map(globalPerturbation, 5, 255, 0, 255);
+
+        // Boost aggressivo e lineare:
+        // - Min (5): +50% velocità base
+        // - Max (255): +400% velocità base (5x totale)
+        uint16_t maxBoost = state.speed * 4;  // Fino a 5x velocità totale (speed + 4*speed)
+        uint16_t perturbBoost = scale8(normalizedPerturb, min(maxBoost, (uint16_t)255));
+
+        // Boost minimo garantito per risposta immediata (almeno +50% anche a movimento basso)
+        if (perturbBoost < state.speed / 2) {
+            perturbBoost = state.speed / 2;
+        }
 
         effectiveSpeed = min((uint16_t)255, (uint16_t)(state.speed + perturbBoost));
     }
 
     // PULSE WIDTH inversely proportional to speed: faster = narrower pulse
     // Speed 1 (slow) = wide pulse (20 pixels), Speed 255 (fast) = narrow pulse (3 pixels)
-    uint8_t pulseWidth = map(effectiveSpeed, 1, 255, 20, 3);
+    uint8_t pulseWidth = map(effectiveSpeed, 1, 255, 40, 3);
 
     // Travel distance for pulse to completely exit from tip
     uint16_t totalDistance = state.foldPoint + pulseWidth;
 
-    // PLASMA DISCHARGE VELOCITY CURVE for main pulse (VELOCIZZATO)
-    // Phase 0-85: Very fast start (1-2ms per pixel)
-    // Phase 86-170: Quick slow down (2-5ms per pixel)
-    // Phase 171-255: Maximum speed burst (1ms per pixel)
-    uint8_t mainPulsePhase = map(_pulsePosition, 0, totalDistance - 1, 0, 255);
+    // SIMPLIFIED VELOCITY: velocità costante basata su effectiveSpeed
+    // La velocità è direttamente proporzionale a effectiveSpeed (che include il boost da movimento)
+    // effectiveSpeed 1-50: slow (10-7ms)
+    // effectiveSpeed 51-150: medium (7-3ms)
+    // effectiveSpeed 151-255: fast (3-1ms)
     uint16_t travelSpeed;
-
-    if (mainPulsePhase < 85) {
-        // Very fast start: 1-2ms (ridotto da 1-3ms)
-        travelSpeed = map(mainPulsePhase, 0, 85, 1, 2);
-    } else if (mainPulsePhase < 171) {
-        // Quick slow middle: 2-5ms (ridotto da 3-12ms)
-        travelSpeed = map(mainPulsePhase, 85, 171, 2, 5);
+    if (effectiveSpeed < 50) {
+        travelSpeed = map(effectiveSpeed, 1, 50, 10, 7);
+    } else if (effectiveSpeed < 150) {
+        travelSpeed = map(effectiveSpeed, 50, 150, 7, 3);
     } else {
-        // Maximum speed burst: 1ms
-        travelSpeed = 1;
+        travelSpeed = map(effectiveSpeed, 150, 255, 3, 1);
     }
 
     // CONTINUOUS PULSE FLOW: always moving, no charging phase
@@ -519,29 +523,17 @@ void LedEffectEngine::renderPulse(const LedState& state, const uint8_t perturbat
         }
     }
 
-    // UPDATE SECONDARY PULSES with plasma discharge velocity curve (VELOCIZZATO)
+    // UPDATE SECONDARY PULSES with same velocity as main pulse
     for (uint8_t i = 0; i < 5; i++) {
         if (_secondaryPulses[i].active) {
-            // Calculate travel speed using plasma discharge curve
-            uint8_t phase = _secondaryPulses[i].velocityPhase;
-            uint16_t secondaryTravelSpeed;
-
-            if (phase < 85) {
-                // Fast start: 1-2ms (ridotto da 2-4ms)
-                secondaryTravelSpeed = map(phase, 0, 85, 1, 2);
-            } else if (phase < 171) {
-                // Slow middle: 2-6ms (ridotto da 4-15ms)
-                secondaryTravelSpeed = map(phase, 85, 171, 2, 6);
-            } else {
-                // Maximum speed burst: 1ms (ridotto da 2ms)
-                secondaryTravelSpeed = 1;
-            }
+            // Secondary pulses use SAME speed as main pulse (synchronized movement)
+            // Questo garantisce che tutti i pulse si muovano insieme in modo coerente
+            uint16_t secondaryTravelSpeed = travelSpeed;
 
             // Move the pulse
             uint16_t timeSinceBirth = (now & 0xFFFF) - _secondaryPulses[i].birthTime;
             if (timeSinceBirth > secondaryTravelSpeed) {
                 _secondaryPulses[i].position++;
-                _secondaryPulses[i].velocityPhase++;  // Advance through velocity curve
                 _secondaryPulses[i].birthTime = now & 0xFFFF;
 
                 // Kill pulse if it exits the blade
