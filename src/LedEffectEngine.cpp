@@ -661,6 +661,8 @@ void LedEffectEngine::renderDualPulse(const LedState& state, const uint8_t pertu
     static float ball2_pos = 0.0f;
     static float ball1_vel = 0.0f;              // Velocità (signed, pixel/ms)
     static float ball2_vel = 0.0f;
+    static float ball1_mass = 1.0f;             // Massa (variabile con perturbazione!)
+    static float ball2_mass = 1.0f;
     static uint8_t ball1_hue = 0;               // Colore HSV
     static uint8_t ball2_hue = 160;             // Colore complementare iniziale
     static bool ball1_active = true;
@@ -672,9 +674,11 @@ void LedEffectEngine::renderDualPulse(const LedState& state, const uint8_t pertu
     static bool initialized = false;
     static int8_t perturbTarget = 0;            // -1 = ball1, +1 = ball2, 0 = none
     static uint8_t perturbAccumulator = 0;      // Accumula perturbazioni per sensibilità bassa
+    static unsigned long lastCollisionTime = 0;  // Timestamp dell'ultima collisione
+    static uint16_t collisionCount = 0;         // Conta le collisioni per debug
 
     // FIXED BASE SPEED (independent of state.speed parameter)
-    const float FIXED_BASE_SPEED = 0.12f;  // pixel/ms (circa 7.2 pixel/frame @ 60fps)
+    const float FIXED_BASE_SPEED = 0.18f;  // pixel/ms (leggermente più alta per dinamismo)
 
     // First run initialization
     if (!initialized || now < 500) {
@@ -686,6 +690,10 @@ void LedEffectEngine::renderDualPulse(const LedState& state, const uint8_t pertu
         ball1_vel = FIXED_BASE_SPEED;
         ball2_vel = -FIXED_BASE_SPEED;
 
+        // Masse iniziali UGUALI (equilibrio perfetto)
+        ball1_mass = 1.0f;
+        ball2_mass = 1.0f;
+
         ball1_hue = 0;      // Rosso
         ball2_hue = 160;    // Ciano
         ball1_active = true;
@@ -694,9 +702,10 @@ void LedEffectEngine::renderDualPulse(const LedState& state, const uint8_t pertu
         spawnFlashBrightness = 0;
         perturbTarget = 0;
         perturbAccumulator = 0;
+        collisionCount = 0;
         initialized = true;
 
-        Serial.println("[DUAL_PONG] Initialized with FIXED base speed");
+        Serial.println("[DUAL_PONG] Initialized with MASS-based physics");
     }
 
     // ═══════════════════════════════════════════════════════════
@@ -716,29 +725,38 @@ void LedEffectEngine::renderDualPulse(const LedState& state, const uint8_t pertu
         }
         globalPerturbation = totalPerturb / samples;
 
-        // BASSA SENSIBILITÀ: accumula perturbazioni fino a soglia
-        // Solo quando raggiungiamo soglia minima (40+) applichiamo l'effetto
-        if (globalPerturbation > 40) {
-            perturbAccumulator = min(255, perturbAccumulator + (globalPerturbation / 8));
+        // PERTURBAZIONE AGGIUNGE MASSA (non velocità!)
+        // Soglia più bassa per reattività
+        if (globalPerturbation > 30) {
+            perturbAccumulator = min(255, perturbAccumulator + (globalPerturbation / 6));
 
-            // Soglia di attivazione: serve movimento consistente
-            if (perturbAccumulator > 80) {
-                // Scegli quale palla perturbare (alterna in modo casuale per imprevedibilità)
+            // Soglia di attivazione ridotta
+            if (perturbAccumulator > 60) {
+                // Scegli quale palla aumentare di massa
                 if (perturbTarget == 0) {
-                    // Nessun target attivo: scegline uno
                     perturbTarget = (random8() < 128) ? -1 : 1;
-                    Serial.print("[DUAL_PONG] Perturbation target: Ball ");
+                    Serial.print("[DUAL_PONG] Mass boost target: Ball ");
                     Serial.println((perturbTarget == -1) ? "1" : "2");
                 }
-                // Mantieni il target finché l'accumulo non scende
+
+                // AGGIUNGI MASSA alla palla target (gradualmente)
+                float massIncrement = (globalPerturbation / 255.0f) * 0.002f;  // Incremento molto piccolo ma costante
+
+                if (perturbTarget == -1 && ball1_active) {
+                    ball1_mass += massIncrement;
+                    ball1_mass = min(ball1_mass, 5.0f);  // Massa max = 5x
+                } else if (perturbTarget == 1 && ball2_active) {
+                    ball2_mass += massIncrement;
+                    ball2_mass = min(ball2_mass, 5.0f);
+                }
             }
         } else {
-            // Decay dell'accumulatore quando movimento cessa
+            // Decay lento dell'accumulatore
             if (perturbAccumulator > 0) {
-                perturbAccumulator = qsub8(perturbAccumulator, 5);
+                perturbAccumulator = qsub8(perturbAccumulator, 3);
             }
-            if (perturbAccumulator < 40) {
-                perturbTarget = 0;  // Reset target quando sotto soglia
+            if (perturbAccumulator < 30) {
+                perturbTarget = 0;
             }
         }
     }
@@ -753,31 +771,12 @@ void LedEffectEngine::renderDualPulse(const LedState& state, const uint8_t pertu
     if (deltaTime > 0) {
         float dt = deltaTime / 1000.0f;  // Converti in secondi per fisica
 
-        // Applica perturbazione SOLO alla palla target
-        float ball1_impulse = 0.0f;
-        float ball2_impulse = 0.0f;
+        // NESSUN impulso diretto! La massa influenza solo le collisioni
+        // Le velocità rimangono costanti tra una collisione e l'altra (moto inerziale)
 
-        if (perturbTarget == -1 && ball1_active) {
-            // Impulso su ball1 (proporzionale all'accumulatore)
-            // Usa scaling moderato per non rompere subito l'equilibrio
-            ball1_impulse = (perturbAccumulator / 255.0f) * FIXED_BASE_SPEED * 0.15f;  // Max 15% boost per step
-        } else if (perturbTarget == 1 && ball2_active) {
-            ball2_impulse = (perturbAccumulator / 255.0f) * FIXED_BASE_SPEED * 0.15f;
-        }
-
-        // Update velocities (conserva direzione, applica impulso)
+        // Update positions (moto uniforme)
         if (ball1_active) {
-            float direction1 = (ball1_vel >= 0) ? 1.0f : -1.0f;
-            ball1_vel = direction1 * (abs(ball1_vel) + ball1_impulse * dt);
-        }
-        if (ball2_active) {
-            float direction2 = (ball2_vel >= 0) ? 1.0f : -1.0f;
-            ball2_vel = direction2 * (abs(ball2_vel) + ball2_impulse * dt);
-        }
-
-        // Update positions (integrazione Eulero semplice)
-        if (ball1_active) {
-            ball1_pos += ball1_vel * dt * 1000.0f;  // Riconverti dt in ms
+            ball1_pos += ball1_vel * dt * 1000.0f;
         }
         if (ball2_active) {
             ball2_pos += ball2_vel * dt * 1000.0f;
@@ -815,28 +814,70 @@ void LedEffectEngine::renderDualPulse(const LedState& state, const uint8_t pertu
         // BALL-TO-BALL ELASTIC COLLISION (conservazione momento e energia)
         if (ball1_active && ball2_active) {
             float distance = abs(ball1_pos - ball2_pos);
-            const float collisionRadius = 6.0f;  // Raggio di collisione (pixel)
+            const float collisionRadius = 8.0f;  // Raggio di collisione (aumentato per rilevamento migliore)
 
-            if (distance < collisionRadius) {
-                // COLLISIONE ELASTICA 1D (masse uguali)
-                // Formule: v1' = v2, v2' = v1 (scambio velocità)
-                float temp = ball1_vel;
-                ball1_vel = ball2_vel;
-                ball2_vel = temp;
+            // Previeni collisioni multiple: almeno 200ms tra una collisione e l'altra
+            bool canCollide = (now - lastCollisionTime) > 200;
 
-                // Separa le palle per evitare overlap
-                float overlap = collisionRadius - distance;
-                float separation = overlap / 2.0f;
-
+            if (distance < collisionRadius && canCollide) {
+                // Check se le palle si stanno avvicinando (non allontanando)
+                // Se ball1 è a sinistra di ball2 e si stanno avvicinando:
+                // ball1_vel deve essere > ball2_vel
+                bool approaching = false;
                 if (ball1_pos < ball2_pos) {
-                    ball1_pos -= separation;
-                    ball2_pos += separation;
+                    approaching = (ball1_vel > ball2_vel);  // ball1 più veloce verso destra
                 } else {
-                    ball1_pos += separation;
-                    ball2_pos -= separation;
+                    approaching = (ball1_vel < ball2_vel);  // ball2 più veloce verso destra
                 }
 
-                Serial.println("[DUAL_PONG] Elastic collision between balls!");
+                if (approaching) {
+                    // COLLISIONE ELASTICA 1D CON MASSE DIVERSE
+                    // Conservazione momento: m1*v1 + m2*v2 = m1*v1' + m2*v2'
+                    // Conservazione energia: (1/2)*m1*v1² + (1/2)*m2*v2² = (1/2)*m1*v1'² + (1/2)*m2*v2'²
+                    //
+                    // Formule (derivate da conservazione):
+                    // v1' = ((m1 - m2)*v1 + 2*m2*v2) / (m1 + m2)
+                    // v2' = ((m2 - m1)*v2 + 2*m1*v1) / (m1 + m2)
+
+                    float m1 = ball1_mass;
+                    float m2 = ball2_mass;
+                    float v1 = ball1_vel;
+                    float v2 = ball2_vel;
+
+                    float totalMass = m1 + m2;
+
+                    // Calcola nuove velocità usando formule fisiche corrette
+                    float v1_new = ((m1 - m2) * v1 + 2.0f * m2 * v2) / totalMass;
+                    float v2_new = ((m2 - m1) * v2 + 2.0f * m1 * v1) / totalMass;
+
+                    ball1_vel = v1_new;
+                    ball2_vel = v2_new;
+
+                    // Separa FORZATAMENTE le palle
+                    float midPoint = (ball1_pos + ball2_pos) / 2.0f;
+
+                    if (ball1_pos < ball2_pos) {
+                        ball1_pos = midPoint - (collisionRadius / 2.0f + 1.0f);
+                        ball2_pos = midPoint + (collisionRadius / 2.0f + 1.0f);
+                    } else {
+                        ball1_pos = midPoint + (collisionRadius / 2.0f + 1.0f);
+                        ball2_pos = midPoint - (collisionRadius / 2.0f + 1.0f);
+                    }
+
+                    lastCollisionTime = now;
+                    collisionCount++;
+
+                    Serial.print("[DUAL_PONG] Collision #");
+                    Serial.print(collisionCount);
+                    Serial.print(" | m1=");
+                    Serial.print(ball1_mass, 2);
+                    Serial.print(" m2=");
+                    Serial.print(ball2_mass, 2);
+                    Serial.print(" | v1=");
+                    Serial.print(ball1_vel, 3);
+                    Serial.print(" v2=");
+                    Serial.println(ball2_vel, 3);
+                }
             }
         }
     }
@@ -845,65 +886,66 @@ void LedEffectEngine::renderDualPulse(const LedState& state, const uint8_t pertu
     // STABILITY CHECK - Collasso quando velocità critiche
     // ═══════════════════════════════════════════════════════════
 
-    // Massima velocità renderizzabile (oltre questa la palla scompare)
-    float maxRenderSpeed = 1.5f;  // pixel/ms (circa 1 LED ogni frame a 60fps)
+    // COLLASSO quando una palla diventa troppo lenta (quasi ferma)
+    // Dopo ~π collisioni, la palla leggera si ferma
+    const float minVelocity = 0.02f;  // pixel/ms (quasi ferma)
 
     if (!singleBallMode && (now - lastCollapseTime) > 2000) {
-        // Check se una delle due palle ha superato velocità critica
+        // Check se una palla è quasi ferma (dominata dall'altra)
+        bool ball1_stopped = ball1_active && (abs(ball1_vel) < minVelocity);
+        bool ball2_stopped = ball2_active && (abs(ball2_vel) < minVelocity);
+
+        // OPPURE se una è troppo veloce (oltre limite rendering)
+        float maxRenderSpeed = 1.2f;
         bool ball1_critical = ball1_active && (abs(ball1_vel) > maxRenderSpeed);
         bool ball2_critical = ball2_active && (abs(ball2_vel) > maxRenderSpeed);
 
-        if (ball1_critical || ball2_critical) {
+        if (ball1_stopped || ball2_stopped || ball1_critical || ball2_critical) {
             // COLLASSO DEL SISTEMA!
             singleBallMode = true;
             lastCollapseTime = now;
 
-            if (ball1_critical && !ball2_critical) {
-                // Ball 1 troppo veloce: VINCE!
+            // Determina quale palla vince (la più veloce o quella in movimento)
+            bool ball1_wins = false;
+
+            if (ball1_stopped && !ball2_stopped) {
+                ball1_wins = false;  // Ball 2 vince (ball 1 ferma)
+                Serial.print("[DUAL_PONG] COLLAPSE after ");
+                Serial.print(collisionCount);
+                Serial.println(" collisions! Ball 1 STOPPED - Ball 2 WINS");
+            } else if (ball2_stopped && !ball1_stopped) {
+                ball1_wins = true;   // Ball 1 vince (ball 2 ferma)
+                Serial.print("[DUAL_PONG] COLLAPSE after ");
+                Serial.print(collisionCount);
+                Serial.println(" collisions! Ball 2 STOPPED - Ball 1 WINS");
+            } else if (ball1_critical && !ball2_critical) {
+                ball1_wins = true;   // Ball 1 troppo veloce: vince
                 Serial.println("[DUAL_PONG] COLLAPSE! Ball 1 too fast - Ball 2 DELETED");
-                ball2_active = false;
-
-                // Promuovi ball1: cambia colore
-                ball1_hue = ball1_hue + random8(80, 160);
-
-                // Reset velocità ball1 a valore base FISSO
-                ball1_vel = (ball1_vel > 0) ? FIXED_BASE_SPEED : -FIXED_BASE_SPEED;
-
-                // Colore per prossima spawn (complementare)
-                nextBallHue = ball1_hue + 128;
-
             } else if (ball2_critical && !ball1_critical) {
-                // Ball 2 troppo veloce: VINCE!
+                ball1_wins = false;  // Ball 2 troppo veloce: vince
                 Serial.println("[DUAL_PONG] COLLAPSE! Ball 2 too fast - Ball 1 DELETED");
-                ball1_active = false;
-
-                ball2_hue = ball2_hue + random8(80, 160);
-
-                // Reset velocità ball2 a valore base FISSO
-                ball2_vel = (ball2_vel > 0) ? FIXED_BASE_SPEED : -FIXED_BASE_SPEED;
-
-                nextBallHue = ball2_hue + 128;
-
             } else {
-                // Entrambe critiche (caso raro): vince una a caso
-                if (random8() < 128) {
-                    ball2_active = false;
-                    ball1_hue = ball1_hue + random8(80, 160);
-                    ball1_vel = (ball1_vel > 0) ? FIXED_BASE_SPEED : -FIXED_BASE_SPEED;
-                    nextBallHue = ball1_hue + 128;
-                    Serial.println("[DUAL_PONG] COLLAPSE! Both critical - Ball 1 WINS");
-                } else {
-                    ball1_active = false;
-                    ball2_hue = ball2_hue + random8(80, 160);
-                    ball2_vel = (ball2_vel > 0) ? FIXED_BASE_SPEED : -FIXED_BASE_SPEED;
-                    nextBallHue = ball2_hue + 128;
-                    Serial.println("[DUAL_PONG] COLLAPSE! Both critical - Ball 2 WINS");
-                }
+                ball1_wins = (abs(ball1_vel) > abs(ball2_vel));  // Vince la più veloce
             }
 
-            // Reset perturbazione
+            if (ball1_wins) {
+                ball2_active = false;
+                ball1_hue = ball1_hue + random8(80, 160);
+                ball1_vel = (ball1_vel > 0) ? FIXED_BASE_SPEED : -FIXED_BASE_SPEED;
+                ball1_mass = 1.0f;  // Reset massa
+                nextBallHue = ball1_hue + 128;
+            } else {
+                ball1_active = false;
+                ball2_hue = ball2_hue + random8(80, 160);
+                ball2_vel = (ball2_vel > 0) ? FIXED_BASE_SPEED : -FIXED_BASE_SPEED;
+                ball2_mass = 1.0f;  // Reset massa
+                nextBallHue = ball2_hue + 128;
+            }
+
+            // Reset sistema
             perturbTarget = 0;
             perturbAccumulator = 0;
+            collisionCount = 0;
         }
     }
 
@@ -927,14 +969,16 @@ void LedEffectEngine::renderDualPulse(const LedState& state, const uint8_t pertu
                 // Respawn ball2
                 ball2_active = true;
                 ball2_pos = 0.0f;  // Base della lama
-                ball2_vel = FIXED_BASE_SPEED;  // Va verso la punta con velocità FISSA
+                ball2_vel = FIXED_BASE_SPEED;  // Va verso la punta
+                ball2_mass = 1.0f;  // Reset massa a valore base
                 ball2_hue = nextBallHue;
                 Serial.println("[DUAL_PONG] *** FLASH! Ball 2 SPAWNED from base ***");
             } else {
                 // Respawn ball1
                 ball1_active = true;
                 ball1_pos = 0.0f;
-                ball1_vel = FIXED_BASE_SPEED;  // Va verso la punta con velocità FISSA
+                ball1_vel = FIXED_BASE_SPEED;  // Va verso la punta
+                ball1_mass = 1.0f;  // Reset massa a valore base
                 ball1_hue = nextBallHue;
                 Serial.println("[DUAL_PONG] *** FLASH! Ball 1 SPAWNED from base ***");
             }
