@@ -426,20 +426,24 @@ void LedEffectEngine::renderPulse(const LedState& state, const uint8_t perturbat
         globalPerturbation = totalPerturb / samples;
     }
 
-    // LOGICA SEMPLIFICATA (Additive Boost):
-    // La velocità base è quella configurata. Il movimento aggiunge velocità.
-    uint16_t effectiveSpeed = state.speed;
-    
-    if (globalPerturbation > 10) {
-        // Additive boost: il movimento aumenta direttamente la velocità
-        effectiveSpeed += globalPerturbation;
-    }
-    
-    if (effectiveSpeed > 255) effectiveSpeed = 255;
+    // ACCELERAZIONE PROGRESSIVA NATURALE
+    // Il pulse accelera in modo fluido dalla velocità base alla velocità massima
 
-    // PULSE WIDTH inversely proportional to speed: faster = narrower pulse
-    // Speed 1 (slow) = wide pulse (20 pixels), Speed 255 (fast) = narrow pulse (3 pixels)
-    uint8_t targetPulseWidth = map(effectiveSpeed, 1, 255, 50, 3);
+    // Calcola velocità massima raggiungibile con motion
+    uint16_t baseSpeed = state.speed;
+    uint16_t maxSpeed = baseSpeed;
+
+    if (globalPerturbation > 3) {
+        // Motion boost: aumenta la velocità massima raggiungibile
+        // Uso scaling quadratico per rendere il motion più impattante
+        uint16_t motionBoost = (globalPerturbation * globalPerturbation) / 4;
+        uint16_t boostedSpeed = baseSpeed + motionBoost;
+        maxSpeed = (boostedSpeed > 255) ? 255 : boostedSpeed;
+    }
+
+    // PULSE WIDTH inversely proportional to max speed: faster = narrower pulse
+    // Speed 1 (slow) = wide pulse (60 pixels), Speed 255 (fast) = narrow pulse (2 pixels)
+    uint8_t targetPulseWidth = map(maxSpeed, 1, 255, 30, 2);
 
     // Update main pulse width ONLY at start of cycle to prevent flickering
     if (_pulsePosition == 0) {
@@ -450,17 +454,32 @@ void LedEffectEngine::renderPulse(const LedState& state, const uint8_t perturbat
     // Add extra width for entry phase (pulse starts "outside" the blade)
     uint16_t totalDistance = state.foldPoint + 2 * _mainPulseWidth;
 
-    // SIMPLIFIED VELOCITY: velocità costante basata su effectiveSpeed
+    // NATURAL ACCELERATION CURVE: velocità aumenta progressivamente lungo il percorso
+    // Usa una curva ease-out esponenziale: v(x) = v_base + (v_max - v_base) * (1 - e^(-k*x))
+
+    // Normalizza la posizione corrente (0.0 = inizio, 1.0 = fine)
+    float normalizedPos = (float)_pulsePosition / (float)totalDistance;
+
+    // Coefficiente di accelerazione (maggiore = accelera più rapidamente)
+    // 3.0 = accelerazione moderata, naturale
+    float accelCoeff = 3.0f;
+
+    // Calcola il fattore di accelerazione usando curva esponenziale
+    // 1 - e^(-k*x) parte da 0 e arriva asintoticamente a 1
+    float accelFactor = 1.0f - expf(-accelCoeff * normalizedPos);
+
+    // Interpola tra velocità base e velocità massima
+    uint16_t currentSpeed = baseSpeed + (uint16_t)((maxSpeed - baseSpeed) * accelFactor);
+
+    // Converti velocità in delay (ms): velocità alta = delay basso
+    // Range: speed 1 -> 120ms, speed 255 -> 1ms
     uint16_t travelSpeed;
-    if (effectiveSpeed < 20) {
-        // Range molto lento: 120ms -> 60ms (per speed < 20)
-        travelSpeed = map(effectiveSpeed, 1, 20, 120, 60);
-    } else if (effectiveSpeed < 100) {
-        // Range medio: 60ms -> 15ms
-        travelSpeed = map(effectiveSpeed, 20, 100, 60, 15);
+    if (currentSpeed < 20) {
+        travelSpeed = map(currentSpeed, 1, 20, 120, 50);
+    } else if (currentSpeed < 100) {
+        travelSpeed = map(currentSpeed, 20, 100, 50, 10);
     } else {
-        // Range veloce: 15ms -> 2ms
-        travelSpeed = map(effectiveSpeed, 100, 255, 15, 2);
+        travelSpeed = map(currentSpeed, 100, 255, 10, 1);
     }
 
     // CONTINUOUS PULSE FLOW: always moving, no charging phase
@@ -476,17 +495,19 @@ void LedEffectEngine::renderPulse(const LedState& state, const uint8_t perturbat
     }
 
     // SPAWN SECONDARY PULSES (plasma discharge effect) - SOLO CON MOVIMENTO
-    // BUGFIX: spawn SOLO se c'è movimento (globalPerturbation > 0)
+    // I pulsi secondari creano un effetto "scarica al plasma" scenografico
     uint8_t spawnChance = 0;
 
     // Spawn DIPENDE COMPLETAMENTE dal movimento
-    if (globalPerturbation > 20) {  // Soglia minima: DEVE esserci movimento
-        // Spawn chance parte da 0 e scala con il movimento
-        spawnChance = map(globalPerturbation, 15, 255, 10, 100);  // Da 10% a 100% in base al movimento
+    if (globalPerturbation > 15) {  // Soglia minima: DEVE esserci movimento
+        // Spawn chance aumenta esponenzialmente con il movimento
+        // Da 15% (movimento leggero) a 120% (movimento intenso)
+        spawnChance = map(globalPerturbation, 15, 255, 15, 120);
 
-        // Boost aggiuntivo per movimento intenso
-        if (globalPerturbation > 50) {
-            spawnChance = qadd8(spawnChance, scale8(globalPerturbation - 50, 80));
+        // Boost aggiuntivo per movimento molto intenso (effetto "tempesta al plasma")
+        if (globalPerturbation > 60) {
+            uint8_t extraBoost = scale8(globalPerturbation - 60, 100);
+            spawnChance = qadd8(spawnChance, extraBoost);
         }
     }
     // NESSUNO spawn se globalPerturbation <= 15 (nessun movimento)
@@ -512,7 +533,8 @@ void LedEffectEngine::renderPulse(const LedState& state, const uint8_t perturbat
                 _secondaryPulses[i].velocityPhase = random8();  // Random starting phase
                 _secondaryPulses[i].active = true;
                 _secondaryPulses[i].size = 1;          // Normal size initially
-                _secondaryPulses[i].brightness = 200;  // Normal brightness initially
+                // Brightness variabile: alcuni spawn più luminosi (più scenografico)
+                _secondaryPulses[i].brightness = random8(180, 240);
                 _lastSecondarySpawn = now;
                 break;
             }
@@ -575,32 +597,40 @@ void LedEffectEngine::renderPulse(const LedState& state, const uint8_t perturbat
     uint8_t safeBrightness = min(state.brightness, MAX_SAFE_BRIGHTNESS);
 
     for (uint16_t i = 0; i < state.foldPoint; i++) {
-        // SIMPLIFIED SHADOWS: dark base, bright pulse
-        uint8_t brightness = 50;  // Dark base for better contrast
+        // CONTRASTO DINAMICO: base scura per evidenziare i pulsi
+        // Con motion intenso, la base diventa ancora più scura (più drammatico)
+        uint8_t baseBrightness = 100;
+        if (globalPerturbation > 40) {
+            // Motion intenso: base ancora più scura per contrasto maggiore
+            baseBrightness = map(globalPerturbation, 40, 255, 50, 20);
+        }
+        uint8_t brightness = baseBrightness;
 
-        // TRAVELING MAIN PULSE: simple gradient
+        // TRAVELING MAIN PULSE: gradiente fluido con core brillante
         int16_t effectiveCenter = (int16_t)_pulsePosition - _mainPulseWidth;
         int16_t distance = abs((int16_t)i - effectiveCenter);
 
         if (distance < _mainPulseWidth) {
-            // Main pulse body: bright core with smooth falloff
-            brightness = map(distance, 0, _mainPulseWidth, 255, 70);// scala anche questo ,dopo test crea relazione/ Dark base for better contrast
+            // Main pulse body: core ultra-brillante con falloff morbido
+            // Il core è sempre a 255, il falloff dipende dalla larghezza
+            brightness = map(distance, 0, _mainPulseWidth, 255, baseBrightness + 30);
         }
 
-        // SECONDARY PULSES: add their contribution with FUSION SUPPORT
+        // SECONDARY PULSES: più visibili e drammatici con FUSION SUPPORT
         for (uint8_t p = 0; p < 5; p++) {
             if (_secondaryPulses[p].active) {
                 int16_t secDistance = abs((int16_t)i - (int16_t)_secondaryPulses[p].position);
 
-                // Size increases with fusion: 1x, 1.5x, 2x for size 1, 2, 3
+                // Size increases with fusion: 1x, 1.5x, 2x per size 1, 2, 3
                 uint8_t basePulseWidth = _secondaryPulses[p].width / 2;
-                uint8_t secPulseWidth = basePulseWidth * _secondaryPulses[p].size / 2;
-                if (secPulseWidth < basePulseWidth) secPulseWidth = basePulseWidth;  // Minimum size
+                uint8_t secPulseWidth = (basePulseWidth * _secondaryPulses[p].size * 3) / 4;
+                if (secPulseWidth < basePulseWidth) secPulseWidth = basePulseWidth;
 
                 if (secDistance < secPulseWidth) {
-                    // Use custom brightness (200 for normal, 255 for fused)
+                    // Brightness con contrasto aumentato per i secondari
                     uint8_t maxBrightness = _secondaryPulses[p].brightness;
-                    uint8_t secBrightness = map(secDistance, 0, secPulseWidth, maxBrightness, 60);
+                    // Falloff più lento = pulsi secondari più visibili
+                    uint8_t secBrightness = map(secDistance, 0, secPulseWidth, maxBrightness, baseBrightness + 20);
                     brightness = max(brightness, secBrightness);
                 }
             }
