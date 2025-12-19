@@ -400,16 +400,7 @@ void LedEffectEngine::renderUnstable(const LedState& state, const uint8_t pertur
 void LedEffectEngine::renderPulse(const LedState& state, const uint8_t perturbationGrid[6][8]) {
     const unsigned long now = millis();
 
-    // Speed calculation based on folded index for synchronization
-    // Total travel distance = foldPoint + pulseWidth (to exit completely from tip)
-    const uint8_t pulseWidth = 10;  // Reduced by 1/3 (from 15 to 10)
-    uint16_t totalDistance = state.foldPoint + pulseWidth;
-
-    // Calculate base timing for seamless cycle: charge + travel time
-    uint16_t chargeSpeed = map(state.speed, 1, 255, 30, 3);   // Slower charge (piano)
-    uint16_t travelSpeed = map(state.speed, 1, 255, 20, 1);   // Travel speed
-
-    // PERTURBATION ACCELERATION: calculate average motion to speed up pulse
+    // PERTURBATION ACCELERATION: calculate average motion intensity
     uint8_t globalPerturbation = 0;
     if (perturbationGrid != nullptr) {
         uint16_t totalPerturb = 0;
@@ -423,40 +414,42 @@ void LedEffectEngine::renderPulse(const LedState& state, const uint8_t perturbat
         globalPerturbation = totalPerturb / samples;
     }
 
-    // Accelerate based on motion (higher motion = faster pulse, no impulse skipping)
-    uint16_t currentSpeed = _pulseCharging ? chargeSpeed : travelSpeed;
-    if (globalPerturbation > 15) {
-        // Speed up: reduce delay = faster movement (max 50% faster)
-        uint8_t speedBoost = scale8(globalPerturbation, 128);  // 0-128 reduction
-        currentSpeed = qsub8(currentSpeed, speedBoost);
-        if (currentSpeed < 1) currentSpeed = 1;  // Min speed cap
+    // Calculate EFFECTIVE SPEED: base speed + logarithmic perturbation boost
+    // Logarithmic growth prevents overshooting and creates smooth acceleration
+    uint16_t effectiveSpeed = state.speed;
+    if (globalPerturbation > 10) {
+        // Logarithmic boost: fast initial growth, then plateaus
+        // Use quadratic ease-out curve for smooth logarithmic-like behavior
+        uint8_t normalizedPerturb = map(globalPerturbation, 10, 255, 0, 255);
+        // Quadratic ease-out: y = 1 - (1-x)^2, creates logarithmic-like curve
+        uint8_t easedPerturb = 255 - scale8(255 - normalizedPerturb, 255 - normalizedPerturb);
+
+        // Maximum boost: up to 3x the base speed
+        // Works because we cap at HARDWARE LIMIT (travelSpeed min = 1ms), not state.speed
+        uint16_t maxBoost = state.speed * 2;  // Can go up to 3x total (speed + 2*speed)
+        uint16_t perturbBoost = scale8(easedPerturb, min(maxBoost, (uint16_t)255));
+
+        effectiveSpeed = min((uint16_t)255, (uint16_t)(state.speed + perturbBoost));
     }
 
-    if (now - _lastPulseUpdate > currentSpeed) {
-        if (_pulseCharging) {
-            // CHARGING PHASE: accumulate plasma at base
-            // Motion makes charging faster
-            uint8_t chargeIncrement = 15;
-            if (globalPerturbation > 20) {
-                chargeIncrement = qadd8(chargeIncrement, scale8(globalPerturbation, 20));
-            }
-            _pulseCharge = qadd8(_pulseCharge, chargeIncrement);
+    // PULSE WIDTH inversely proportional to speed: faster = narrower pulse
+    // Speed 1 (slow) = wide pulse (20 pixels), Speed 255 (fast) = narrow pulse (3 pixels)
+    uint8_t pulseWidth = map(effectiveSpeed, 1, 255, 20, 3);
 
-            if (_pulseCharge >= 255) {
-                // Charge complete, launch pulse
-                _pulseCharging = false;
-                _pulsePosition = 0;
-                _pulseCharge = 255;
-            }
-        } else {
-            // TRAVELING PHASE: move pulse along blade
-            _pulsePosition++;
-            if (_pulsePosition >= totalDistance) {
-                // Pulse has exited tip, restart charge cycle (SEAMLESS)
-                _pulseCharging = true;
-                _pulsePosition = 0;
-                _pulseCharge = 0;
-            }
+    // Travel distance for pulse to completely exit from tip
+    uint16_t totalDistance = state.foldPoint + pulseWidth;
+
+    // Movement speed based on effective speed
+    // HARDWARE LIMIT: min 1ms delay (maximum refresh rate reasonable for LED visibility)
+    // This is the REAL limit - even at 3x speed, we hit 1ms minimum, keeping it visible
+    uint16_t travelSpeed = map(effectiveSpeed, 1, 255, 25, 1);  // 1ms minimum = hard cap
+
+    // CONTINUOUS PULSE FLOW: always moving, no charging phase
+    if (now - _lastPulseUpdate > travelSpeed) {
+        _pulsePosition++;
+        if (_pulsePosition >= totalDistance) {
+            // Pulse exited, restart seamlessly from base
+            _pulsePosition = 0;
         }
         _lastPulseUpdate = now;
     }
@@ -465,46 +458,15 @@ void LedEffectEngine::renderPulse(const LedState& state, const uint8_t perturbat
     uint8_t safeBrightness = min(state.brightness, MAX_SAFE_BRIGHTNESS);
 
     for (uint16_t i = 0; i < state.foldPoint; i++) {
-        uint8_t brightness = 100;  // Higher dark base (100 instead of 80) - never too dark
+        // SIMPLIFIED SHADOWS: dark base, bright pulse
+        uint8_t brightness = 40;  // Dark base for better contrast
 
-        if (_pulseCharging) {
-            // CHARGING: show growing plasma ball at base
-            if (i < 10) {  // Charge zone at base (first 10 LEDs)
-                uint8_t chargeDistance = i;
-                // Brighter at base, fades toward position 10
-                uint8_t chargeBrightness = map(chargeDistance, 0, 10, 255, 120);
-                // Scale by charge level (0-255)
-                chargeBrightness = scale8(chargeBrightness, _pulseCharge);
-                brightness = max(brightness, chargeBrightness);
-            }
-        } else {
-            // TRAVELING: pulse moves along blade
-            int16_t distance = abs((int16_t)i - (int16_t)_pulsePosition);
+        // TRAVELING PULSE: simple gradient
+        int16_t distance = abs((int16_t)i - (int16_t)_pulsePosition);
 
-            if (distance < pulseWidth) {
-                // Main pulse body - always bright
-                brightness = map(distance, 0, pulseWidth, 255, 180);  // Higher minimum (180)
-            } else if (distance < pulseWidth + 2) {
-                // Trailing halo - much shorter (2 LEDs instead of 5)
-                brightness = map(distance, pulseWidth, pulseWidth + 2, 180, 100);
-            }
-        }
-
-        // MOTION INTENSIFICATION: perturbations BOOST brightness (never darken)
-        if (perturbationGrid != nullptr) {
-            uint8_t col = map(i, 0, state.foldPoint - 1, 0, 7);
-
-            uint16_t perturbSum = 0;
-            for (uint8_t row = 1; row <= 4; row++) {
-                perturbSum += perturbationGrid[row][col];
-            }
-            uint8_t avgPerturbation = perturbSum / 4;
-
-            if (avgPerturbation > 15) {
-                // Stronger boost: motion makes pulse MORE visible
-                uint8_t intensifyBoost = scale8(avgPerturbation, 120);  // Up to +120 brightness
-                brightness = qadd8(brightness, intensifyBoost);
-            }
+        if (distance < pulseWidth) {
+            // Main pulse body: bright core with smooth falloff
+            brightness = map(distance, 0, pulseWidth, 255, 60);
         }
 
         CRGB pulseColor = baseColor;
