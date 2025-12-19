@@ -10,8 +10,8 @@ OpticalFlowDetector::OpticalFlowDetector()
     , _previousFrame(nullptr)
     , _searchRange(10)       // Compromesso: copre ~25px movimento (era 6, tentato 12)
     , _searchStep(5)         // Step largo: 5×5=25 posizioni (uguale a prima, ma range maggiore)
-    , _minConfidence(35)     // Ulteriormente abbassato da 40 a 35 (più sensibile per compensare)
-    , _minActiveBlocks(3)    // Ridotto da 4 a 3 (ancora più reattivo)
+    , _minConfidence(25)     // Abbassato da 35 a 25 per bassa velocità (5fps)
+    , _minActiveBlocks(2)    // Ridotto da 3 a 2 per maggiore sensibilità a 5fps
     , _motionActive(false)
     , _motionIntensity(0)
     , _motionDirection(Direction::NONE)
@@ -302,8 +302,9 @@ void OpticalFlowDetector::_calculateGlobalMotion() {
     float normalizedSpeed = min(_motionSpeed / 20.0f, 1.0f);  // 20px/frame = max
     _motionIntensity = (uint8_t)(normalizedSpeed * _motionConfidence * 255.0f);
 
-    // Verifica soglia minima (abbassata per reattività)
-    _motionActive = (_motionIntensity > 15 && _motionSpeed > 1.5f);
+    // Verifica soglia minima - OTTIMIZZATO PER 5 FPS
+    // A bassi FPS serve soglia velocità molto più bassa (0.8px/frame @ 5fps = movimento medio)
+    _motionActive = (_motionIntensity > 8 && _motionSpeed > 0.8f);
 }
 
 void OpticalFlowDetector::_calculateCentroid() {

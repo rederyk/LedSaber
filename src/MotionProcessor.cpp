@@ -96,7 +96,7 @@ MotionProcessor::GestureType MotionProcessor::_detectGesture(
 
     // IGNITION: UP veloce e sostenuto
     if (direction == OpticalFlowDetector::Direction::UP &&
-        speed > 3.0f &&  // Abbassato da 8.0f a 3.0f per movimenti meno rapidi
+        speed > 1.2f &&  // OTTIMIZZATO 5FPS: abbassato da 3.0f a 1.2f
         intensity > _config.gestureThreshold &&
         duration >= _config.gestureDurationMs)
     {
@@ -113,7 +113,7 @@ MotionProcessor::GestureType MotionProcessor::_detectGesture(
 
     // RETRACT: DOWN veloce e sostenuto
     if (direction == OpticalFlowDetector::Direction::DOWN &&
-        speed > 3.0f &&  // Abbassato da 8.0f a 3.0f per movimenti meno rapidi
+        speed > 1.2f &&  // OTTIMIZZATO 5FPS: abbassato da 3.0f a 1.2f
         intensity > _config.gestureThreshold &&
         duration >= _config.gestureDurationMs)
     {
@@ -131,8 +131,8 @@ MotionProcessor::GestureType MotionProcessor::_detectGesture(
     // SWING: LEFT/RIGHT veloce
     if ((direction == OpticalFlowDetector::Direction::LEFT ||
          direction == OpticalFlowDetector::Direction::RIGHT) &&
-        intensity > 15 &&  // Abbassato da 120 a 15
-        speed > 2.5f)      // Abbassato da 6.0f a 2.5f
+        intensity > 10 &&  // OTTIMIZZATO 5FPS: abbassato da 15 a 10
+        speed > 1.0f)      // OTTIMIZZATO 5FPS: abbassato da 2.5f a 1.0f
     {
         // Note: SWING non ha cooldown lungo, può ripetersi
         _lastIntensity = intensity;
