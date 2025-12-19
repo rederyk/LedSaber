@@ -84,3 +84,12 @@ float _visualOffset: Offset accumulato dal movimento (in millisecondi virtuali).
 Logica di Rendering (renderClockHybrid):
 
 Calcola now = millis().
+
+---
+
+## Troubleshooting: Time Sync BLE su Linux (BlueZ)
+Se dopo un aggiornamento firmware `debug services` non mostra `CHAR_TIME_SYNC_UUID` (o `CHAR_FOLD_POINT_UUID`) e il client dà errori tipo `Characteristic ... was not found`, spesso è **cache GATT di BlueZ** (il PC “ricorda” un vecchio database GATT e non ridiscopre le nuove characteristic).
+
+- Soluzione rapida: `bluetoothctl` → `remove <MAC>` → riconnetti e riprova.
+- Alternativa: esegui `./fix_bluetooth.sh` (richiede `sudo`, pulisce cache e riavvia bluetooth).
+- Verifica: comando `debug services` deve mostrare la UUID `d6e1a0b8-4a76-9f0c-dc1a-789abcdef012` sotto il service LED `4fafc201-1fb5-459e-8fcc-c5c9c331914b`.

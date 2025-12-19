@@ -221,12 +221,19 @@ void BLELedController::begin(BLEServer* server) {
     // Crea service con handles sufficienti (10 char * 4 handles ciascuna = 40, +10 margine)
     BLEService *pService = pServer->createService(BLEUUID(LED_SERVICE_UUID), 50);
 
+    auto logCreate = [](const char* name, const char* uuid, BLECharacteristic* chr) {
+        if (chr == nullptr) {
+            Serial.printf("[BLE ERROR] Failed to create characteristic %s (%s)\n", name, uuid);
+        }
+    };
+
     // Characteristic 1: State (READ + NOTIFY)
     pCharState = pService->createCharacteristic(
         CHAR_LED_STATE_UUID,
         BLECharacteristic::PROPERTY_READ |
         BLECharacteristic::PROPERTY_NOTIFY
     );
+    logCreate("State", CHAR_LED_STATE_UUID, pCharState);
     pCharState->addDescriptor(new BLE2902());  // Abilita notifiche
     BLEDescriptor* descState = new BLEDescriptor(BLEUUID((uint16_t)0x2901));
     descState->setValue("LED State");
@@ -235,8 +242,10 @@ void BLELedController::begin(BLEServer* server) {
     // Characteristic 2: Color (WRITE)
     pCharColor = pService->createCharacteristic(
         CHAR_LED_COLOR_UUID,
-        BLECharacteristic::PROPERTY_WRITE
+        BLECharacteristic::PROPERTY_WRITE |
+        BLECharacteristic::PROPERTY_WRITE_NR
     );
+    logCreate("Color", CHAR_LED_COLOR_UUID, pCharColor);
     pCharColor->setCallbacks(new ColorCallbacks(this));
     BLEDescriptor* descColor = new BLEDescriptor(BLEUUID((uint16_t)0x2901));
     descColor->setValue("LED Color");
@@ -245,8 +254,10 @@ void BLELedController::begin(BLEServer* server) {
     // Characteristic 3: Effect (WRITE)
     pCharEffect = pService->createCharacteristic(
         CHAR_LED_EFFECT_UUID,
-        BLECharacteristic::PROPERTY_WRITE
+        BLECharacteristic::PROPERTY_WRITE |
+        BLECharacteristic::PROPERTY_WRITE_NR
     );
+    logCreate("Effect", CHAR_LED_EFFECT_UUID, pCharEffect);
     pCharEffect->setCallbacks(new EffectCallbacks(this));
     BLEDescriptor* descEffect = new BLEDescriptor(BLEUUID((uint16_t)0x2901));
     descEffect->setValue("LED Effect");
@@ -255,8 +266,10 @@ void BLELedController::begin(BLEServer* server) {
     // Characteristic 4: Brightness (WRITE)
     pCharBrightness = pService->createCharacteristic(
         CHAR_LED_BRIGHTNESS_UUID,
-        BLECharacteristic::PROPERTY_WRITE
+        BLECharacteristic::PROPERTY_WRITE |
+        BLECharacteristic::PROPERTY_WRITE_NR
     );
+    logCreate("Brightness", CHAR_LED_BRIGHTNESS_UUID, pCharBrightness);
     pCharBrightness->setCallbacks(new BrightnessCallbacks(this));
     BLEDescriptor* descBrightness = new BLEDescriptor(BLEUUID((uint16_t)0x2901));
     descBrightness->setValue("LED Brightness");
@@ -268,6 +281,7 @@ void BLELedController::begin(BLEServer* server) {
         BLECharacteristic::PROPERTY_READ |
         BLECharacteristic::PROPERTY_WRITE
     );
+    logCreate("StatusLED", CHAR_STATUS_LED_UUID, pCharStatusLed);
     pCharStatusLed->setCallbacks(new StatusLedCallbacks(this));
     BLEDescriptor* descStatusLed = new BLEDescriptor(BLEUUID((uint16_t)0x2901));
     descStatusLed->setValue("Status LED Pin 4");
@@ -279,6 +293,7 @@ void BLELedController::begin(BLEServer* server) {
         BLECharacteristic::PROPERTY_READ |
         BLECharacteristic::PROPERTY_WRITE
     );
+    logCreate("FoldPoint", CHAR_FOLD_POINT_UUID, pCharFoldPoint);
     pCharFoldPoint->setCallbacks(new FoldPointCallbacks(this));
     BLEDescriptor* descFoldPoint = new BLEDescriptor(BLEUUID((uint16_t)0x2901));
     descFoldPoint->setValue("LED Strip Fold Point");
@@ -287,8 +302,10 @@ void BLELedController::begin(BLEServer* server) {
     // Characteristic 7: Time Sync (WRITE)
     pCharTimeSync = pService->createCharacteristic(
         CHAR_TIME_SYNC_UUID,
-        BLECharacteristic::PROPERTY_WRITE
+        BLECharacteristic::PROPERTY_WRITE |
+        BLECharacteristic::PROPERTY_WRITE_NR
     );
+    logCreate("TimeSync", CHAR_TIME_SYNC_UUID, pCharTimeSync);
     pCharTimeSync->setCallbacks(new TimeSyncCallbacks(this));
     BLEDescriptor* descTimeSync = new BLEDescriptor(BLEUUID((uint16_t)0x2901));
     descTimeSync->setValue("Time Sync");
@@ -296,6 +313,16 @@ void BLELedController::begin(BLEServer* server) {
 
     // Avvia service
     pService->start();
+
+    Serial.println("[BLE DEBUG] LED GATT UUIDs:");
+    Serial.printf("  Service: %s\n", LED_SERVICE_UUID);
+    Serial.printf("  State:   %s\n", CHAR_LED_STATE_UUID);
+    Serial.printf("  Color:   %s\n", CHAR_LED_COLOR_UUID);
+    Serial.printf("  Effect:  %s\n", CHAR_LED_EFFECT_UUID);
+    Serial.printf("  Bright:  %s\n", CHAR_LED_BRIGHTNESS_UUID);
+    Serial.printf("  Status:  %s\n", CHAR_STATUS_LED_UUID);
+    Serial.printf("  Fold:    %s\n", CHAR_FOLD_POINT_UUID);
+    Serial.printf("  Time:    %s\n", CHAR_TIME_SYNC_UUID);
 
     Serial.println("[BLE OK] LED Service initialized!");
 }

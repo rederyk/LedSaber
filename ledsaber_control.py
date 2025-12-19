@@ -72,6 +72,73 @@ class LedSaberClient:
         self.motion_callback: Optional[Callable] = None
         self.motion_event_callback: Optional[Callable] = None
 
+    async def _ensure_services(self) -> bool:
+        """Forza la discovery dei servizi GATT (alcune versioni di Bleak non la fanno subito)."""
+        if not self.client or not self.client.is_connected:
+            return False
+        try:
+            if hasattr(self.client, "get_services"):
+                getter = getattr(self.client, "get_services")
+                if asyncio.iscoroutinefunction(getter):
+                    await getter()
+                else:
+                    getter()
+            return True
+        except Exception as e:
+            print(f"{Colors.YELLOW}⚠ Impossibile caricare servizi GATT: {e}{Colors.RESET}")
+            return False
+
+    def _has_characteristic(self, char_uuid: str) -> bool:
+        """True se la characteristic UUID è presente nella cache servizi di Bleak."""
+        if not self.client:
+            return False
+        services = getattr(self.client, "services", None)
+        if services is None:
+            return False
+        getter = getattr(services, "get_characteristic", None)
+        if callable(getter):
+            return getter(char_uuid) is not None
+        try:
+            for service in services:
+                for char in service.characteristics:
+                    if char.uuid.lower() == char_uuid.lower():
+                        return True
+        except Exception:
+            return False
+        return False
+
+    async def _write(self, char_uuid: str, payload: bytes, *, label: str = ""):
+        """
+        Write robusto.
+
+        Nota: su Bleak/BlueZ, se usi `response=False` e la characteristic espone solo `write` (con response),
+        può comparire l'errore fuorviante "Characteristic ... was not found!".
+        """
+        if not self.client or not self.client.is_connected:
+            raise RuntimeError("Not connected")
+
+        await self._ensure_services()
+
+        if not self._has_characteristic(char_uuid):
+            extra = f" ({label})" if label else ""
+            addr = self.device_address or "?"
+            print(f"{Colors.RED}✗ Characteristic non presente nella discovery GATT{extra}: {char_uuid}{Colors.RESET}")
+            print(f"{Colors.YELLOW}💡 Se hai appena aggiornato il firmware, BlueZ può usare una cache GATT vecchia.{Colors.RESET}")
+            print(f"{Colors.YELLOW}   Prova:{Colors.RESET}")
+            print(f"   - `bluetoothctl` → `remove {addr}` → riconnetti")
+            print(f"   - oppure `./fix_bluetooth.sh` (richiede sudo)")
+            print(f"   - poi `debug services` per verificare che compaia la UUID")
+            raise RuntimeError(f"GATT characteristic not discovered: {char_uuid}")
+
+        try:
+            await self.client.write_gatt_char(char_uuid, payload, response=True)
+        except Exception as e:
+            extra = f" ({label})" if label else ""
+            print(f"{Colors.YELLOW}⚠ Write fallita{extra} su {char_uuid}: {e}{Colors.RESET}")
+            if "was not found" in str(e).lower():
+                await self.debug_services()
+            raise
+
 
     async def scan(self, timeout: float = 5.0) -> list:
         """Cerca dispositivi BLE nelle vicinanze"""
@@ -105,6 +172,9 @@ class LedSaberClient:
 
                 # Attendi un momento per stabilizzare la connessione
                 await asyncio.sleep(0.5)
+
+                # Forza discovery servizi/characteristics (utile per write_gatt_char su alcune stack)
+                await self._ensure_services()
 
                 # Abilita notifiche per stato LED
                 try:
@@ -397,10 +467,7 @@ class LedSaberClient:
 
         color_data = json.dumps({"r": r, "g": g, "b": b})
         print(f"{Colors.CYAN}[DEBUG] Writing to {CHAR_LED_COLOR_UUID}: {color_data}{Colors.RESET}")
-        await self.client.write_gatt_char(
-            CHAR_LED_COLOR_UUID,
-            color_data.encode('utf-8')
-        )
+        await self._write(CHAR_LED_COLOR_UUID, color_data.encode('utf-8'), label="set_color")
         print(f"{Colors.GREEN}✓ Colore impostato: RGB({r},{g},{b}){Colors.RESET}")
 
     async def set_effect(self, mode: str, speed: int = 150):
@@ -410,10 +477,7 @@ class LedSaberClient:
             return
 
         effect_data = json.dumps({"mode": mode, "speed": speed})
-        await self.client.write_gatt_char(
-            CHAR_LED_EFFECT_UUID,
-            effect_data.encode('utf-8')
-        )
+        await self._write(CHAR_LED_EFFECT_UUID, effect_data.encode('utf-8'), label="set_effect")
         print(f"{Colors.GREEN}✓ Effetto impostato: {mode} (speed: {speed}){Colors.RESET}")
 
     async def set_brightness(self, brightness: int, enabled: bool = True):
@@ -423,10 +487,7 @@ class LedSaberClient:
             return
 
         brightness_data = json.dumps({"brightness": brightness, "enabled": enabled})
-        await self.client.write_gatt_char(
-            CHAR_LED_BRIGHTNESS_UUID,
-            brightness_data.encode('utf-8')
-        )
+        await self._write(CHAR_LED_BRIGHTNESS_UUID, brightness_data.encode('utf-8'), label="set_brightness")
         status = "ON" if enabled else "OFF"
         print(f"{Colors.GREEN}✓ Luminosità: {brightness} ({status}){Colors.RESET}")
 
@@ -478,10 +539,7 @@ class LedSaberClient:
 
         status_data = json.dumps(payload)
         print(f"{Colors.CYAN}[DEBUG] Writing to {CHAR_STATUS_LED_UUID}: {status_data}{Colors.RESET}")
-        await self.client.write_gatt_char(
-            CHAR_STATUS_LED_UUID,
-            status_data.encode('utf-8')
-        )
+        await self._write(CHAR_STATUS_LED_UUID, status_data.encode('utf-8'), label="set_status_led")
 
         parts = []
         if enabled is not None:
@@ -515,10 +573,7 @@ class LedSaberClient:
 
         fold_data = json.dumps({"foldPoint": fold_point})
         print(f"{Colors.CYAN}[DEBUG] Writing to {CHAR_FOLD_POINT_UUID}: {fold_data}{Colors.RESET}")
-        await self.client.write_gatt_char(
-            CHAR_FOLD_POINT_UUID,
-            fold_data.encode('utf-8')
-        )
+        await self._write(CHAR_FOLD_POINT_UUID, fold_data.encode('utf-8'), label="set_fold_point")
         print(f"{Colors.GREEN}✓ Fold point impostato: {fold_point}{Colors.RESET}")
 
     async def get_fold_point(self) -> dict:
@@ -549,10 +604,7 @@ class LedSaberClient:
         print(f"{Colors.CYAN}[DEBUG] Sending time sync: epoch={epoch}, json={time_data}{Colors.RESET}")
 
         try:
-            await self.client.write_gatt_char(
-                CHAR_TIME_SYNC_UUID,
-                time_data.encode('utf-8')
-            )
+            await self._write(CHAR_TIME_SYNC_UUID, time_data.encode('utf-8'), label="sync_time")
             dt = datetime.fromtimestamp(epoch)
             print(f"{Colors.GREEN}✓ Tempo sincronizzato: {dt.strftime('%Y-%m-%d %H:%M:%S')}{Colors.RESET}")
         except Exception as e:
@@ -564,10 +616,7 @@ class LedSaberClient:
             print(f"{Colors.RED}✗ Non connesso{Colors.RESET}")
             return
 
-        await self.client.write_gatt_char(
-            CHAR_CAMERA_CONTROL_UUID,
-            command.encode('utf-8')
-        )
+        await self._write(CHAR_CAMERA_CONTROL_UUID, command.encode('utf-8'), label="camera_send_command")
         print(f"{Colors.GREEN}✓ Comando camera inviato: {command}{Colors.RESET}")
 
     async def get_camera_status(self) -> dict:
@@ -603,10 +652,7 @@ class LedSaberClient:
             return
 
         flash_data = json.dumps({"enabled": enabled, "brightness": brightness})
-        await self.client.write_gatt_char(
-            CHAR_CAMERA_FLASH_UUID,
-            flash_data.encode('utf-8')
-        )
+        await self._write(CHAR_CAMERA_FLASH_UUID, flash_data.encode('utf-8'), label="set_camera_flash")
         status = "ON" if enabled else "OFF"
         print(f"{Colors.GREEN}✓ Flash camera: {status} (brightness: {brightness}){Colors.RESET}")
 
@@ -620,10 +666,7 @@ class LedSaberClient:
             print(f"{Colors.RED}✗ Non connesso{Colors.RESET}")
             return
 
-        await self.client.write_gatt_char(
-            CHAR_MOTION_CONTROL_UUID,
-            command.encode('utf-8')
-        )
+        await self._write(CHAR_MOTION_CONTROL_UUID, command.encode('utf-8'), label="motion_send_command")
         print(f"{Colors.GREEN}✓ Comando motion inviato: {command}{Colors.RESET}")
 
     async def get_motion_status(self) -> dict:
@@ -669,10 +712,7 @@ class LedSaberClient:
             return
 
         config_data = json.dumps(config)
-        await self.client.write_gatt_char(
-            CHAR_MOTION_CONFIG_UUID,
-            config_data.encode('utf-8')
-        )
+        await self._write(CHAR_MOTION_CONFIG_UUID, config_data.encode('utf-8'), label="set_motion_config")
         print(f"{Colors.GREEN}✓ Motion config aggiornata: {config}{Colors.RESET}")
 
     # ========================================================================
