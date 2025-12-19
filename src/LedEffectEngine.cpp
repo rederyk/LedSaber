@@ -674,7 +674,6 @@ void LedEffectEngine::renderDualPulse(const LedState& state, const uint8_t pertu
     static bool initialized = false;
     static int8_t perturbTarget = 0;            // -1 = ball1, +1 = ball2, 0 = none
     static uint8_t perturbAccumulator = 0;      // Accumula perturbazioni per sensibilità bassa
-    static unsigned long lastCollisionTime = 0;  // Timestamp dell'ultima collisione
     static uint16_t collisionCount = 0;         // Conta le collisioni per debug
     static float ball1_tempMass = 0.0f;         // Massa temporanea aggiunta da motion
     static float ball2_tempMass = 0.0f;         // Massa temporanea aggiunta da motion
@@ -732,11 +731,11 @@ void LedEffectEngine::renderDualPulse(const LedState& state, const uint8_t pertu
         // Alta massa = palla difficile da spostare (si muove poco se colpita)
         // Bassa massa = palla normale (si muove normalmente)
 
-        if (globalPerturbation > 30) {
-            perturbAccumulator = min(255, perturbAccumulator + (globalPerturbation / 6));
+        if (globalPerturbation > 20) {  // Soglia più bassa: trigger più facile!
+            perturbAccumulator = min(255, perturbAccumulator + (globalPerturbation / 4));  // Accumula più velocemente
 
-            // Soglia di attivazione
-            if (perturbAccumulator > 60) {
+            // Soglia di attivazione ridotta
+            if (perturbAccumulator > 40) {  // Era 60, ora 40: si attiva prima!
                 // Scegli quale palla aumentare di massa (se non già scelta)
                 if (perturbTarget == 0) {
                     perturbTarget = (random8() < 128) ? -1 : 1;
@@ -797,17 +796,21 @@ void LedEffectEngine::renderDualPulse(const LedState& state, const uint8_t pertu
         // NESSUN impulso diretto! La massa influenza solo le collisioni
         // Le velocità rimangono costanti tra una collisione e l'altra (moto inerziale)
 
+        // Store previous positions for collision detection (anti-tunneling)
+        float old_b1 = ball1_pos;
+        float old_b2 = ball2_pos;
+
         // Update positions (moto con drag proporzionale alla massa temporanea)
         if (ball1_active) {
             ball1_pos += ball1_vel * dt * 1000.0f;
 
             // DRAG/ATTRITO proporzionale alla massa temporanea
-            // Più massa temporanea = più rallenta (effetto "frenata")
+            // Più massa temporanea = più rallenta (effetto "frenata FORTE")
             if (ball1_tempMass > 0.5f) {
                 // Calcola drag factor: più massa = più attrito
-                // Range: 0.0 (no drag) -> 0.95 (massimo attrito)
-                float dragFactor = min(ball1_tempMass / 25.0f, 0.95f);
-                ball1_vel *= (1.0f - dragFactor * dt * 2.0f);  // Rallenta gradualmente
+                // Range: 0.0 (no drag) -> 0.98 (massimo attrito - FERMATA quasi totale!)
+                float dragFactor = min(ball1_tempMass / 20.0f, 0.98f);  // Diviso 20 invece di 25: drag più forte!
+                ball1_vel *= (1.0f - dragFactor * dt * 5.0f);  // Rallenta MOLTO più velocemente (era 2.0)
             }
         }
         if (ball2_active) {
@@ -815,8 +818,8 @@ void LedEffectEngine::renderDualPulse(const LedState& state, const uint8_t pertu
 
             // DRAG/ATTRITO proporzionale alla massa temporanea
             if (ball2_tempMass > 0.5f) {
-                float dragFactor = min(ball2_tempMass / 25.0f, 0.95f);
-                ball2_vel *= (1.0f - dragFactor * dt * 2.0f);  // Rallenta gradualmente
+                float dragFactor = min(ball2_tempMass / 20.0f, 0.98f);  // Drag più forte!
+                ball2_vel *= (1.0f - dragFactor * dt * 5.0f);  // Rallenta MOLTO più velocemente
             }
         }
 
@@ -851,79 +854,56 @@ void LedEffectEngine::renderDualPulse(const LedState& state, const uint8_t pertu
 
         // BALL-TO-BALL ELASTIC COLLISION (conservazione momento e energia)
         if (ball1_active && ball2_active) {
-            float distance = abs(ball1_pos - ball2_pos);
-            const float collisionRadius = 8.0f;  // Raggio di collisione (aumentato per rilevamento migliore)
+            // Rilevamento collisione robusto (previene tunneling)
+            bool was_left = (old_b1 < old_b2);
+            bool is_left = (ball1_pos < ball2_pos);
+            bool crossed = (was_left != is_left);
+            
+            float dist = abs(ball1_pos - ball2_pos);
+            const float collisionRadius = 8.0f;
+            bool overlap = (dist < collisionRadius);
 
-            // Previeni collisioni multiple: almeno 200ms tra una collisione e l'altra
-            bool canCollide = (now - lastCollisionTime) > 200;
+            if (crossed || overlap) {
+                // 1. SEPARAZIONE POSIZIONALE (Evita compenetrazione)
+                // Ripristina l'ordine originale e separa
+                float midPoint = (ball1_pos + ball2_pos) / 2.0f;
+                float sepDist = collisionRadius / 2.0f + 0.1f;
 
-            if (distance < collisionRadius && canCollide) {
-                // Check se le palle si stanno avvicinando (non allontanando)
-                // Se ball1 è a sinistra di ball2 e si stanno avvicinando:
-                // ball1_vel deve essere > ball2_vel
-                bool approaching = false;
-                if (ball1_pos < ball2_pos) {
-                    approaching = (ball1_vel > ball2_vel);  // ball1 più veloce verso destra
+                if (was_left) {
+                    ball1_pos = midPoint - sepDist;
+                    ball2_pos = midPoint + sepDist;
                 } else {
-                    approaching = (ball1_vel < ball2_vel);  // ball2 più veloce verso destra
+                    ball1_pos = midPoint + sepDist;
+                    ball2_pos = midPoint - sepDist;
+                }
+
+                // 2. RISOLUZIONE VELOCITÀ (Collisione Elastica)
+                // Controlla se si stanno avvicinando (per evitare sticky collisions)
+                bool approaching = false;
+                if (was_left) {
+                    approaching = (ball1_vel > ball2_vel);
+                } else {
+                    approaching = (ball2_vel > ball1_vel);
                 }
 
                 if (approaching) {
-                    // COLLISIONE ELASTICA 1D CON MASSE DIVERSE
-                    // Conservazione momento: m1*v1 + m2*v2 = m1*v1' + m2*v2'
-                    // Conservazione energia: (1/2)*m1*v1² + (1/2)*m2*v2² = (1/2)*m1*v1'² + (1/2)*m2*v2'²
-                    //
-                    // Formule (derivate da conservazione):
-                    // v1' = ((m1 - m2)*v1 + 2*m2*v2) / (m1 + m2)
-                    // v2' = ((m2 - m1)*v2 + 2*m1*v1) / (m1 + m2)
-
-                    // USA MASSA TOTALE = massa base + massa temporanea da motion!
                     float m1 = ball1_mass + ball1_tempMass;
                     float m2 = ball2_mass + ball2_tempMass;
+                    float totalMass = m1 + m2;
+
                     float v1 = ball1_vel;
                     float v2 = ball2_vel;
 
-                    float totalMass = m1 + m2;
+                    ball1_vel = ((m1 - m2) * v1 + 2.0f * m2 * v2) / totalMass;
+                    ball2_vel = ((m2 - m1) * v2 + 2.0f * m1 * v1) / totalMass;
 
-                    // Calcola nuove velocità usando formule fisiche corrette
-                    float v1_new = ((m1 - m2) * v1 + 2.0f * m2 * v2) / totalMass;
-                    float v2_new = ((m2 - m1) * v2 + 2.0f * m1 * v1) / totalMass;
-
-                    ball1_vel = v1_new;
-                    ball2_vel = v2_new;
-
-                    // Separa FORZATAMENTE le palle
-                    float midPoint = (ball1_pos + ball2_pos) / 2.0f;
-
-                    if (ball1_pos < ball2_pos) {
-                        ball1_pos = midPoint - (collisionRadius / 2.0f + 1.0f);
-                        ball2_pos = midPoint + (collisionRadius / 2.0f + 1.0f);
-                    } else {
-                        ball1_pos = midPoint + (collisionRadius / 2.0f + 1.0f);
-                        ball2_pos = midPoint - (collisionRadius / 2.0f + 1.0f);
-                    }
-
-                    lastCollisionTime = now;
                     collisionCount++;
-
+                    
+                    // Debug
                     Serial.print("[DUAL_PONG] Collision #");
                     Serial.print(collisionCount);
-                    Serial.print(" | m1=");
-                    Serial.print(m1, 2);  // Stampa massa TOTALE
-                    Serial.print(" (");
-                    Serial.print(ball1_mass, 1);
-                    Serial.print("+");
-                    Serial.print(ball1_tempMass, 1);
-                    Serial.print(") m2=");
-                    Serial.print(m2, 2);
-                    Serial.print(" (");
-                    Serial.print(ball2_mass, 1);
-                    Serial.print("+");
-                    Serial.print(ball2_tempMass, 1);
-                    Serial.print(") | v1=");
-                    Serial.print(ball1_vel, 3);
-                    Serial.print(" v2=");
-                    Serial.println(ball2_vel, 3);
+                    Serial.print(" | v1_new="); Serial.print(ball1_vel);
+                    Serial.print(" v2_new="); Serial.println(ball2_vel);
                 }
             }
         }
@@ -1065,31 +1045,55 @@ void LedEffectEngine::renderDualPulse(const LedState& state, const uint8_t pertu
         // BALL 1 RENDERING (gradiente gaussiano per smoothness)
         if (ball1_active) {
             float dist1 = abs((float)i - ball1_pos);
+            float totalMass1 = ball1_mass + ball1_tempMass;
+
+            // ALONE COLORATO (colore inverso) - più grande con massa maggiore
+            float haloRadius = ballRadius * (1.5f + totalMass1 * 0.15f);  // Cresce con massa
+            if (dist1 < haloRadius && ball1_tempMass > 1.0f) {
+                // Alone con colore complementare (opposto)
+                uint8_t haloHue = ball1_hue + 128;  // Colore inverso!
+                float haloDist = (dist1 - ballRadius) / (haloRadius - ballRadius);  // 0.0 al bordo palla, 1.0 all'esterno
+                haloDist = max(0.0f, haloDist);
+
+                // Alone più intenso con massa maggiore
+                float haloIntensity = (ball1_tempMass / 20.0f) * (1.0f - haloDist);
+                uint8_t haloBrightness = haloIntensity * 180;  // Alone visibile
+
+                if (haloBrightness > 20) {
+                    CRGB haloColor = CHSV(haloHue, 255, haloBrightness);
+                    color.r = qadd8(color.r, haloColor.r);
+                    color.g = qadd8(color.g, haloColor.g);
+                    color.b = qadd8(color.b, haloColor.b);
+                }
+            }
+
+            // CORE della palla
             if (dist1 < ballRadius * 2.0f) {
                 // Profilo gaussiano: I = I_max * exp(-dist²/(2σ²))
-                // σ = ballRadius / √(2π) per normalizzazione visiva
-                const float sigma = ballRadius / 2.5066f;  // √(2π) ≈ 2.5066
+                const float sigma = ballRadius / 2.5066f;
                 float gaussian = expf(-(dist1 * dist1) / (2.0f * sigma * sigma));
                 uint8_t ballBrightness = 255 * gaussian;
 
-                // EFFETTO PULSANTE TREMOLANTE proporzionale alla massa temporanea
-                // Più massa temporanea = più pulsa e tremola (effetto "carica di energia")
+                // BOOST LUMINOSITÀ in base alla massa TOTALE (sempre visibile!)
+                float massBoost = 1.0f + (totalMass1 - 1.0f) * 0.15f;  // +15% per ogni unità di massa
+                ballBrightness = min(255, (int)(ballBrightness * massBoost));
+
+                // EFFETTO PULSANTE TREMOLANTE quando triggerata
                 if (ball1_tempMass > 1.0f) {
-                    // Calcola intensità del pulsing in base alla massa temporanea
-                    float massRatio = min(ball1_tempMass / 20.0f, 1.0f);  // 0.0 -> 1.0
+                    float massRatio = min(ball1_tempMass / 20.0f, 1.0f);
 
-                    // Pulsing: usa tempo per oscillazione continua
-                    uint8_t pulsePhase = (now >> 3) & 0xFF;  // Cambia ogni ~8ms
-                    uint8_t pulseBrightness = 128 + scale8(sin8(pulsePhase), 127);  // Range 128-255
+                    // Pulsing ultra-luminoso
+                    uint8_t pulsePhase = (now >> 2) & 0xFF;  // Più veloce
+                    uint8_t pulseBrightness = 200 + scale8(sin8(pulsePhase), 55);  // Range 200-255 (MOLTO luminoso!)
 
-                    // Tremore casuale aumenta con la massa
-                    uint8_t jitter = random8(massRatio * 60);  // Tremore fino a 60
+                    // Tremore drammatico
+                    uint8_t jitter = random8(massRatio * 80);  // Tremore aumentato
 
                     ballBrightness = scale8(ballBrightness, pulseBrightness);
                     ballBrightness = qadd8(ballBrightness, jitter);
                 }
 
-                if (ballBrightness > 30) {  // Soglia visibilità
+                if (ballBrightness > 30) {
                     CRGB ball1Color = CHSV(ball1_hue, 255, ballBrightness);
 
                     if (ballBrightness > brightness) {
@@ -1103,23 +1107,48 @@ void LedEffectEngine::renderDualPulse(const LedState& state, const uint8_t pertu
         // BALL 2 RENDERING
         if (ball2_active) {
             float dist2 = abs((float)i - ball2_pos);
+            float totalMass2 = ball2_mass + ball2_tempMass;
+
+            // ALONE COLORATO (colore inverso) - più grande con massa maggiore
+            float haloRadius = ballRadius * (1.5f + totalMass2 * 0.15f);  // Cresce con massa
+            if (dist2 < haloRadius && ball2_tempMass > 1.0f) {
+                // Alone con colore complementare (opposto)
+                uint8_t haloHue = ball2_hue + 128;  // Colore inverso!
+                float haloDist = (dist2 - ballRadius) / (haloRadius - ballRadius);  // 0.0 al bordo palla, 1.0 all'esterno
+                haloDist = max(0.0f, haloDist);
+
+                // Alone più intenso con massa maggiore
+                float haloIntensity = (ball2_tempMass / 20.0f) * (1.0f - haloDist);
+                uint8_t haloBrightness = haloIntensity * 180;  // Alone visibile
+
+                if (haloBrightness > 20) {
+                    CRGB haloColor = CHSV(haloHue, 255, haloBrightness);
+                    color.r = qadd8(color.r, haloColor.r);
+                    color.g = qadd8(color.g, haloColor.g);
+                    color.b = qadd8(color.b, haloColor.b);
+                }
+            }
+
+            // CORE della palla
             if (dist2 < ballRadius * 2.0f) {
                 const float sigma = ballRadius / 2.5066f;
                 float gaussian = expf(-(dist2 * dist2) / (2.0f * sigma * sigma));
                 uint8_t ballBrightness = 255 * gaussian;
 
-                // EFFETTO PULSANTE TREMOLANTE proporzionale alla massa temporanea
-                // Più massa temporanea = più pulsa e tremola (effetto "carica di energia")
+                // BOOST LUMINOSITÀ in base alla massa TOTALE (sempre visibile!)
+                float massBoost = 1.0f + (totalMass2 - 1.0f) * 0.15f;  // +15% per ogni unità di massa
+                ballBrightness = min(255, (int)(ballBrightness * massBoost));
+
+                // EFFETTO PULSANTE TREMOLANTE quando triggerata
                 if (ball2_tempMass > 1.0f) {
-                    // Calcola intensità del pulsing in base alla massa temporanea
-                    float massRatio = min(ball2_tempMass / 20.0f, 1.0f);  // 0.0 -> 1.0
+                    float massRatio = min(ball2_tempMass / 20.0f, 1.0f);
 
-                    // Pulsing: usa tempo per oscillazione continua
-                    uint8_t pulsePhase = (now >> 3) & 0xFF;  // Cambia ogni ~8ms
-                    uint8_t pulseBrightness = 128 + scale8(sin8(pulsePhase), 127);  // Range 128-255
+                    // Pulsing ultra-luminoso
+                    uint8_t pulsePhase = (now >> 2) & 0xFF;  // Più veloce
+                    uint8_t pulseBrightness = 200 + scale8(sin8(pulsePhase), 55);  // Range 200-255 (MOLTO luminoso!)
 
-                    // Tremore casuale aumenta con la massa
-                    uint8_t jitter = random8(massRatio * 60);  // Tremore fino a 60
+                    // Tremore drammatico
+                    uint8_t jitter = random8(massRatio * 80);  // Tremore aumentato
 
                     ballBrightness = scale8(ballBrightness, pulseBrightness);
                     ballBrightness = qadd8(ballBrightness, jitter);
