@@ -462,7 +462,8 @@ void LedEffectEngine::renderPulse(const LedState& state, const uint8_t perturbat
     }
 
     // Travel distance for pulse to completely exit from tip
-    uint16_t totalDistance = state.foldPoint + _mainPulseWidth;
+    // Add extra width for entry phase (pulse starts "outside" the blade)
+    uint16_t totalDistance = state.foldPoint + 2 * _mainPulseWidth;
 
     // SIMPLIFIED VELOCITY: velocità costante basata su effectiveSpeed
     // La velocità è direttamente proporzionale a effectiveSpeed (che include il boost da movimento)
@@ -510,7 +511,8 @@ void LedEffectEngine::renderPulse(const LedState& state, const uint8_t perturbat
         for (uint8_t i = 0; i < 5; i++) {
             if (!_secondaryPulses[i].active) {
                 // Spawn intorno all'area del pulse principale (±30 LED)
-                int16_t spawnCenter = _pulsePosition;
+                // Calculate effective center considering the entry offset
+                int16_t spawnCenter = (int16_t)_pulsePosition - _mainPulseWidth;
                 int16_t spawnOffset = random16(60) - 30;  // -30 a +30 LED dall'impulso principale
                 int16_t spawnPos = spawnCenter + spawnOffset;
 
@@ -589,7 +591,8 @@ void LedEffectEngine::renderPulse(const LedState& state, const uint8_t perturbat
         uint8_t brightness = 40;  // Dark base for better contrast
 
         // TRAVELING MAIN PULSE: simple gradient
-        int16_t distance = abs((int16_t)i - (int16_t)_pulsePosition);
+        int16_t effectiveCenter = (int16_t)_pulsePosition - _mainPulseWidth;
+        int16_t distance = abs((int16_t)i - effectiveCenter);
 
         if (distance < _mainPulseWidth) {
             // Main pulse body: bright core with smooth falloff
