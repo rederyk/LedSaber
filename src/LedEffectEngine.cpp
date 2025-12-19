@@ -775,28 +775,30 @@ void LedEffectEngine::renderDualPulse(const LedState& state, const uint8_t pertu
             // Ball 1 Release
             if (ball1_tempMass > 0.5f) {
                 // Calcola target speed: Base + Bonus proporzionale alla massa (carica)
-                float bonus = ball1_tempMass * 0.03f; // Bonus velocità
+                // AUMENTATO BONUS: Premia il rilascio con molta più velocità (0.03 -> 0.08)
+                float bonus = ball1_tempMass * 0.08f; 
                 float targetSpeed = FIXED_BASE_SPEED + bonus;
                 float dir = (ball1_vel >= 0) ? 1.0f : -1.0f;
                 
                 // JERK: Se è più lenta del target (es. frenata dal drag), accelera bruscamente
                 if (abs(ball1_vel) < targetSpeed) {
-                    // Fattore di scatto: più massa = scatto più violento
-                    float snapFactor = 0.15f + (ball1_tempMass / 30.0f); 
-                    if (snapFactor > 0.8f) snapFactor = 0.8f; // Cap
+                    // Fattore di scatto: più massa = scatto più violento e immediato
+                    // AUMENTATO SNAP: Risposta più immediata al rilascio (0.15 -> 0.25, div 30 -> 10)
+                    float snapFactor = 0.25f + (ball1_tempMass / 10.0f); 
+                    if (snapFactor > 0.9f) snapFactor = 0.9f; // Cap alzato a 0.9
                     ball1_vel = ball1_vel * (1.0f - snapFactor) + (dir * targetSpeed) * snapFactor;
                 }
             }
 
             // Ball 2 Release
             if (ball2_tempMass > 0.5f) {
-                float bonus = ball2_tempMass * 0.03f;
+                float bonus = ball2_tempMass * 0.08f; // Aumentato bonus
                 float targetSpeed = FIXED_BASE_SPEED + bonus;
                 float dir = (ball2_vel >= 0) ? 1.0f : -1.0f;
                 
                 if (abs(ball2_vel) < targetSpeed) {
-                    float snapFactor = 0.15f + (ball2_tempMass / 30.0f);
-                    if (snapFactor > 0.8f) snapFactor = 0.8f;
+                    float snapFactor = 0.25f + (ball2_tempMass / 10.0f); // Aumentato snap
+                    if (snapFactor > 0.9f) snapFactor = 0.9f;
                     ball2_vel = ball2_vel * (1.0f - snapFactor) + (dir * targetSpeed) * snapFactor;
                 }
             }
