@@ -38,6 +38,8 @@ LedEffectEngine::LedEffectEngine(CRGB* leds, uint16_t numLeds) :
         _secondaryPulses[i].position = 0;
         _secondaryPulses[i].birthTime = 0;
         _secondaryPulses[i].velocityPhase = 0;
+        _secondaryPulses[i].size = 1;          // Normal size
+        _secondaryPulses[i].brightness = 200;  // Normal brightness
     }
 }
 
@@ -447,19 +449,19 @@ void LedEffectEngine::renderPulse(const LedState& state, const uint8_t perturbat
     // Travel distance for pulse to completely exit from tip
     uint16_t totalDistance = state.foldPoint + pulseWidth;
 
-    // PLASMA DISCHARGE VELOCITY CURVE for main pulse
-    // Phase 0-85: Fast start (1-3ms per pixel)
-    // Phase 86-170: Slow down (3-12ms per pixel)
+    // PLASMA DISCHARGE VELOCITY CURVE for main pulse (VELOCIZZATO)
+    // Phase 0-85: Very fast start (1-2ms per pixel)
+    // Phase 86-170: Quick slow down (2-5ms per pixel)
     // Phase 171-255: Maximum speed burst (1ms per pixel)
     uint8_t mainPulsePhase = map(_pulsePosition, 0, totalDistance - 1, 0, 255);
     uint16_t travelSpeed;
 
     if (mainPulsePhase < 85) {
-        // Fast start: 1-3ms
-        travelSpeed = map(mainPulsePhase, 0, 85, 1, 3);
+        // Very fast start: 1-2ms (ridotto da 1-3ms)
+        travelSpeed = map(mainPulsePhase, 0, 85, 1, 2);
     } else if (mainPulsePhase < 171) {
-        // Slow middle: 3-12ms
-        travelSpeed = map(mainPulsePhase, 85, 171, 3, 12);
+        // Quick slow middle: 2-5ms (ridotto da 3-12ms)
+        travelSpeed = map(mainPulsePhase, 85, 171, 2, 5);
     } else {
         // Maximum speed burst: 1ms
         travelSpeed = 1;
@@ -475,30 +477,49 @@ void LedEffectEngine::renderPulse(const LedState& state, const uint8_t perturbat
         _lastPulseUpdate = now;
     }
 
-    // SPAWN SECONDARY PULSES (plasma discharge effect)
-    // Spawn chance increases with motion
-    uint8_t spawnChance = map(effectiveSpeed, 1, 255, 5, 40);
-    if (globalPerturbation > 20) {
-        spawnChance = qadd8(spawnChance, scale8(globalPerturbation, 60));
-    }
+    // SPAWN SECONDARY PULSES (plasma discharge effect) - SOLO CON MOVIMENTO
+    // BUGFIX: spawn SOLO se c'è movimento (globalPerturbation > 0)
+    uint8_t spawnChance = 0;
 
-    // Try to spawn a secondary pulse near the main pulse
-    if (now - _lastSecondarySpawn > 150 && random8() < spawnChance) {
+    // Spawn DIPENDE COMPLETAMENTE dal movimento
+    if (globalPerturbation > 15) {  // Soglia minima: DEVE esserci movimento
+        // Spawn chance parte da 0 e scala con il movimento
+        spawnChance = map(globalPerturbation, 15, 255, 10, 100);  // Da 10% a 100% in base al movimento
+
+        // Boost aggiuntivo per movimento intenso
+        if (globalPerturbation > 50) {
+            spawnChance = qadd8(spawnChance, scale8(globalPerturbation - 50, 80));
+        }
+    }
+    // NESSUNO spawn se globalPerturbation <= 15 (nessun movimento)
+
+    // Try to spawn secondary pulses around main pulse area - solo se c'è movimento!
+    if (spawnChance > 0 && now - _lastSecondarySpawn > 80 && random8() < spawnChance) {
         // Find an inactive slot
         for (uint8_t i = 0; i < 5; i++) {
             if (!_secondaryPulses[i].active) {
-                // Spawn at a random position (independent, like unstable effect)
-                _secondaryPulses[i].position = random16(state.foldPoint);
+                // Spawn intorno all'area del pulse principale (±30 LED)
+                int16_t spawnCenter = _pulsePosition;
+                int16_t spawnOffset = random16(60) - 30;  // -30 a +30 LED dall'impulso principale
+                int16_t spawnPos = spawnCenter + spawnOffset;
+
+                // Clamp alla blade
+                if (spawnPos < 0) spawnPos = 0;
+                if (spawnPos >= state.foldPoint) spawnPos = state.foldPoint - 1;
+
+                _secondaryPulses[i].position = spawnPos;
                 _secondaryPulses[i].birthTime = now & 0xFFFF;
                 _secondaryPulses[i].velocityPhase = random8();  // Random starting phase
                 _secondaryPulses[i].active = true;
+                _secondaryPulses[i].size = 1;          // Normal size initially
+                _secondaryPulses[i].brightness = 200;  // Normal brightness initially
                 _lastSecondarySpawn = now;
                 break;
             }
         }
     }
 
-    // UPDATE SECONDARY PULSES with plasma discharge velocity curve
+    // UPDATE SECONDARY PULSES with plasma discharge velocity curve (VELOCIZZATO)
     for (uint8_t i = 0; i < 5; i++) {
         if (_secondaryPulses[i].active) {
             // Calculate travel speed using plasma discharge curve
@@ -506,14 +527,14 @@ void LedEffectEngine::renderPulse(const LedState& state, const uint8_t perturbat
             uint16_t secondaryTravelSpeed;
 
             if (phase < 85) {
-                // Fast start: 2-4ms
-                secondaryTravelSpeed = map(phase, 0, 85, 2, 4);
+                // Fast start: 1-2ms (ridotto da 2-4ms)
+                secondaryTravelSpeed = map(phase, 0, 85, 1, 2);
             } else if (phase < 171) {
-                // Slow middle: 4-15ms
-                secondaryTravelSpeed = map(phase, 85, 171, 4, 15);
+                // Slow middle: 2-6ms (ridotto da 4-15ms)
+                secondaryTravelSpeed = map(phase, 85, 171, 2, 6);
             } else {
-                // Maximum speed burst: 2ms
-                secondaryTravelSpeed = 2;
+                // Maximum speed burst: 1ms (ridotto da 2ms)
+                secondaryTravelSpeed = 1;
             }
 
             // Move the pulse
@@ -527,6 +548,33 @@ void LedEffectEngine::renderPulse(const LedState& state, const uint8_t perturbat
                 if (_secondaryPulses[i].position >= state.foldPoint + pulseWidth) {
                     _secondaryPulses[i].active = false;
                 }
+            }
+        }
+    }
+
+    // FUSION LOGIC: check for collisions and merge plasmoidi
+    for (uint8_t i = 0; i < 5; i++) {
+        if (!_secondaryPulses[i].active) continue;
+
+        for (uint8_t j = i + 1; j < 5; j++) {
+            if (!_secondaryPulses[j].active) continue;
+
+            // Check if pulses are close enough to merge (within 8 LEDs)
+            int16_t distance = abs((int16_t)_secondaryPulses[i].position - (int16_t)_secondaryPulses[j].position);
+
+            if (distance <= 8) {
+                // FUSION! Merge j into i, make it bigger and brighter
+                _secondaryPulses[i].size = min(3, _secondaryPulses[i].size + 1);  // Increase size (max 3x)
+                _secondaryPulses[i].brightness = 255;  // MAXIMUM BRIGHTNESS!
+
+                // Average position (fusion point)
+                _secondaryPulses[i].position = (_secondaryPulses[i].position + _secondaryPulses[j].position) / 2;
+
+                // Average velocity phase (keeps moving smoothly)
+                _secondaryPulses[i].velocityPhase = (_secondaryPulses[i].velocityPhase + _secondaryPulses[j].velocityPhase) / 2;
+
+                // Deactivate the absorbed pulse
+                _secondaryPulses[j].active = false;
             }
         }
     }
@@ -546,15 +594,20 @@ void LedEffectEngine::renderPulse(const LedState& state, const uint8_t perturbat
             brightness = map(distance, 0, pulseWidth, 255, 60);
         }
 
-        // SECONDARY PULSES: add their contribution
+        // SECONDARY PULSES: add their contribution with FUSION SUPPORT
         for (uint8_t p = 0; p < 5; p++) {
             if (_secondaryPulses[p].active) {
                 int16_t secDistance = abs((int16_t)i - (int16_t)_secondaryPulses[p].position);
-                uint8_t secPulseWidth = pulseWidth / 2;  // Smaller secondary pulses
+
+                // Size increases with fusion: 1x, 1.5x, 2x for size 1, 2, 3
+                uint8_t basePulseWidth = pulseWidth / 2;
+                uint8_t secPulseWidth = basePulseWidth * _secondaryPulses[p].size / 2;
+                if (secPulseWidth < basePulseWidth) secPulseWidth = basePulseWidth;  // Minimum size
 
                 if (secDistance < secPulseWidth) {
-                    // Secondary pulse: slightly dimmer, with smooth falloff
-                    uint8_t secBrightness = map(secDistance, 0, secPulseWidth, 200, 60);
+                    // Use custom brightness (200 for normal, 255 for fused)
+                    uint8_t maxBrightness = _secondaryPulses[p].brightness;
+                    uint8_t secBrightness = map(secDistance, 0, secPulseWidth, maxBrightness, 60);
                     brightness = max(brightness, secBrightness);
                 }
             }

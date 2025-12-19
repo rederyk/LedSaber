@@ -90,6 +90,8 @@ private:
         uint16_t birthTime;        // When this pulse was spawned (millis() & 0xFFFF for overflow handling)
         uint8_t velocityPhase;     // 0-255: tracks position in velocity curve
         bool active;               // Is this pulse alive?
+        uint8_t size;              // Size multiplier: 1=normal, 2=fused, 3=mega-fused
+        uint8_t brightness;        // Max brightness: 200=normal, 255=fused
     };
     SecondaryPulse _secondaryPulses[5];  // Up to 5 secondary pulses
     unsigned long _lastSecondarySpawn;
