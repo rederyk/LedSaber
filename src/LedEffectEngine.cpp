@@ -402,7 +402,7 @@ void LedEffectEngine::renderPulse(const LedState& state, const uint8_t perturbat
 
     // Speed calculation based on folded index for synchronization
     // Total travel distance = foldPoint + pulseWidth (to exit completely from tip)
-    const uint8_t pulseWidth = 15;
+    const uint8_t pulseWidth = 10;  // Reduced by 1/3 (from 15 to 10)
     uint16_t totalDistance = state.foldPoint + pulseWidth;
 
     // Calculate base timing for seamless cycle: charge + travel time
@@ -484,9 +484,9 @@ void LedEffectEngine::renderPulse(const LedState& state, const uint8_t perturbat
             if (distance < pulseWidth) {
                 // Main pulse body - always bright
                 brightness = map(distance, 0, pulseWidth, 255, 180);  // Higher minimum (180)
-            } else if (distance < pulseWidth + 5) {
-                // Trailing halo - brighter minimum
-                brightness = map(distance, pulseWidth, pulseWidth + 5, 180, 100);
+            } else if (distance < pulseWidth + 2) {
+                // Trailing halo - much shorter (2 LEDs instead of 5)
+                brightness = map(distance, pulseWidth, pulseWidth + 2, 180, 100);
             }
         }
 

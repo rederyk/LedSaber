@@ -44,9 +44,22 @@
   - Calcolo global perturbation per accelerare movimento
   - Brightness minima aumentata (100 invece di 80)
   - Intensification boost fino a +120 brightness
-  - Nessun salto di impulsi, flusso continuo 
+  - Nessun salto di impulsi, flusso continuo
 
-  - l animazione di ignition durante l accensione si interrompe a meta e viene rispodotta due volte,
-  mentre duranete le gesture viene interrotta ma solo una volta riprodotta
+- ✅ ignition animation bugfix: risolti problemi interruzione e doppia riproduzione
+  - Implementato in `LedEffectEngine.cpp:826,829,852-853,863-864`
+  - Bug 1: Reset flags one-shot nelle gesture triggers (permettono riproduzione dopo boot)
+  - Bug 2: Timeout aumentato da 2s a 5s (previene interruzione animazione)
+  - Risultato: animazione completa sia all'accensione che durante gesture
 
-  -  pulse e troppo sfrafalloso diminuisci molto l ombra e di poco il pulse in luncghezza numero di led , mentre aumentane l intesita per renderlo piu vivace e definito  
+
+## 🔨 TODO (Gruppo 4 - Pulse Refinement)
+
+- ⏳ pulse: riduzione sfarfallio e miglioramento definizione
+  - **Obiettivo**: Pulse più stabile, vivace e definito
+  - **Modifiche richieste**:
+    1. Diminuire molto l'ombra (dark base brightness)
+    2. Ridurre leggermente la lunghezza del pulse (numero di LED)
+    3. Aumentare l'intensità per renderlo più vivace e definito
+  - **File da modificare**: `LedEffectEngine.cpp` - funzione `renderPulse()`
+  - **Linee di riferimento**: `LedEffectEngine.cpp:400-517`  
