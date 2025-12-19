@@ -97,22 +97,15 @@ void BLEMotionService::notifyEvent(const String& eventType) {
     }
 
     JsonDocument doc;
+    OpticalFlowDetector::Metrics metrics = _motion->getMetrics();
     doc["event"] = eventType;
     doc["timestamp"] = now;
-    doc["intensity"] = _motion->getMotionIntensity();
-
-    // Aggiungi traiettoria se presente
-    OpticalFlowDetector::TrajectoryPoint trajectory[OpticalFlowDetector::MAX_TRAJECTORY_POINTS];
-    uint8_t points = _motion->getTrajectory(trajectory);
-
-    if (points > 0) {
-        JsonArray trajArray = doc["trajectory"].to<JsonArray>();
-        for (uint8_t i = 0; i < points; i++) {
-            JsonObject point = trajArray.add<JsonObject>();
-            point["x"] = trajectory[i].x;
-            point["y"] = trajectory[i].y;
-        }
-    }
+    doc["intensity"] = metrics.currentIntensity;
+    doc["direction"] = OpticalFlowDetector::directionToString(metrics.dominantDirection);
+    doc["speed"] = round(metrics.avgSpeed * 10.0f) / 10.0f;
+    doc["confidence"] = round(metrics.avgConfidence * 100.0f);
+    doc["activeBlocks"] = metrics.avgActiveBlocks;
+    doc["frameDiff"] = metrics.frameDiff;
 
     String output;
     serializeJson(doc, output);
@@ -122,8 +115,8 @@ void BLEMotionService::notifyEvent(const String& eventType) {
 
     _lastEventTime = now;
 
-    Serial.printf("[MOTION BLE] Event notified: %s (trajectory: %u points)\n",
-                  eventType.c_str(), points);
+    Serial.printf("[MOTION BLE] Event notified: %s (len=%u)\n",
+                  eventType.c_str(), (unsigned)output.length());
 }
 
 void BLEMotionService::update(bool motionDetected, bool shakeDetected) {
@@ -175,6 +168,7 @@ String BLEMotionService::_getStatusJson() {
     doc["confidence"] = round(metrics.avgConfidence * 100.0f);  // 0-100%
     doc["activeBlocks"] = metrics.avgActiveBlocks;
     doc["computeTimeMs"] = metrics.avgComputeTimeMs;
+    doc["frameDiff"] = metrics.frameDiff;
 
     // 8x6 grid tags for quick visualization via BLE
     doc["gridRows"] = OpticalFlowDetector::GRID_ROWS;
@@ -202,8 +196,7 @@ String BLEMotionService::_getConfigJson() {
     JsonDocument doc;
 
     doc["enabled"] = _motionEnabled;
-    // Note: threshold non esposti direttamente, usare sensitivity
-    doc["sensitivity"] = 128;  // Default medio
+    doc["sensitivity"] = _motion->getSensitivity();
 
     String output;
     serializeJson(doc, output);
@@ -274,7 +267,7 @@ void BLEMotionService::ConfigCallbacks::onWrite(BLECharacteristic* pCharacterist
     }
 
     bool enabled = doc["enabled"] | _service->_motionEnabled;
-    uint8_t sensitivity = doc["sensitivity"] | 128;
+    uint8_t sensitivity = doc["sensitivity"] | _service->_motion->getSensitivity();
 
     Serial.printf("[MOTION BLE] Config update: enabled=%s, sensitivity=%u\n",
                   enabled ? "true" : "false", sensitivity);

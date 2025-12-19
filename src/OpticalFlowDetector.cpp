@@ -2,6 +2,14 @@
 #include <esp_heap_caps.h>
 #include <math.h>
 
+static float mapf(float x, float inMin, float inMax, float outMin, float outMax) {
+    if (inMax == inMin) return outMin;
+    float t = (x - inMin) / (inMax - inMin);
+    if (t < 0.0f) t = 0.0f;
+    if (t > 1.0f) t = 1.0f;
+    return outMin + t * (outMax - outMin);
+}
+
 OpticalFlowDetector::OpticalFlowDetector()
     : _initialized(false)
     , _frameWidth(0)
@@ -12,6 +20,13 @@ OpticalFlowDetector::OpticalFlowDetector()
     , _searchStep(5)         // Step largo: 5×5=25 posizioni (uguale a prima, ma range maggiore)
     , _minConfidence(25)     // Abbassato da 35 a 25 per bassa velocità (5fps)
     , _minActiveBlocks(2)    // Ridotto da 3 a 2 per maggiore sensibilità a 5fps
+    , _sensitivity(220)      // Default: molto sensibile
+    , _minMotionIntensity(8)
+    , _minMotionSpeed(0.8f)
+    , _directionMagnitudeThreshold(2.0f)
+    , _minFrameDiff(12)
+    , _minCentroidWeight(100.0f)
+    , _hasPreviousFrame(false)
     , _motionActive(false)
     , _motionIntensity(0)
     , _motionDirection(Direction::NONE)
@@ -24,6 +39,7 @@ OpticalFlowDetector::OpticalFlowDetector()
     , _trajectoryLength(0)
     , _flashIntensity(150)
     , _avgBrightness(0)
+    , _frameDiffAvg(0)
     , _lastMotionTime(0)
     , _totalFramesProcessed(0)
     , _motionFrameCount(0)
@@ -66,6 +82,10 @@ bool OpticalFlowDetector::begin(uint16_t frameWidth, uint16_t frameHeight) {
 
     memset(_previousFrame, 0, _frameSize);
     _initialized = true;
+    _hasPreviousFrame = false;
+
+    // Applica default sensitivity (o quella impostata via BLE prima della init)
+    setSensitivity(_sensitivity);
 
     Serial.println("[OPTICAL FLOW] Initialized successfully!");
     Serial.printf("[OPTICAL FLOW] Search range: ±%d px, step: %d px\n",
@@ -91,9 +111,26 @@ bool OpticalFlowDetector::processFrame(const uint8_t* frameBuffer, size_t frameL
     unsigned long startTime = millis();
     _totalFramesProcessed++;
 
+    // Primo frame: inizializza previous e non rilevare motion
+    if (!_hasPreviousFrame) {
+        memcpy(_previousFrame, frameBuffer, _frameSize);
+        _hasPreviousFrame = true;
+        _motionActive = false;
+        _motionIntensity = 0;
+        _motionDirection = Direction::NONE;
+        _motionSpeed = 0.0f;
+        _motionConfidence = 0.0f;
+        _activeBlocks = 0;
+        _frameDiffAvg = 0;
+        return false;
+    }
+
     // Calcola luminosità media per auto flash
     _avgBrightness = _calculateAverageBrightness(frameBuffer);
     _updateFlashIntensity();
+
+    // Frame diff (fallback per occlusioni / scene change)
+    _frameDiffAvg = _calculateFrameDiffAvg(frameBuffer);
 
     // Calcola optical flow
     _computeOpticalFlow(frameBuffer);
@@ -276,6 +313,20 @@ void OpticalFlowDetector::_calculateGlobalMotion() {
 
     // Verifica movimento
     if (validBlocks < _minActiveBlocks || sumConfidence == 0) {
+        // Fallback: se il frame diff è alto, considera motion anche senza vettori affidabili
+        if (_frameDiffAvg >= _minFrameDiff) {
+            float diffNorm = (float)(_frameDiffAvg - _minFrameDiff) / (float)(255 - _minFrameDiff);
+            if (diffNorm < 0.0f) diffNorm = 0.0f;
+            if (diffNorm > 1.0f) diffNorm = 1.0f;
+
+            _motionActive = true;
+            _motionDirection = Direction::NONE;
+            _motionSpeed = 0.0f;
+            _motionConfidence = 0.0f;
+            _motionIntensity = (uint8_t)max((int)_minMotionIntensity, (int)roundf(diffNorm * 255.0f));
+            return;
+        }
+
         _motionActive = false;
         _motionIntensity = 0;
         _motionDirection = Direction::NONE;
@@ -302,9 +353,8 @@ void OpticalFlowDetector::_calculateGlobalMotion() {
     float normalizedSpeed = min(_motionSpeed / 20.0f, 1.0f);  // 20px/frame = max
     _motionIntensity = (uint8_t)(normalizedSpeed * _motionConfidence * 255.0f);
 
-    // Verifica soglia minima - OTTIMIZZATO PER 5 FPS
-    // A bassi FPS serve soglia velocità molto più bassa (0.8px/frame @ 5fps = movimento medio)
-    _motionActive = (_motionIntensity > 8 && _motionSpeed > 0.8f);
+    // Verifica soglie (dipendono da sensitivity)
+    _motionActive = (_motionIntensity >= _minMotionIntensity && _motionSpeed >= _minMotionSpeed);
 }
 
 void OpticalFlowDetector::_calculateCentroid() {
@@ -328,7 +378,7 @@ void OpticalFlowDetector::_calculateCentroid() {
         }
     }
 
-    if (totalWeight < 100.0f) {
+    if (totalWeight < _minCentroidWeight) {
         _centroidValid = false;
         return;
     }
@@ -463,12 +513,19 @@ void OpticalFlowDetector::_updateFlashIntensity() {
 }
 
 void OpticalFlowDetector::setSensitivity(uint8_t sensitivity) {
-    // Sensitivity alta -> confidence threshold basso e meno blocchi richiesti
-    _minConfidence = map(sensitivity, 0, 255, 80, 30);
-    _minActiveBlocks = map(sensitivity, 0, 255, 10, 4);
+    _sensitivity = sensitivity;
 
-    Serial.printf("[OPTICAL FLOW] Sensitivity updated: %u (minConf: %u, minBlocks: %u)\n",
-                  sensitivity, _minConfidence, _minActiveBlocks);
+    // Sensitivity alta -> thresholds più bassi (più sensibile)
+    _minConfidence = (uint8_t)map(sensitivity, 0, 255, 90, 10);
+    _minActiveBlocks = (uint8_t)map(sensitivity, 0, 255, 12, 1);
+    _minMotionIntensity = (uint8_t)map(sensitivity, 0, 255, 30, 2);
+    _minMotionSpeed = mapf((float)sensitivity, 0.0f, 255.0f, 2.2f, 0.15f);
+    _directionMagnitudeThreshold = mapf((float)sensitivity, 0.0f, 255.0f, 3.0f, 0.6f);
+    _minFrameDiff = (uint8_t)map(sensitivity, 0, 255, 30, 5);
+    _minCentroidWeight = mapf((float)sensitivity, 0.0f, 255.0f, 200.0f, 40.0f);
+
+    Serial.printf("[OPTICAL FLOW] Sensitivity updated: %u (minConf: %u, minBlocks: %u, minInt: %u, minSpeed: %.2f, minDiff: %u)\n",
+                  _sensitivity, _minConfidence, _minActiveBlocks, _minMotionIntensity, _minMotionSpeed, _minFrameDiff);
 }
 
 void OpticalFlowDetector::reset() {
@@ -488,6 +545,8 @@ void OpticalFlowDetector::reset() {
     _totalComputeTime = 0;
     _flashIntensity = 150;
     _avgBrightness = 0;
+    _frameDiffAvg = 0;
+    _hasPreviousFrame = false;
 
     memset(_motionVectors, 0, sizeof(_motionVectors));
     memset(_trajectory, 0, sizeof(_trajectory));
@@ -518,6 +577,7 @@ OpticalFlowDetector::Metrics OpticalFlowDetector::getMetrics() const {
     metrics.avgActiveBlocks = _activeBlocks;
     metrics.dominantDirection = _motionDirection;
     metrics.avgSpeed = _motionSpeed;
+    metrics.frameDiff = _frameDiffAvg;
 
     return metrics;
 }
@@ -529,7 +589,7 @@ OpticalFlowDetector::Metrics OpticalFlowDetector::getMetrics() const {
 OpticalFlowDetector::Direction OpticalFlowDetector::_vectorToDirection(float dx, float dy) {
     // Magnitude threshold
     float magnitude = sqrtf(dx * dx + dy * dy);
-    if (magnitude < 2.0f) {  // < 2px/frame = fermo
+    if (magnitude < _directionMagnitudeThreshold) {  // sotto soglia = fermo
         return Direction::NONE;
     }
 
@@ -645,4 +705,23 @@ char OpticalFlowDetector::getBlockDirectionTag(uint8_t row, uint8_t col) const {
     if (dx < 0 && dy > 0) return 'D';   // Down-left
 
     return '*';
+}
+
+uint8_t OpticalFlowDetector::_calculateFrameDiffAvg(const uint8_t* currentFrame) const {
+    if (!currentFrame || !_previousFrame || _frameSize == 0) {
+        return 0;
+    }
+
+    // Sample 1 pixel ogni 16: 76800 -> 4800 ops
+    uint32_t total = 0;
+    uint32_t count = 0;
+    for (size_t i = 0; i < _frameSize; i += 16) {
+        int16_t diff = (int16_t)currentFrame[i] - (int16_t)_previousFrame[i];
+        total += (uint16_t)abs(diff);
+        count++;
+    }
+
+    if (count == 0) return 0;
+    uint32_t avg = total / count;
+    return (avg > 255) ? 255 : (uint8_t)avg;
 }

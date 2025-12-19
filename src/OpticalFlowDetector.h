@@ -69,6 +69,11 @@ public:
     void setSensitivity(uint8_t sensitivity);
 
     /**
+     * @brief Legge sensibilità corrente (0-255)
+     */
+    uint8_t getSensitivity() const { return _sensitivity; }
+
+    /**
      * @brief Reset stato detector
      */
     void reset();
@@ -173,6 +178,9 @@ public:
         uint8_t avgActiveBlocks;         // Blocchi attivi medi
         Direction dominantDirection;     // Direzione prevalente
         float avgSpeed;                  // Velocità media
+
+        // Fallback frame-diff (0-255): avg abs diff (sampled)
+        uint8_t frameDiff;
     };
 
     Metrics getMetrics() const;
@@ -210,12 +218,21 @@ private:
     uint8_t _minConfidence;     // Threshold (default: 50)
     uint8_t _minActiveBlocks;   // Min blocks (default: 6)
 
+    // Sensitivity and gating thresholds
+    uint8_t _sensitivity;
+    uint8_t _minMotionIntensity;
+    float _minMotionSpeed;
+    float _directionMagnitudeThreshold;
+    uint8_t _minFrameDiff;
+    float _minCentroidWeight;
+
     // ═══════════════════════════════════════════════════════════
     // STATE
     // ═══════════════════════════════════════════════════════════
 
     // Frame buffers
     uint8_t* _previousFrame;    // PSRAM allocated
+    bool _hasPreviousFrame;
 
     // Motion vectors grid
     BlockMotionVector _motionVectors[GRID_ROWS][GRID_COLS];
@@ -240,6 +257,7 @@ private:
     // Auto flash
     uint8_t _flashIntensity;
     uint8_t _avgBrightness;
+    uint8_t _frameDiffAvg;
 
     // Timing & metrics
     unsigned long _lastMotionTime;
@@ -305,6 +323,11 @@ private:
      */
     void _updateFlashIntensity();
 
+    /**
+     * @brief Calcola frame diff medio (sampled) tra previous e current
+     */
+    uint8_t _calculateFrameDiffAvg(const uint8_t* currentFrame) const;
+
     // ═══════════════════════════════════════════════════════════
     // UTILITY
     // ═══════════════════════════════════════════════════════════
@@ -312,7 +335,7 @@ private:
     /**
      * @brief Converte vettore (dx, dy) in direzione
      */
-    static Direction _vectorToDirection(float dx, float dy);
+    Direction _vectorToDirection(float dx, float dy);
 
     /**
      * @brief Calcola mediana di un array
