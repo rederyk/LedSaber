@@ -557,7 +557,7 @@ void setup() {
     }
 
     Serial.printf("Free heap: %u bytes\n", ESP.getFreeHeap());
-    Serial.println("*** SISTEMA PRONTIssimo ***");
+    Serial.println("*** THE FORCE IS IN YOU ***");
 }
 
 void loop() {
