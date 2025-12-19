@@ -695,6 +695,20 @@ void loop() {
     yield();
 }
 
+static OpticalFlowDetector::Direction rotateDirection90CW(OpticalFlowDetector::Direction dir) {
+    switch (dir) {
+        case OpticalFlowDetector::Direction::UP:         return OpticalFlowDetector::Direction::RIGHT;
+        case OpticalFlowDetector::Direction::UP_RIGHT:   return OpticalFlowDetector::Direction::DOWN_RIGHT;
+        case OpticalFlowDetector::Direction::RIGHT:      return OpticalFlowDetector::Direction::DOWN;
+        case OpticalFlowDetector::Direction::DOWN_RIGHT: return OpticalFlowDetector::Direction::DOWN_LEFT;
+        case OpticalFlowDetector::Direction::DOWN:       return OpticalFlowDetector::Direction::LEFT;
+        case OpticalFlowDetector::Direction::DOWN_LEFT:  return OpticalFlowDetector::Direction::UP_LEFT;
+        case OpticalFlowDetector::Direction::LEFT:       return OpticalFlowDetector::Direction::UP;
+        case OpticalFlowDetector::Direction::UP_LEFT:    return OpticalFlowDetector::Direction::UP_RIGHT;
+        default: return dir;
+    }
+}
+
 static void CameraCaptureTask(void* pvParameters) {
     (void)pvParameters;
 
@@ -739,7 +753,7 @@ static void CameraCaptureTask(void* pvParameters) {
                 result.motionDetected = motionDetected;
                 result.flashIntensity = motionDetector.getRecommendedFlashIntensity();
                 result.motionIntensity = motionDetector.getMotionIntensity();
-                result.direction = motionDetector.getMotionDirection();
+                result.direction = rotateDirection90CW(motionDetector.getMotionDirection());
                 result.timestamp = millis();
                 result.processedMotion = motionProcessor.process(
                     result.motionIntensity,
