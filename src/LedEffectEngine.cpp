@@ -767,6 +767,40 @@ void LedEffectEngine::renderDualPulse(const LedState& state, const uint8_t pertu
             }
         } else {
             // Decay VELOCE della massa temporanea quando motion cala
+            
+            // SLINGSHOT / JERK LOGIC
+            // Quando si rilascia (no motion), la massa agisce come una molla che restituisce velocità
+            // "falla scattare all inzio come un jerk se rilasciat al momento giusto va ancora piu veloce"
+            
+            // Ball 1 Release
+            if (ball1_tempMass > 0.5f) {
+                // Calcola target speed: Base + Bonus proporzionale alla massa (carica)
+                float bonus = ball1_tempMass * 0.03f; // Bonus velocità
+                float targetSpeed = FIXED_BASE_SPEED + bonus;
+                float dir = (ball1_vel >= 0) ? 1.0f : -1.0f;
+                
+                // JERK: Se è più lenta del target (es. frenata dal drag), accelera bruscamente
+                if (abs(ball1_vel) < targetSpeed) {
+                    // Fattore di scatto: più massa = scatto più violento
+                    float snapFactor = 0.15f + (ball1_tempMass / 30.0f); 
+                    if (snapFactor > 0.8f) snapFactor = 0.8f; // Cap
+                    ball1_vel = ball1_vel * (1.0f - snapFactor) + (dir * targetSpeed) * snapFactor;
+                }
+            }
+
+            // Ball 2 Release
+            if (ball2_tempMass > 0.5f) {
+                float bonus = ball2_tempMass * 0.03f;
+                float targetSpeed = FIXED_BASE_SPEED + bonus;
+                float dir = (ball2_vel >= 0) ? 1.0f : -1.0f;
+                
+                if (abs(ball2_vel) < targetSpeed) {
+                    float snapFactor = 0.15f + (ball2_tempMass / 30.0f);
+                    if (snapFactor > 0.8f) snapFactor = 0.8f;
+                    ball2_vel = ball2_vel * (1.0f - snapFactor) + (dir * targetSpeed) * snapFactor;
+                }
+            }
+
             ball1_tempMass *= 0.85f;  // Decade rapidamente
             ball2_tempMass *= 0.85f;
 
