@@ -434,12 +434,12 @@ void LedEffectEngine::renderPulse(const LedState& state, const uint8_t perturbat
         // - Movimento massimo (80-255) => fino a +300% velocità (5x totale!)
 
         // Map lineare: da 5 a 255 movimento => da 0 a 255 boost
-        uint8_t normalizedPerturb = map(globalPerturbation, 5, 255, 0, 255);
+        uint8_t normalizedPerturb = map(globalPerturbation, 15, 255, 0, 255);
 
         // Boost aggressivo e lineare:
         // - Min (5): +50% velocità base
         // - Max (255): +400% velocità base (5x totale)
-        uint16_t maxBoost = state.speed * 4;  // Fino a 5x velocità totale (speed + 4*speed)
+        uint16_t maxBoost = state.speed * 9;  // Fino a 5x velocità totale (speed + 4*speed)
         uint16_t perturbBoost = scale8(normalizedPerturb, min(maxBoost, (uint16_t)255));
 
         // Boost minimo garantito per risposta immediata (almeno +50% anche a movimento basso)
@@ -452,7 +452,7 @@ void LedEffectEngine::renderPulse(const LedState& state, const uint8_t perturbat
 
     // PULSE WIDTH inversely proportional to speed: faster = narrower pulse
     // Speed 1 (slow) = wide pulse (20 pixels), Speed 255 (fast) = narrow pulse (3 pixels)
-    uint8_t pulseWidth = map(effectiveSpeed, 1, 255, 40, 3);
+    uint8_t pulseWidth = map(effectiveSpeed, 1, 255, 60, 5);
 
     // Travel distance for pulse to completely exit from tip
     uint16_t totalDistance = state.foldPoint + pulseWidth;
@@ -466,9 +466,9 @@ void LedEffectEngine::renderPulse(const LedState& state, const uint8_t perturbat
     if (effectiveSpeed < 50) {
         travelSpeed = map(effectiveSpeed, 1, 50, 10, 7);
     } else if (effectiveSpeed < 150) {
-        travelSpeed = map(effectiveSpeed, 50, 150, 7, 3);
+        travelSpeed = map(effectiveSpeed, 50, 200, 7, 3);
     } else {
-        travelSpeed = map(effectiveSpeed, 150, 255, 3, 1);
+        travelSpeed = map(effectiveSpeed, 200, 255, 3, 1);
     }
 
     // CONTINUOUS PULSE FLOW: always moving, no charging phase
@@ -559,8 +559,8 @@ void LedEffectEngine::renderPulse(const LedState& state, const uint8_t perturbat
                 _secondaryPulses[i].size = min(3, _secondaryPulses[i].size + 1);  // Increase size (max 3x)
                 _secondaryPulses[i].brightness = 255;  // MAXIMUM BRIGHTNESS!
 
-                // Average position (fusion point)
-                _secondaryPulses[i].position = (_secondaryPulses[i].position + _secondaryPulses[j].position) / 2;
+                // Keep the FORWARD position (pulse can only grow, never shrink back!)
+                _secondaryPulses[i].position = max(_secondaryPulses[i].position, _secondaryPulses[j].position);
 
                 // Average velocity phase (keeps moving smoothly)
                 _secondaryPulses[i].velocityPhase = (_secondaryPulses[i].velocityPhase + _secondaryPulses[j].velocityPhase) / 2;
