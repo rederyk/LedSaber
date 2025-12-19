@@ -111,6 +111,23 @@ private:
     float _visualOffset;          // Offset temporale virtuale (in secondi)
     uint32_t _lastMotionTime;     // Ultimo rilevamento movimento
 
+    // Chrono theme enums
+    enum class ChronoHourTheme : uint8_t {
+        CLASSIC = 0,        // Marker statici uniformi
+        NEON_CYBERPUNK = 1, // Colori vibranti con glow
+        PLASMA = 2,         // Blend arcobaleno fluido
+        DIGITAL_GLITCH = 3  // Scan lines RGB
+    };
+
+    enum class ChronoSecondTheme : uint8_t {
+        CLASSIC = 0,       // Cursore lineare solido
+        TIME_SPIRAL = 1,   // Spirale colorata rotante
+        FIRE_CLOCK = 2,    // Fuoco che cresce dalla base
+        LIGHTNING = 3,     // Fulmini pulsanti
+        PARTICLE_FLOW = 4, // Particelle che fluiscono
+        QUANTUM_WAVE = 5   // Onda sinusoidale
+    };
+
     // ═══════════════════════════════════════════════════════════
     // UTILITY FUNCTIONS
     // ═══════════════════════════════════════════════════════════
@@ -144,6 +161,24 @@ private:
     void renderRainbowBlade(const LedState& state, const uint8_t perturbationGrid[6][8]);
     void renderRainbowEffect(const LedState& state, const uint8_t perturbationGrid[6][8], const MotionProcessor::ProcessedMotion* motion);
     void renderChronoHybrid(const LedState& state, const uint8_t perturbationGrid[6][8], const MotionProcessor::ProcessedMotion* motion);
+
+    // ═══════════════════════════════════════════════════════════
+    // CHRONO THEME RENDERERS (modular)
+    // ═══════════════════════════════════════════════════════════
+
+    // Hour marker themes
+    void renderChronoHours_Classic(uint16_t foldPoint, CRGB baseColor);
+    void renderChronoHours_Neon(uint16_t foldPoint, CRGB baseColor, uint8_t hours);
+    void renderChronoHours_Plasma(uint16_t foldPoint, uint8_t hours, uint8_t minutes);
+    void renderChronoHours_Digital(uint16_t foldPoint, CRGB baseColor, uint8_t seconds);
+
+    // Second/minute cursor themes
+    void renderChronoSeconds_Classic(uint16_t foldPoint, uint8_t minutes, uint8_t seconds, float visualOffset, CRGB baseColor);
+    void renderChronoSeconds_TimeSpiral(uint16_t foldPoint, uint8_t minutes, uint8_t seconds, float visualOffset, CRGB baseColor);
+    void renderChronoSeconds_FireClock(uint16_t foldPoint, uint8_t minutes, uint8_t seconds, float visualOffset, CRGB baseColor);
+    void renderChronoSeconds_Lightning(uint16_t foldPoint, uint8_t minutes, uint8_t seconds, float visualOffset, CRGB baseColor);
+    void renderChronoSeconds_Particle(uint16_t foldPoint, uint8_t minutes, uint8_t seconds, float visualOffset, CRGB baseColor);
+    void renderChronoSeconds_Quantum(uint16_t foldPoint, uint8_t minutes, uint8_t seconds, float visualOffset, CRGB baseColor);
 
     // ═══════════════════════════════════════════════════════════
     // GESTURE-TRIGGERED EFFECTS

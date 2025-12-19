@@ -45,9 +45,19 @@ public:
             controller->ledState->effect = doc["mode"] | "solid";
             controller->ledState->speed = doc["speed"] | 50;
 
-            Serial.printf("[BLE] Effect set to %s (speed: %d)\n",
+            // Chrono themes (opzionale, solo se presenti nel JSON)
+            if (doc.containsKey("chronoHourTheme")) {
+                controller->ledState->chronoHourTheme = doc["chronoHourTheme"];
+            }
+            if (doc.containsKey("chronoSecondTheme")) {
+                controller->ledState->chronoSecondTheme = doc["chronoSecondTheme"];
+            }
+
+            Serial.printf("[BLE] Effect set to %s (speed: %d, chrono_h: %d, chrono_s: %d)\n",
                 controller->ledState->effect.c_str(),
-                controller->ledState->speed);
+                controller->ledState->speed,
+                controller->ledState->chronoHourTheme,
+                controller->ledState->chronoSecondTheme);
 
             controller->setConfigDirty(true);
         }

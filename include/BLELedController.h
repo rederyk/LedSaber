@@ -36,6 +36,10 @@ struct LedState {
     // Time sync data (ChronoSaber)
     uint32_t epochBase = 0;      // Unix timestamp di riferimento
     uint32_t millisAtSync = 0;   // millis() al momento del sync
+
+    // Chrono themes (modulare: marker ore + cursori secondi/minuti)
+    uint8_t chronoHourTheme = 0;   // 0=Classic, 1=Neon, 2=Plasma, 3=Digital
+    uint8_t chronoSecondTheme = 0; // 0=Classic, 1=TimeSpiral, 2=FireClock, 3=Lightning, 4=Particle, 5=Quantum
 };
 
 class BLELedController {

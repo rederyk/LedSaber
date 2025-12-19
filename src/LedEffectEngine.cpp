@@ -1943,55 +1943,417 @@ void LedEffectEngine::renderChronoHybrid(const LedState& state, const uint8_t pe
     while (visualSeconds < 0) visualSeconds += 60;
     while (visualSeconds >= 60) visualSeconds -= 60;
 
-    // ═══ STEP 3: RENDERING VISUALE ═══
+    // ═══ STEP 3: RENDERING VISUALE MODULARE ═══
     fill_solid(_leds, _numLeds, CRGB::Black);
 
-    // A. MARKER ORE (background)
-    for (uint8_t i = 0; i < 12; i++) {
-        uint16_t pos = map(i, 0, 12, 0, state.foldPoint);
-        CRGB markerColor = CRGB(state.r, state.g, state.b);
-        markerColor.nscale8(40);  // 15% brightness
-        setLedPair(pos, state.foldPoint, markerColor);
+    CRGB baseColor = CRGB(state.r, state.g, state.b);
+
+    // A. MARKER ORE (tema selezionabile)
+    switch (state.chronoHourTheme) {
+        case 0:  // Classic
+            renderChronoHours_Classic(state.foldPoint, baseColor);
+            break;
+        case 1:  // Neon Cyberpunk
+            renderChronoHours_Neon(state.foldPoint, baseColor, hours);
+            break;
+        case 2:  // Plasma
+            renderChronoHours_Plasma(state.foldPoint, hours, minutes);
+            break;
+        case 3:  // Digital Glitch
+            renderChronoHours_Digital(state.foldPoint, baseColor, seconds);
+            break;
+        default:
+            renderChronoHours_Classic(state.foldPoint, baseColor);
+            break;
     }
 
+    // B. CURSORI SECONDI/MINUTI (tema selezionabile)
+    switch (state.chronoSecondTheme) {
+        case 0:  // Classic
+            renderChronoSeconds_Classic(state.foldPoint, minutes, seconds, _visualOffset, baseColor);
+            break;
+        case 1:  // Time Spiral
+            renderChronoSeconds_TimeSpiral(state.foldPoint, minutes, seconds, _visualOffset, baseColor);
+            break;
+        case 2:  // Fire Clock
+            renderChronoSeconds_FireClock(state.foldPoint, minutes, seconds, _visualOffset, baseColor);
+            break;
+        case 3:  // Lightning
+            renderChronoSeconds_Lightning(state.foldPoint, minutes, seconds, _visualOffset, baseColor);
+            break;
+        case 4:  // Particle Flow
+            renderChronoSeconds_Particle(state.foldPoint, minutes, seconds, _visualOffset, baseColor);
+            break;
+        case 5:  // Quantum Wave
+            renderChronoSeconds_Quantum(state.foldPoint, minutes, seconds, _visualOffset, baseColor);
+            break;
+        default:
+            renderChronoSeconds_Classic(state.foldPoint, minutes, seconds, _visualOffset, baseColor);
+            break;
+    }
+
+    // C. BATTITO GLOBALE (opzionale, solo per temi classic)
+    if (state.chronoSecondTheme == 0) {
+        uint16_t millisInSecond = (now % 1000);
+        uint8_t pulseBrightness;
+
+        if (millisInSecond < 100) {
+            pulseBrightness = map(millisInSecond, 0, 100, 255, 180);
+        } else {
+            pulseBrightness = map(millisInSecond, 100, 1000, 180, 200);
+        }
+
+        for (uint16_t i = 0; i < _numLeds; i++) {
+            _leds[i].nscale8(pulseBrightness);
+        }
+    }
+
+    // Note: Brightness scaling already applied, will be set globally in render()
+}
+
+// ═══════════════════════════════════════════════════════════
+// CHRONO THEME RENDERERS - HOUR MARKERS
+// ═══════════════════════════════════════════════════════════
+
+void LedEffectEngine::renderChronoHours_Classic(uint16_t foldPoint, CRGB baseColor) {
+    // Marker statici uniformi (attenuati al 15%)
+    for (uint8_t i = 0; i < 12; i++) {
+        uint16_t pos = map(i, 0, 12, 0, foldPoint);
+        CRGB markerColor = baseColor;
+        markerColor.nscale8(40);  // 15% brightness
+        setLedPair(pos, foldPoint, markerColor);
+    }
+}
+
+void LedEffectEngine::renderChronoHours_Neon(uint16_t foldPoint, CRGB baseColor, uint8_t hours) {
+    // Colori vibranti con glow: l'ora corrente brilla di più
+    for (uint8_t i = 0; i < 12; i++) {
+        uint16_t pos = map(i, 0, 12, 0, foldPoint);
+        CRGB markerColor = baseColor;
+
+        if (i == hours) {
+            // Ora corrente: glow intenso + shift colore
+            markerColor.nscale8(200);  // 78% brightness
+            // Aggiungi componente cyan per effetto neon
+            markerColor += CRGB(0, 50, 80);
+        } else {
+            markerColor.nscale8(60);  // 23% brightness per gli altri
+        }
+
+        // Glow esteso (3 LED per marker)
+        for (int8_t j = -1; j <= 1; j++) {
+            int16_t glowPos = pos + j;
+            if (glowPos >= 0 && glowPos < foldPoint) {
+                CRGB glow = markerColor;
+                glow.nscale8(abs(j) == 1 ? 128 : 255);  // Fade sui lati
+                setLedPair(glowPos, foldPoint, glow);
+            }
+        }
+    }
+}
+
+void LedEffectEngine::renderChronoHours_Plasma(uint16_t foldPoint, uint8_t hours, uint8_t minutes) {
+    // Blend arcobaleno fluido che ruota nel tempo
+    uint8_t baseHue = (hours * 21 + minutes / 3) % 256;  // Ruota lentamente
+
+    for (uint16_t i = 0; i < foldPoint; i++) {
+        // Crea onda sinusoidale di colore
+        uint8_t wave = sin8(i * 8 + baseHue);
+        uint8_t hue = baseHue + wave / 4;
+        CRGB plasmaColor = CHSV(hue, 255, 60);  // Saturo ma dim
+
+        // Intensifica sui marker delle ore
+        for (uint8_t h = 0; h < 12; h++) {
+            uint16_t markerPos = map(h, 0, 12, 0, foldPoint);
+            if (abs((int16_t)i - (int16_t)markerPos) <= 2) {
+                plasmaColor.nscale8(200);  // Boost sui marker
+                break;
+            }
+        }
+
+        setLedPair(i, foldPoint, plasmaColor);
+    }
+}
+
+void LedEffectEngine::renderChronoHours_Digital(uint16_t foldPoint, CRGB baseColor, uint8_t seconds) {
+    // Scan lines RGB digitali che pulsano
+    uint8_t scanPhase = (seconds * 4) % 256;  // Ciclo ogni 64 secondi
+
+    for (uint8_t i = 0; i < 12; i++) {
+        uint16_t pos = map(i, 0, 12, 0, foldPoint);
+
+        // Colori primari RGB che si alternano
+        CRGB digitColor;
+        switch (i % 3) {
+            case 0: digitColor = CRGB::Red; break;
+            case 1: digitColor = CRGB::Green; break;
+            case 2: digitColor = CRGB::Blue; break;
+        }
+
+        // Pulse sincronizzato con scanPhase
+        uint8_t pulse = sin8(scanPhase + i * 20);
+        digitColor.nscale8(40 + pulse / 4);  // 15-78% brightness
+
+        // Scan line effect (3 pixel)
+        for (int8_t j = -1; j <= 1; j++) {
+            int16_t scanPos = pos + j;
+            if (scanPos >= 0 && scanPos < foldPoint) {
+                setLedPair(scanPos, foldPoint, digitColor);
+            }
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════
+// CHRONO THEME RENDERERS - SECOND/MINUTE CURSORS
+// ═══════════════════════════════════════════════════════════
+
+void LedEffectEngine::renderChronoSeconds_Classic(uint16_t foldPoint, uint8_t minutes, uint8_t seconds, float visualOffset, CRGB baseColor) {
+    // Cursore lineare solido (implementazione attuale)
+
     // B. CURSORE MINUTI (position)
-    uint16_t minutePos = map(minutes, 0, 60, 0, state.foldPoint);
-    CRGB minuteColor = CRGB(state.r, state.g, state.b);
+    uint16_t minutePos = map(minutes, 0, 60, 0, foldPoint);
+    CRGB minuteColor = baseColor;
     minuteColor.nscale8(180);  // 70% brightness
     for (int8_t i = -2; i <= 2; i++) {
         int16_t pos = minutePos + i;
-        if (pos >= 0 && pos < state.foldPoint) {
-            setLedPair(pos, state.foldPoint, minuteColor);
+        if (pos >= 0 && pos < foldPoint) {
+            setLedPair(pos, foldPoint, minuteColor);
         }
     }
 
     // C. CURSORE SECONDI (scanner)
-    uint16_t secondPos = map(visualSeconds, 0, 60, 0, state.foldPoint);
-    CRGB secondColor = (abs(_visualOffset) > 1.0f) ? CRGB::Cyan : CRGB::White;  // Glitch ciano
+    int visualSeconds = seconds + (int)visualOffset;
+    while (visualSeconds < 0) visualSeconds += 60;
+    while (visualSeconds >= 60) visualSeconds -= 60;
+
+    uint16_t secondPos = map(visualSeconds, 0, 60, 0, foldPoint);
+    CRGB secondColor = (abs(visualOffset) > 1.0f) ? CRGB::Cyan : CRGB::White;  // Glitch ciano
     for (int8_t i = -1; i <= 1; i++) {
         int16_t pos = secondPos + i;
-        if (pos >= 0 && pos < state.foldPoint) {
-            setLedPair(pos, state.foldPoint, secondColor);
+        if (pos >= 0 && pos < foldPoint) {
+            setLedPair(pos, foldPoint, secondColor);
+        }
+    }
+}
+
+void LedEffectEngine::renderChronoSeconds_TimeSpiral(uint16_t foldPoint, uint8_t minutes, uint8_t seconds, float visualOffset, CRGB baseColor) {
+    // Spirale colorata rotante: i secondi creano un pattern a spirale con trail
+
+    int visualSeconds = seconds + (int)visualOffset;
+    while (visualSeconds < 0) visualSeconds += 60;
+    while (visualSeconds >= 60) visualSeconds -= 60;
+
+    // La spirale è composta da più "bracci" che ruotano
+    uint8_t numArms = 3;
+    uint8_t baseHue = (visualSeconds * 4) % 256;  // Hue ruota con i secondi
+
+    for (uint8_t arm = 0; arm < numArms; arm++) {
+        // Calcola posizione di ogni braccio della spirale
+        uint16_t armOffset = (visualSeconds * foldPoint / 60 + arm * foldPoint / numArms) % foldPoint;
+        uint8_t armHue = (baseHue + arm * 85) % 256;  // Offset 120° tra bracci
+
+        // Disegna trail dietro ogni braccio (effetto scia)
+        for (int8_t trail = 0; trail < 8; trail++) {
+            int16_t pos = armOffset - trail;
+            if (pos < 0) pos += foldPoint;
+            if (pos >= foldPoint) pos -= foldPoint;
+
+            uint8_t brightness = 255 - (trail * 30);  // Fade della scia
+            CRGB spiralColor = CHSV(armHue, 255, brightness);
+
+            // Blend additivo per sovrapposizione
+            uint16_t physicalIdx = pos < foldPoint ? pos : (2 * foldPoint - pos - 1);
+            if (physicalIdx < _numLeds) {
+                _leds[physicalIdx] += spiralColor;
+            }
         }
     }
 
-    // D. BATTITO (pulse globale ogni secondo)
-    // Crea un fade-in/fade-out sincronizzato con i secondi
-    uint16_t millisInSecond = (now % 1000);
-    uint8_t pulseBrightness;
+    // Cursore minuti: punto brillante fisso
+    uint16_t minutePos = map(minutes, 0, 60, 0, foldPoint);
+    CRGB minuteColor = CHSV((minutes * 4) % 256, 180, 255);
+    for (int8_t i = -1; i <= 1; i++) {
+        int16_t pos = minutePos + i;
+        if (pos >= 0 && pos < foldPoint) {
+            setLedPair(pos, foldPoint, minuteColor);
+        }
+    }
+}
 
-    if (millisInSecond < 100) {
-        // Pulse rapido nei primi 100ms
-        pulseBrightness = map(millisInSecond, 0, 100, 255, 180);
+void LedEffectEngine::renderChronoSeconds_FireClock(uint16_t foldPoint, uint8_t minutes, uint8_t seconds, float visualOffset, CRGB baseColor) {
+    // Fuoco che cresce dalla base: altezza = minuti, intensità fiamme = secondi
+
+    int visualSeconds = seconds + (int)visualOffset;
+    while (visualSeconds < 0) visualSeconds += 60;
+    while (visualSeconds >= 60) visualSeconds -= 60;
+
+    // Calcola altezza del fuoco basata sui minuti
+    uint16_t fireHeight = map(minutes, 0, 60, 5, foldPoint);
+
+    // Palette fuoco: rosso -> arancione -> giallo -> bianco
+    for (uint16_t i = 0; i < fireHeight; i++) {
+        // Intensità variabile per simulare fiamme tremolanti
+        uint8_t flicker = random8(40);  // Variazione casuale
+        uint8_t secondPulse = sin8(visualSeconds * 4 + i * 10);  // Pulse sincronizzato
+
+        // Colore fuoco che diventa più caldo verso la base
+        uint8_t heat = map(i, 0, fireHeight, 255, 80);
+        heat = qadd8(heat, secondPulse / 4);
+        heat = qadd8(heat, flicker);
+
+        CRGB fireColor;
+        if (heat > 200) {
+            fireColor = CRGB(255, 255, heat - 100);  // Bianco-giallo
+        } else if (heat > 140) {
+            fireColor = CRGB(255, heat, 0);  // Giallo-arancione
+        } else {
+            fireColor = CRGB(heat * 2, heat / 2, 0);  // Rosso-arancione
+        }
+
+        // Motion: se c'è offset, il fuoco diventa blu (fuoco "freddo" glitch)
+        if (abs(visualOffset) > 2.0f) {
+            fireColor = CRGB(fireColor.b, fireColor.r / 2, fireColor.g);
+        }
+
+        setLedPair(i, foldPoint, fireColor);
+    }
+}
+
+void LedEffectEngine::renderChronoSeconds_Lightning(uint16_t foldPoint, uint8_t minutes, uint8_t seconds, float visualOffset, CRGB baseColor) {
+    // Fulmini pulsanti: frequenza dipende dai secondi, posizioni dai minuti
+
+    int visualSeconds = seconds + (int)visualOffset;
+    while (visualSeconds < 0) visualSeconds += 60;
+    while (visualSeconds >= 60) visualSeconds -= 60;
+
+    // Posizione principale del fulmine (basata sui minuti)
+    uint16_t strikePos = map(minutes, 0, 60, 0, foldPoint);
+
+    // Pulse del fulmine (rapido nei primi millisecondi del secondo)
+    unsigned long now = millis();
+    uint16_t millisInSecond = now % 1000;
+
+    // Strike multipli per secondo (frequenza aumenta con i secondi)
+    uint8_t strikesPerSecond = 1 + (visualSeconds / 20);  // 1-3 strike/sec
+    uint16_t strikePeriod = 1000 / strikesPerSecond;
+    uint16_t phaseInPeriod = millisInSecond % strikePeriod;
+
+    if (phaseInPeriod < 80) {
+        // Lightning flash attivo
+        uint8_t flashBrightness = map(phaseInPeriod, 0, 80, 255, 0);
+
+        // Fulmine principale
+        CRGB boltColor = baseColor;
+        boltColor.nscale8(flashBrightness);
+        boltColor += CRGB(flashBrightness, flashBrightness, 255);  // Tint blu elettrico
+
+        // Ramificazioni casuali del fulmine
+        for (int8_t i = -10; i <= 10; i++) {
+            if (random8(100) < 30) {  // 30% probabilità di ramificazione
+                int16_t pos = strikePos + i;
+                if (pos >= 0 && pos < foldPoint) {
+                    CRGB branchColor = boltColor;
+                    branchColor.nscale8(random8(128, 255));
+                    setLedPair(pos, foldPoint, branchColor);
+                }
+            }
+        }
+
+        // Core del fulmine (più brillante)
+        for (int8_t i = -2; i <= 2; i++) {
+            int16_t pos = strikePos + i;
+            if (pos >= 0 && pos < foldPoint) {
+                setLedPair(pos, foldPoint, boltColor);
+            }
+        }
     } else {
-        // Fade lento per il resto del secondo
-        pulseBrightness = map(millisInSecond, 100, 1000, 180, 200);
-    }
+        // Afterglow (bagliore residuo)
+        uint8_t glowBrightness = map(phaseInPeriod, 80, strikePeriod, 60, 0);
+        CRGB glowColor = CRGB(0, 0, glowBrightness / 2);
 
-    // Applica pulse brightness a tutti i LED
-    for (uint16_t i = 0; i < _numLeds; i++) {
-        _leds[i].nscale8(pulseBrightness);
+        for (int8_t i = -5; i <= 5; i++) {
+            int16_t pos = strikePos + i;
+            if (pos >= 0 && pos < foldPoint) {
+                uint8_t distFade = map(abs(i), 0, 5, 255, 64);
+                CRGB fade = glowColor;
+                fade.nscale8(distFade);
+                setLedPair(pos, foldPoint, fade);
+            }
+        }
     }
+}
 
-    // Note: Brightness scaling already applied, will be set globally in render()
+void LedEffectEngine::renderChronoSeconds_Particle(uint16_t foldPoint, uint8_t minutes, uint8_t seconds, float visualOffset, CRGB baseColor) {
+    // Particelle che fluiscono: densità = secondi, velocità = minuti
+
+    int visualSeconds = seconds + (int)visualOffset;
+    while (visualSeconds < 0) visualSeconds += 60;
+    while (visualSeconds >= 60) visualSeconds -= 60;
+
+    // Numero di particelle aumenta con i secondi
+    uint8_t numParticles = 3 + (visualSeconds / 10);  // 3-9 particelle
+
+    // Velocità base determinata dai minuti
+    uint8_t baseSpeed = 1 + (minutes / 10);  // 1-7 unità/frame
+
+    unsigned long now = millis();
+    uint8_t timePhase = (now / 50) % 256;  // Fase temporale per animazione
+
+    for (uint8_t p = 0; p < numParticles; p++) {
+        // Posizione di ogni particella (offset per distribuzione)
+        uint16_t particlePos = ((timePhase * baseSpeed + p * (256 / numParticles)) % 256);
+        particlePos = map(particlePos, 0, 256, 0, foldPoint);
+
+        // Colore unico per ogni particella (hue spacing)
+        uint8_t particleHue = (p * (256 / numParticles) + visualSeconds * 2) % 256;
+        CRGB particleColor = CHSV(particleHue, 255, 200);
+
+        // Trail dietro la particella (3 LED)
+        for (int8_t trail = 0; trail < 4; trail++) {
+            int16_t pos = particlePos - trail;
+            if (pos < 0) pos += foldPoint;
+
+            CRGB trailColor = particleColor;
+            trailColor.nscale8(255 - trail * 60);  // Fade del trail
+
+            setLedPair(pos, foldPoint, trailColor);
+        }
+    }
+}
+
+void LedEffectEngine::renderChronoSeconds_Quantum(uint16_t foldPoint, uint8_t minutes, uint8_t seconds, float visualOffset, CRGB baseColor) {
+    // Onda sinusoidale: frequenza = secondi, ampiezza = minuti
+
+    int visualSeconds = seconds + (int)visualOffset;
+    while (visualSeconds < 0) visualSeconds += 60;
+    while (visualSeconds >= 60) visualSeconds -= 60;
+
+    // Parametri dell'onda
+    uint8_t frequency = 1 + (visualSeconds / 10);  // 1-6 Hz
+    uint8_t amplitude = map(minutes, 0, 60, 20, 200);  // Ampiezza brightness
+
+    unsigned long now = millis();
+    uint8_t timePhase = (now / 16) % 256;  // Fase temporale animazione
+
+    for (uint16_t i = 0; i < foldPoint; i++) {
+        // Calcola onda sinusoidale per questa posizione
+        uint8_t wave = sin8(i * frequency * 8 + timePhase);
+        uint8_t brightness = map(wave, 0, 255, 255 - amplitude, 255);
+
+        // Colore basato sulla posizione e tempo (effetto "quantum shimmer")
+        uint8_t hue = (i * 4 + visualSeconds * 2) % 256;
+        CRGB quantumColor = CHSV(hue, 200, brightness);
+
+        // Overlay pattern di interferenza (seconda onda)
+        uint8_t wave2 = sin8(i * 12 - timePhase * 2);
+        quantumColor.nscale8(wave2);
+
+        // Motion offset: shift di fase dell'onda
+        if (abs(visualOffset) > 1.0f) {
+            quantumColor += CRGB(0, 0, abs(visualOffset) * 20);  // Tint blu
+        }
+
+        setLedPair(i, foldPoint, quantumColor);
+    }
 }
