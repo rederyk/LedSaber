@@ -693,6 +693,8 @@ void LedEffectEngine::renderDualPulse(const LedState& state, const uint8_t pertu
     static unsigned long ball2_crackleLast = 0;
     static uint8_t ball1_crackle = 0;
     static uint8_t ball2_crackle = 0;
+    static unsigned long ball1_lastEdgeSave = 0;
+    static unsigned long ball2_lastEdgeSave = 0;
 
     // FIXED BASE SPEED (independent of state.speed parameter)
     const float FIXED_BASE_SPEED = 0.10f;  // pixel/ms (rallentata per più controllo)
@@ -1038,6 +1040,72 @@ void LedEffectEngine::renderDualPulse(const LedState& state, const uint8_t pertu
         Serial.println("[DUAL_PONG] Ball 2 RECOVERED - Grace period cancelled");
     }
 
+    // "SALVATAGGIO IN EXTREMIS":
+    // - Se una palla lampeggia molto (crackle alto) e NON è tenuta (tempMass bassa),
+    //   e si trova vicino a una estremità, riceve un impulso di salvataggio.
+    // - Se invece viene "tenuta" (tempMass alta) mentre è in grace period, recupera vitalità.
+    const float HOLD_TRIGGER_MASS = 0.9f;
+    const float EDGE_SAVE_DISTANCE = 10.0f;  // pixel dalla base/punta
+    const uint8_t EDGE_SAVE_CRACKLE = 120;   // lampeggio "molto"
+    const unsigned long EDGE_SAVE_COOLDOWN = 1200;
+
+    auto reviveFromHold = [&](bool active,
+                              float& pos,
+                              float& vel,
+                              float tempMass,
+                              unsigned long& invulnTime,
+                              uint8_t& crackle,
+                              const char* label) {
+        if (!active || invulnTime == 0) return;
+        // Aiuto extra: se l'utente "ritocca e tiene" poco prima che la palla sparisca,
+        // abbassiamo dinamicamente la soglia richiesta (late-save).
+        float t = min(1.0f, (float)(now - invulnTime) / (float)GRACE_PERIOD); // 0..1
+        float requiredHoldMass = max(0.35f, HOLD_TRIGGER_MASS - t * 0.55f);   // 0.90 -> ~0.35
+        if (tempMass < requiredHoldMass) return;
+
+        float sign = (abs(vel) > 0.005f) ? ((vel > 0.0f) ? 1.0f : -1.0f)
+                                         : ((pos < (state.foldPoint * 0.5f)) ? 1.0f : -1.0f);
+
+        float reviveSpeed = FIXED_BASE_SPEED + min(0.08f, tempMass * 0.03f + t * 0.03f);
+        vel = sign * reviveSpeed;
+
+        invulnTime = 0;
+        crackle = 0;
+        Serial.print("[DUAL_PONG] ");
+        Serial.print(label);
+        Serial.println(" HELD - Vitality restored (grace cancelled)");
+    };
+
+    auto edgeSave = [&](bool active,
+                        float& pos,
+                        float& vel,
+                        float tempMass,
+                        unsigned long& invulnTime,
+                        uint8_t crackle,
+                        unsigned long& lastEdgeSave,
+                        const char* label) {
+        if (!active || invulnTime == 0) return;
+        if (tempMass >= 0.30f) return;  // se l'utente sta "tenendo" anche poco, non interferire con kick
+        if (crackle < EDGE_SAVE_CRACKLE) return;
+        if (now - lastEdgeSave < EDGE_SAVE_COOLDOWN) return;
+
+        bool nearBase = (pos <= EDGE_SAVE_DISTANCE);
+        bool nearTip = (pos >= (state.foldPoint - 1.0f - EDGE_SAVE_DISTANCE));
+        if (!nearBase && !nearTip) return;
+
+        vel = nearBase ? fabs(FIXED_BASE_SPEED) : -fabs(FIXED_BASE_SPEED);
+        invulnTime = 0;
+        lastEdgeSave = now;
+        Serial.print("[DUAL_PONG] ");
+        Serial.print(label);
+        Serial.println(" EDGE SAVE (extremis) - Kick applied");
+    };
+
+    reviveFromHold(ball1_active, ball1_pos, ball1_vel, ball1_tempMass, ball1_invulnTime, ball1_crackle, "Ball 1");
+    reviveFromHold(ball2_active, ball2_pos, ball2_vel, ball2_tempMass, ball2_invulnTime, ball2_crackle, "Ball 2");
+    edgeSave(ball1_active, ball1_pos, ball1_vel, ball1_tempMass, ball1_invulnTime, ball1_crackle, ball1_lastEdgeSave, "Ball 1");
+    edgeSave(ball2_active, ball2_pos, ball2_vel, ball2_tempMass, ball2_invulnTime, ball2_crackle, ball2_lastEdgeSave, "Ball 2");
+
     // Check trigger status (massa temporanea attiva)
     // Impedisce il collasso se c'è stata perturbazione recente (assorbimento bloccato)
     bool isTriggered = (ball1_tempMass > 0.8f || ball2_tempMass > 0.8f);
@@ -1091,7 +1159,8 @@ void LedEffectEngine::renderDualPulse(const LedState& state, const uint8_t pertu
             if (ball1_wins) {
                 ball2_active = false;
                 // Vincitore mantiene il colore
-                ball1_vel = (ball1_vel > 0) ? FIXED_BASE_SPEED : -FIXED_BASE_SPEED;
+                // Forza direzione coerente (evita riprese invertite quando la velocità è quasi zero)
+                ball1_vel = fabs(FIXED_BASE_SPEED);  // Ball 1 "attacca" verso la punta
                 ball1_mass = 1.0f;  // Reset massa
 
                 // Genera colore OPPOSTO con minimo 90° di differenza (garantisce contrasto)
@@ -1105,7 +1174,7 @@ void LedEffectEngine::renderDualPulse(const LedState& state, const uint8_t pertu
             } else {
                 ball1_active = false;
                 // Vincitore mantiene il colore
-                ball2_vel = (ball2_vel > 0) ? FIXED_BASE_SPEED : -FIXED_BASE_SPEED;
+                ball2_vel = -fabs(FIXED_BASE_SPEED);  // Ball 2 "attacca" verso la base
                 ball2_mass = 1.0f;  // Reset massa
 
                 // Genera colore OPPOSTO con minimo 90° di differenza
@@ -1129,30 +1198,35 @@ void LedEffectEngine::renderDualPulse(const LedState& state, const uint8_t pertu
     // ═══════════════════════════════════════════════════════════
 
     if (singleBallMode) {
-        // Condizione di respawn: palla solitaria è alla punta (>85%) e torna verso base (vel < 0)
+        // Condizione di respawn:
+        // - Ball 1 (base-side) quando è vicino alla base e sta ripartendo verso la punta.
+        // - Ball 2 (tip-side) quando è vicino alla punta e sta ripartendo verso la base.
         float tipThreshold = state.foldPoint * 0.85f;
+        float baseThreshold = state.foldPoint * 0.15f;
 
-        bool ball1_at_tip_returning = ball1_active && (ball1_pos > tipThreshold) && (ball1_vel < 0);
-        bool ball2_at_tip_returning = ball2_active && (ball2_pos > tipThreshold) && (ball2_vel < 0);
+        bool ball1_ready = ball1_active && (ball1_pos < baseThreshold) && (ball1_vel > 0);
+        bool ball2_ready = ball2_active && (ball2_pos > tipThreshold) && (ball2_vel < 0);
 
-        if (ball1_at_tip_returning || ball2_at_tip_returning) {
-            // SPAWN NUOVA PALLA DALLA BASE CON LAMPO!
+        if (ball1_ready || ball2_ready) {
+            // SPAWN NUOVA PALLA dalla sua estremità con LAMPO!
             singleBallMode = false;
             spawnFlashBrightness = 255;
 
             if (!ball2_active) {
                 // Respawn ball2
                 ball2_active = true;
-                ball2_pos = 0.0f;  // Base della lama
-                ball2_vel = FIXED_BASE_SPEED;  // Va verso la punta
+                // Ball 2 "appartiene" alla punta: respawn dalla punta verso la base
+                ball2_pos = (float)(state.foldPoint - 1);  // Punta della lama
+                ball2_vel = -fabs(FIXED_BASE_SPEED);       // Va verso la base
                 ball2_mass = 1.0f;  // Reset massa a valore base
                 ball2_hue = nextBallHue;
-                Serial.println("[DUAL_PONG] *** FLASH! Ball 2 SPAWNED from base ***");
+                Serial.println("[DUAL_PONG] *** FLASH! Ball 2 SPAWNED from tip ***");
             } else {
                 // Respawn ball1
                 ball1_active = true;
                 ball1_pos = 0.0f;
-                ball1_vel = FIXED_BASE_SPEED;  // Va verso la punta
+                // Ball 1 "appartiene" alla base: respawn dalla base verso la punta
+                ball1_vel = fabs(FIXED_BASE_SPEED);  // Va verso la punta
                 ball1_mass = 1.0f;  // Reset massa a valore base
                 ball1_hue = nextBallHue;
                 Serial.println("[DUAL_PONG] *** FLASH! Ball 1 SPAWNED from base ***");

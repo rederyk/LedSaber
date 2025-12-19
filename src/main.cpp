@@ -627,7 +627,7 @@ void loop() {
     otaManager.update();
 
     StatusLedManager& ledManager = StatusLedManager::getInstance();
-
+   // todo usare colore progressivo viola blu verde in base al progresso della barra
     // Se OTA in corso: blocca LED strip e mostra status OTA
     if (otaManager.isOTAInProgress()) {
         if (!ledManager.isMode(StatusLedManager::Mode::OTA_BLINK)) {
