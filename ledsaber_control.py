@@ -1273,34 +1273,73 @@ class InteractiveCLI:
 
             state = state or {}
             if is_first:
+                # Stato iniziale: mostra tutto compatto
                 print(f"\n{Colors.GREEN}✓ Motion stato iniziale ricevuto{Colors.RESET}")
-                print(f"  Enabled: {state.get('enabled', False)}")
-                print(f"  Intensity: {state.get('intensity', 0)}")
-                print(f"  Direction: {state.get('direction', 'none')}")
-                print(f"  Shake Detected: {state.get('shakeDetected', False)}")
+                print(f"  Enabled: {state.get('enabled', False)} | Intensity: {state.get('intensity', 0)} | Direction: {state.get('direction', 'none')}")
+                print(f"  Motion: {state.get('motionDetected', False)} | Shake: {state.get('shakeDetected', False)} | Frames: {state.get('totalFrames', 0)}/{state.get('motionFrames', 0)}")
+
+                # Mostra griglia optical flow se presente
+                grid_rows = state.get('grid', [])
+                if grid_rows:
+                    grid_cols = state.get('gridCols', len(grid_rows[0]) if grid_rows else 0)
+                    block_size = state.get('blockSize', 40)
+                    print(f"  {Colors.CYAN}Optical Flow Grid ({grid_cols}x{len(grid_rows)} @ {block_size}px):{Colors.RESET}")
+                    for row_str in grid_rows:
+                        print(f"    {' '.join(list(row_str))}")
+                    print(f"    . idle | ^v su/giù | <> sx/dx | A↗ B↖ C↘ D↙")
             else:
+                # Cambiamenti: notifica solo se ci sono differenze
+                if not changes:
+                    return  # Nessun cambiamento, non notificare
+
                 print(f"\n{Colors.MAGENTA}🔍 Motion Update:{Colors.RESET}")
-                if changes:
-                    for key, change in changes.items():
-                        if key == 'enabled':
-                            status = "ENABLED" if change['new'] else "DISABLED"
-                            print(f"  Motion Detection → {status}")
-                        elif key == 'motionDetected':
-                            status = "DETECTED" if change['new'] else "ENDED"
-                            print(f"  Motion → {status}")
-                        elif key == 'intensity':
-                            print(f"  Intensity → {change['new']}")
-                        elif key == 'direction':
-                            print(f"  Direction → {Colors.CYAN}{change['new']}{Colors.RESET}")
-                        elif key == 'gesture':
-                            gesture = change['new']
-                            confidence = state.get('gestureConfidence', 0)
-                            if gesture != 'none' and confidence > 50:
-                                print(f"  {Colors.BOLD}{Colors.GREEN}⚔️  GESTURE: {gesture.upper()} ({confidence}%){Colors.RESET}")
-                        elif key == 'shakeDetected' and change['new']:
-                            print(f"  {Colors.YELLOW}🔔 SHAKE DETECTED!{Colors.RESET}")
-                else:
-                    print("  (Nessun cambiamento significativo)")
+
+                # Riga compatta con info chiave
+                status_parts = []
+                if 'enabled' in changes:
+                    status = "ENABLED" if changes['enabled']['new'] else "DISABLED"
+                    status_parts.append(f"Detection={status}")
+                if 'motionDetected' in changes:
+                    status = "YES" if changes['motionDetected']['new'] else "NO"
+                    status_parts.append(f"Motion={status}")
+                if 'intensity' in changes:
+                    status_parts.append(f"Int={changes['intensity']['new']}")
+                if 'direction' in changes:
+                    status_parts.append(f"Dir={changes['direction']['new']}")
+                if 'shakeDetected' in changes and changes['shakeDetected']['new']:
+                    status_parts.append(f"{Colors.YELLOW}SHAKE!{Colors.RESET}")
+
+                if status_parts:
+                    print(f"  {' | '.join(status_parts)}")
+
+                # Gesture detection (solo se rilevata con confidence alta)
+                if 'gesture' in changes:
+                    gesture = changes['gesture']['new']
+                    confidence = state.get('gestureConfidence', 0)
+                    if gesture != 'none' and confidence > 50:
+                        print(f"  {Colors.BOLD}{Colors.GREEN}⚔️  GESTURE: {gesture.upper()} ({confidence}%){Colors.RESET}")
+
+                # Mostra griglia optical flow compatta
+                grid_rows = state.get('grid', [])
+                if grid_rows:
+                    grid_cols = state.get('gridCols', len(grid_rows[0]) if grid_rows else 0)
+                    block_size = state.get('blockSize', 40)
+                    print(f"  {Colors.CYAN}Flow ({grid_cols}x{len(grid_rows)} @ {block_size}px):{Colors.RESET} {' | '.join(grid_rows)}")
+
+                # Statistiche compatte (solo se cambiate)
+                stats_parts = []
+                if state.get('totalFrames', 0) > 0:
+                    stats_parts.append(f"Frames: {state.get('totalFrames', 0)}")
+                if state.get('motionFrames', 0) > 0:
+                    stats_parts.append(f"Motion: {state.get('motionFrames', 0)}")
+                if state.get('shakeCount', 0) > 0:
+                    stats_parts.append(f"Shakes: {state.get('shakeCount', 0)}")
+                if state.get('changedPixels', 0) > 0:
+                    stats_parts.append(f"Pixels: {state.get('changedPixels', 0)}")
+
+                if stats_parts:
+                    print(f"  {' | '.join(stats_parts)}")
+
             print(f"{Colors.BOLD}>{Colors.RESET} ", end="", flush=True)
 
         self.client.motion_callback = on_motion_update
