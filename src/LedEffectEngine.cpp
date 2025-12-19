@@ -648,227 +648,372 @@ void LedEffectEngine::renderPulse(const LedState& state, const uint8_t perturbat
 void LedEffectEngine::renderDualPulse(const LedState& state, const uint8_t perturbationGrid[6][8]) {
     const unsigned long now = millis();
 
-    // DUAL PONG PHYSICS SIMULATION
-    // Due palle rimbalzano elasticamente da un'estremità all'altra
-    // La perturbazione accelera/rallenta UNA palla alla volta
-    // Quando la differenza di velocità diventa critica, il sistema collassa
+    // ═══════════════════════════════════════════════════════════
+    // DUAL PONG - ELEGANT PHYSICS SIMULATION
+    // ═══════════════════════════════════════════════════════════
+    // Due sfere rimbalzano elasticamente sulle estremità della lama
+    // Il movimento è regolato dalla fisica del moto armonico con collisioni elastiche
+    // La perturbazione imprime energia SOLO a UNA palla alla volta
+    // Quando il sistema diventa troppo instabile, collassa e si rigenera
 
-    // Initialize static variables for ball physics
-    static float ball1_pos = 10.0f;           // Position (float for smooth physics)
+    // Static state variables (persistent across calls)
+    static float ball1_pos = 0.0f;              // Posizione [0, foldPoint-1]
     static float ball2_pos = 0.0f;
-    static float ball1_vel = 1.0f;            // Velocity (positive = moving right)
-    static float ball2_vel = -1.0f;           // Velocity (negative = moving left)
-    static uint8_t ball1_hue = 0;             // Color of ball 1
-    static uint8_t ball2_hue = 96;            // Color of ball 2 (different from ball 1)
-    static bool ball1_perturbed = false;      // Which ball is being perturbed
-    static unsigned long lastCollapseTime = 0;
-    static bool ball1_active = true;          // Ball existence flags
+    static float ball1_vel = 0.0f;              // Velocità (signed, pixel/ms)
+    static float ball2_vel = 0.0f;
+    static uint8_t ball1_hue = 0;               // Colore HSV
+    static uint8_t ball2_hue = 160;             // Colore complementare iniziale
+    static bool ball1_active = true;
     static bool ball2_active = true;
-    static uint8_t collapsedBallHue = 0;      // Color for the next ball to spawn
-    static bool waitingForRespawn = false;    // Waiting for respawn at base
-    static uint8_t spawnFlashBrightness = 0;  // Flash effect on spawn
+    static bool singleBallMode = false;         // Modalità palla singola (post-collasso)
+    static uint8_t nextBallHue = 0;             // Colore della prossima palla da spawnare
+    static uint8_t spawnFlashBrightness = 0;    // Intensità del lampo di spawn
+    static unsigned long lastCollapseTime = 0;
+    static bool initialized = false;
+    static int8_t perturbTarget = 0;            // -1 = ball1, +1 = ball2, 0 = none
+    static uint8_t perturbAccumulator = 0;      // Accumula perturbazioni per sensibilità bassa
 
-    // Initialize positions on first run
-    if (ball2_pos == 0.0f && ball1_pos == 10.0f && now > 100) {
+    // FIXED BASE SPEED (independent of state.speed parameter)
+    const float FIXED_BASE_SPEED = 0.12f;  // pixel/ms (circa 7.2 pixel/frame @ 60fps)
+
+    // First run initialization
+    if (!initialized || now < 500) {
+        // Posizioni iniziali simmetriche (1/4 e 3/4 della lama)
         ball1_pos = state.foldPoint * 0.25f;
         ball2_pos = state.foldPoint * 0.75f;
+
+        // Velocità iniziali FISSE (opposte per equilibrio)
+        ball1_vel = FIXED_BASE_SPEED;
+        ball2_vel = -FIXED_BASE_SPEED;
+
+        ball1_hue = 0;      // Rosso
+        ball2_hue = 160;    // Ciano
+        ball1_active = true;
+        ball2_active = true;
+        singleBallMode = false;
+        spawnFlashBrightness = 0;
+        perturbTarget = 0;
+        perturbAccumulator = 0;
+        initialized = true;
+
+        Serial.println("[DUAL_PONG] Initialized with FIXED base speed");
     }
 
-    // Base speed from state
-    float baseSpeed = map(state.speed, 1, 255, 20, 200) / 1000.0f;  // Pixels per ms
+    // ═══════════════════════════════════════════════════════════
+    // PERTURBATION SYSTEM - Bassa sensibilità, una palla alla volta
+    // ═══════════════════════════════════════════════════════════
 
-    // PERTURBATION SYSTEM: accelera/rallenta UNA palla alla volta
-    float perturbationAccel1 = 0.0f;
-    float perturbationAccel2 = 0.0f;
-
-    if (perturbationGrid != nullptr) {
-        // Calculate average perturbation across the blade
+    uint8_t globalPerturbation = 0;
+    if (perturbationGrid != nullptr && !singleBallMode) {
+        // Calcola perturbazione media su tutta la lama
         uint16_t totalPerturb = 0;
         uint8_t samples = 0;
-        for (uint8_t row = 2; row <= 4; row++) {
+        for (uint8_t row = 1; row <= 4; row++) {
             for (uint8_t col = 0; col < 8; col++) {
                 totalPerturb += perturbationGrid[row][col];
                 samples++;
             }
         }
-        uint8_t avgPerturbation = totalPerturb / samples;
+        globalPerturbation = totalPerturb / samples;
 
-        // LOW SENSITIVITY: perturbation affects only one ball at a time, requires strong motion
-        if (avgPerturbation > 50) {  // Soglia alta - difficile da attivare
-            // Alternate which ball gets perturbed (or based on random/time)
-            // Use time-based alternation for predictable behavior
-            if ((now / 500) % 2 == 0) {
-                ball1_perturbed = true;
-                // Accelerazione ridotta - difficile accelerare
-                perturbationAccel1 = (avgPerturbation / 255.0f) * baseSpeed * 3.0f;
-            } else {
-                ball1_perturbed = false;
-                perturbationAccel2 = (avgPerturbation / 255.0f) * baseSpeed * 3.0f;
+        // BASSA SENSIBILITÀ: accumula perturbazioni fino a soglia
+        // Solo quando raggiungiamo soglia minima (40+) applichiamo l'effetto
+        if (globalPerturbation > 40) {
+            perturbAccumulator = min(255, perturbAccumulator + (globalPerturbation / 8));
+
+            // Soglia di attivazione: serve movimento consistente
+            if (perturbAccumulator > 80) {
+                // Scegli quale palla perturbare (alterna in modo casuale per imprevedibilità)
+                if (perturbTarget == 0) {
+                    // Nessun target attivo: scegline uno
+                    perturbTarget = (random8() < 128) ? -1 : 1;
+                    Serial.print("[DUAL_PONG] Perturbation target: Ball ");
+                    Serial.println((perturbTarget == -1) ? "1" : "2");
+                }
+                // Mantieni il target finché l'accumulo non scende
+            }
+        } else {
+            // Decay dell'accumulatore quando movimento cessa
+            if (perturbAccumulator > 0) {
+                perturbAccumulator = qsub8(perturbAccumulator, 5);
+            }
+            if (perturbAccumulator < 40) {
+                perturbTarget = 0;  // Reset target quando sotto soglia
             }
         }
     }
 
-    // Update velocities with perturbation
+    // ═══════════════════════════════════════════════════════════
+    // PHYSICS UPDATE - Collisioni elastiche con conservazione energia
+    // ═══════════════════════════════════════════════════════════
+
     unsigned long deltaTime = now - _lastDualPulseUpdate;
-    if (deltaTime > 100) deltaTime = 20;  // Prevent huge jumps
+    if (deltaTime > 100) deltaTime = 20;  // Clamp per evitare salti enormi
 
-    float ball1_speed = abs(ball1_vel) + perturbationAccel1;
-    float ball2_speed = abs(ball2_vel) + perturbationAccel2;
+    if (deltaTime > 0) {
+        float dt = deltaTime / 1000.0f;  // Converti in secondi per fisica
 
-    // STABILITY CHECK: se la differenza di velocità è troppo alta, COLLASSO!
-    float speedDifference = abs(ball1_speed - ball2_speed);
-    float criticalDifference = baseSpeed * 6.0f;  // Soglia critica
+        // Applica perturbazione SOLO alla palla target
+        float ball1_impulse = 0.0f;
+        float ball2_impulse = 0.0f;
 
-    if (speedDifference > criticalDifference && now - lastCollapseTime > 1000 && !waitingForRespawn) {
-        // SYSTEM COLLAPSE! La palla lenta viene cancellata, quella veloce rallentata
-        lastCollapseTime = now;
-        waitingForRespawn = true;
+        if (perturbTarget == -1 && ball1_active) {
+            // Impulso su ball1 (proporzionale all'accumulatore)
+            // Usa scaling moderato per non rompere subito l'equilibrio
+            ball1_impulse = (perturbAccumulator / 255.0f) * FIXED_BASE_SPEED * 0.15f;  // Max 15% boost per step
+        } else if (perturbTarget == 1 && ball2_active) {
+            ball2_impulse = (perturbAccumulator / 255.0f) * FIXED_BASE_SPEED * 0.15f;
+        }
 
-        if (ball1_speed > ball2_speed) {
-            // Ball 1 è troppo veloce: sopravvive rallentata, Ball 2 cancellata
-            ball1_vel = (ball1_vel > 0) ? baseSpeed : -baseSpeed;  // Reset a velocità base
-            ball1_hue = ball1_hue + random8(60, 120);  // Shift colore
+        // Update velocities (conserva direzione, applica impulso)
+        if (ball1_active) {
+            float direction1 = (ball1_vel >= 0) ? 1.0f : -1.0f;
+            ball1_vel = direction1 * (abs(ball1_vel) + ball1_impulse * dt);
+        }
+        if (ball2_active) {
+            float direction2 = (ball2_vel >= 0) ? 1.0f : -1.0f;
+            ball2_vel = direction2 * (abs(ball2_vel) + ball2_impulse * dt);
+        }
 
-            // Ball 2 cancellata
-            ball2_active = false;
+        // Update positions (integrazione Eulero semplice)
+        if (ball1_active) {
+            ball1_pos += ball1_vel * dt * 1000.0f;  // Riconverti dt in ms
+        }
+        if (ball2_active) {
+            ball2_pos += ball2_vel * dt * 1000.0f;
+        }
 
-            // Salva il colore complementare per la prossima palla
-            collapsedBallHue = ball1_hue + 128;
+        // ELASTIC BOUNDARY COLLISIONS (coefficiente di restituzione = 1.0, energia conservata)
+        if (ball1_active) {
+            if (ball1_pos < 0.0f) {
+                ball1_pos = -ball1_pos;  // Riflessione speculare
+                ball1_vel = -ball1_vel;
+                Serial.println("[DUAL_PONG] Ball 1 bounced at base");
+            }
+            if (ball1_pos >= state.foldPoint - 1) {
+                float excess = ball1_pos - (state.foldPoint - 1);
+                ball1_pos = (state.foldPoint - 1) - excess;
+                ball1_vel = -ball1_vel;
+                Serial.println("[DUAL_PONG] Ball 1 bounced at tip");
+            }
+        }
 
-            Serial.println("[DUAL_PONG] Ball 2 DELETED! Ball 1 continues alone, waiting for respawn...");
-        } else {
-            // Ball 2 è troppo veloce: sopravvive rallentata, Ball 1 cancellata
-            ball2_vel = (ball2_vel > 0) ? baseSpeed : -baseSpeed;  // Reset a velocità base
-            ball2_hue = ball2_hue + random8(60, 120);  // Shift colore
+        if (ball2_active) {
+            if (ball2_pos < 0.0f) {
+                ball2_pos = -ball2_pos;
+                ball2_vel = -ball2_vel;
+                Serial.println("[DUAL_PONG] Ball 2 bounced at base");
+            }
+            if (ball2_pos >= state.foldPoint - 1) {
+                float excess = ball2_pos - (state.foldPoint - 1);
+                ball2_pos = (state.foldPoint - 1) - excess;
+                ball2_vel = -ball2_vel;
+                Serial.println("[DUAL_PONG] Ball 2 bounced at tip");
+            }
+        }
 
-            // Ball 1 cancellata
-            ball1_active = false;
+        // BALL-TO-BALL ELASTIC COLLISION (conservazione momento e energia)
+        if (ball1_active && ball2_active) {
+            float distance = abs(ball1_pos - ball2_pos);
+            const float collisionRadius = 6.0f;  // Raggio di collisione (pixel)
 
-            // Salva il colore complementare per la prossima palla
-            collapsedBallHue = ball2_hue + 128;
+            if (distance < collisionRadius) {
+                // COLLISIONE ELASTICA 1D (masse uguali)
+                // Formule: v1' = v2, v2' = v1 (scambio velocità)
+                float temp = ball1_vel;
+                ball1_vel = ball2_vel;
+                ball2_vel = temp;
 
-            Serial.println("[DUAL_PONG] Ball 1 DELETED! Ball 2 continues alone, waiting for respawn...");
+                // Separa le palle per evitare overlap
+                float overlap = collisionRadius - distance;
+                float separation = overlap / 2.0f;
+
+                if (ball1_pos < ball2_pos) {
+                    ball1_pos -= separation;
+                    ball2_pos += separation;
+                } else {
+                    ball1_pos += separation;
+                    ball2_pos -= separation;
+                }
+
+                Serial.println("[DUAL_PONG] Elastic collision between balls!");
+            }
         }
     }
 
-    // Update positions (physics integration) - solo per palle attive
-    if (ball1_active) {
-        ball1_pos += ball1_vel * ball1_speed * deltaTime;
-    }
-    if (ball2_active) {
-        ball2_pos += ball2_vel * ball2_speed * deltaTime;
+    // ═══════════════════════════════════════════════════════════
+    // STABILITY CHECK - Collasso quando velocità critiche
+    // ═══════════════════════════════════════════════════════════
+
+    // Massima velocità renderizzabile (oltre questa la palla scompare)
+    float maxRenderSpeed = 1.5f;  // pixel/ms (circa 1 LED ogni frame a 60fps)
+
+    if (!singleBallMode && (now - lastCollapseTime) > 2000) {
+        // Check se una delle due palle ha superato velocità critica
+        bool ball1_critical = ball1_active && (abs(ball1_vel) > maxRenderSpeed);
+        bool ball2_critical = ball2_active && (abs(ball2_vel) > maxRenderSpeed);
+
+        if (ball1_critical || ball2_critical) {
+            // COLLASSO DEL SISTEMA!
+            singleBallMode = true;
+            lastCollapseTime = now;
+
+            if (ball1_critical && !ball2_critical) {
+                // Ball 1 troppo veloce: VINCE!
+                Serial.println("[DUAL_PONG] COLLAPSE! Ball 1 too fast - Ball 2 DELETED");
+                ball2_active = false;
+
+                // Promuovi ball1: cambia colore
+                ball1_hue = ball1_hue + random8(80, 160);
+
+                // Reset velocità ball1 a valore base FISSO
+                ball1_vel = (ball1_vel > 0) ? FIXED_BASE_SPEED : -FIXED_BASE_SPEED;
+
+                // Colore per prossima spawn (complementare)
+                nextBallHue = ball1_hue + 128;
+
+            } else if (ball2_critical && !ball1_critical) {
+                // Ball 2 troppo veloce: VINCE!
+                Serial.println("[DUAL_PONG] COLLAPSE! Ball 2 too fast - Ball 1 DELETED");
+                ball1_active = false;
+
+                ball2_hue = ball2_hue + random8(80, 160);
+
+                // Reset velocità ball2 a valore base FISSO
+                ball2_vel = (ball2_vel > 0) ? FIXED_BASE_SPEED : -FIXED_BASE_SPEED;
+
+                nextBallHue = ball2_hue + 128;
+
+            } else {
+                // Entrambe critiche (caso raro): vince una a caso
+                if (random8() < 128) {
+                    ball2_active = false;
+                    ball1_hue = ball1_hue + random8(80, 160);
+                    ball1_vel = (ball1_vel > 0) ? FIXED_BASE_SPEED : -FIXED_BASE_SPEED;
+                    nextBallHue = ball1_hue + 128;
+                    Serial.println("[DUAL_PONG] COLLAPSE! Both critical - Ball 1 WINS");
+                } else {
+                    ball1_active = false;
+                    ball2_hue = ball2_hue + random8(80, 160);
+                    ball2_vel = (ball2_vel > 0) ? FIXED_BASE_SPEED : -FIXED_BASE_SPEED;
+                    nextBallHue = ball2_hue + 128;
+                    Serial.println("[DUAL_PONG] COLLAPSE! Both critical - Ball 2 WINS");
+                }
+            }
+
+            // Reset perturbazione
+            perturbTarget = 0;
+            perturbAccumulator = 0;
+        }
     }
 
-    // ELASTIC COLLISION with boundaries (perfect bounce)
-    if (ball1_active) {
-        if (ball1_pos <= 0) {
-            ball1_pos = 0;
-            ball1_vel = abs(ball1_vel);  // Reverse direction (bounce)
-        }
-        if (ball1_pos >= state.foldPoint - 1) {
-            ball1_pos = state.foldPoint - 1;
-            ball1_vel = -abs(ball1_vel);  // Reverse direction (bounce)
+    // ═══════════════════════════════════════════════════════════
+    // RESPAWN LOGIC - Generazione nuova palla con LAMPO
+    // ═══════════════════════════════════════════════════════════
+
+    if (singleBallMode) {
+        // Condizione di respawn: palla solitaria è alla punta (>85%) e torna verso base (vel < 0)
+        float tipThreshold = state.foldPoint * 0.85f;
+
+        bool ball1_at_tip_returning = ball1_active && (ball1_pos > tipThreshold) && (ball1_vel < 0);
+        bool ball2_at_tip_returning = ball2_active && (ball2_pos > tipThreshold) && (ball2_vel < 0);
+
+        if (ball1_at_tip_returning || ball2_at_tip_returning) {
+            // SPAWN NUOVA PALLA DALLA BASE CON LAMPO!
+            singleBallMode = false;
+            spawnFlashBrightness = 255;
+
+            if (!ball2_active) {
+                // Respawn ball2
+                ball2_active = true;
+                ball2_pos = 0.0f;  // Base della lama
+                ball2_vel = FIXED_BASE_SPEED;  // Va verso la punta con velocità FISSA
+                ball2_hue = nextBallHue;
+                Serial.println("[DUAL_PONG] *** FLASH! Ball 2 SPAWNED from base ***");
+            } else {
+                // Respawn ball1
+                ball1_active = true;
+                ball1_pos = 0.0f;
+                ball1_vel = FIXED_BASE_SPEED;  // Va verso la punta con velocità FISSA
+                ball1_hue = nextBallHue;
+                Serial.println("[DUAL_PONG] *** FLASH! Ball 1 SPAWNED from base ***");
+            }
         }
     }
 
-    if (ball2_active) {
-        if (ball2_pos <= 0) {
-            ball2_pos = 0;
-            ball2_vel = abs(ball2_vel);  // Reverse direction (bounce)
-        }
-        if (ball2_pos >= state.foldPoint - 1) {
-            ball2_pos = state.foldPoint - 1;
-            ball2_vel = -abs(ball2_vel);  // Reverse direction (bounce)
-        }
-    }
-
-    // RESPAWN LOGIC: quando la palla solitaria è in fondo alla punta e torna verso la base
-    if (waitingForRespawn) {
-        float tipPoint = state.foldPoint * 0.9f;  // Vicino alla punta (90%)
-
-        // Check se la palla attiva è alla punta e va verso la base (velocità negativa)
-        if (ball1_active && ball1_pos > tipPoint && ball1_vel < 0) {
-            // Ball 1 è solitaria alla punta e torna indietro: spawn Ball 2 dalla base
-            ball2_active = true;
-            ball2_pos = 0;  // Spawn dalla base
-            ball2_vel = baseSpeed;  // Va verso la punta
-            ball2_hue = collapsedBallHue;
-            spawnFlashBrightness = 255;  // Lampo iniziale!
-            waitingForRespawn = false;
-            Serial.println("[DUAL_PONG] Ball 2 SPAWNED from base with FLASH!");
-        }
-        else if (ball2_active && ball2_pos > tipPoint && ball2_vel < 0) {
-            // Ball 2 è solitaria alla punta e torna indietro: spawn Ball 1 dalla base
-            ball1_active = true;
-            ball1_pos = 0;  // Spawn dalla base
-            ball1_vel = baseSpeed;  // Va verso la punta
-            ball1_hue = collapsedBallHue;
-            spawnFlashBrightness = 255;  // Lampo iniziale!
-            waitingForRespawn = false;
-            Serial.println("[DUAL_PONG] Ball 1 SPAWNED from base with FLASH!");
-        }
-    }
-
-    // Fade del lampo di spawn
+    // Decay del lampo di spawn
     if (spawnFlashBrightness > 0) {
-        spawnFlashBrightness = qsub8(spawnFlashBrightness, 15);  // Fade rapido
+        spawnFlashBrightness = qsub8(spawnFlashBrightness, 20);  // Fade veloce
     }
 
     _lastDualPulseUpdate = now;
 
-    // RENDERING: base scura con palle colorate brillanti
+    // ═══════════════════════════════════════════════════════════
+    // RENDERING - Palle colorate su sfondo scuro
+    // ═══════════════════════════════════════════════════════════
+
     uint8_t safeBrightness = min(state.brightness, MAX_SAFE_BRIGHTNESS);
-    const uint8_t ballWidth = 8;  // Width of each ball
+    const float ballRadius = 6.0f;  // Raggio rendering palla (pixel)
 
     for (uint16_t i = 0; i < state.foldPoint; i++) {
-        // Dark base for contrast
-        uint8_t brightness = 20;
         CRGB color = CRGB::Black;
+        uint8_t brightness = 15;  // Base scura per contrasto
 
-        // SPAWN FLASH EFFECT: lampo bianco alla base quando spawna una nuova palla
-        if (spawnFlashBrightness > 0 && i < 15) {
-            // Lampo localizzato alla base (primi 15 LED)
-            uint8_t flashIntensity = map(i, 0, 15, spawnFlashBrightness, 0);
+        // LAMPO DI SPAWN (flash bianco alla base)
+        if (spawnFlashBrightness > 0 && i < 20) {
+            // Gradiente del flash dalla base (gaussiano)
+            float flashDist = i / 20.0f;  // [0, 1]
+            uint8_t flashIntensity = spawnFlashBrightness * (1.0f - flashDist * flashDist);
+
             CRGB flashColor = CRGB(flashIntensity, flashIntensity, flashIntensity);
             color.r = qadd8(color.r, flashColor.r);
             color.g = qadd8(color.g, flashColor.g);
             color.b = qadd8(color.b, flashColor.b);
-            brightness = qadd8(brightness, flashIntensity / 2);
         }
 
-        // Ball 1 rendering (smooth gradient) - SOLO SE ATTIVA
+        // BALL 1 RENDERING (gradiente gaussiano per smoothness)
         if (ball1_active) {
             float dist1 = abs((float)i - ball1_pos);
-            if (dist1 < ballWidth) {
-                uint8_t ballBrightness = map(dist1 * 10, 0, ballWidth * 10, 255, 30);
-                CRGB ball1Color = CHSV(ball1_hue, 255, ballBrightness);
+            if (dist1 < ballRadius * 2.0f) {
+                // Profilo gaussiano: I = I_max * exp(-dist²/(2σ²))
+                // σ = ballRadius / √(2π) per normalizzazione visiva
+                const float sigma = ballRadius / 2.5066f;  // √(2π) ≈ 2.5066
+                float gaussian = expf(-(dist1 * dist1) / (2.0f * sigma * sigma));
+                uint8_t ballBrightness = 255 * gaussian;
 
-                // Blend with existing color
-                if (ballBrightness > brightness) {
-                    color = ball1Color;
-                    brightness = ballBrightness;
+                if (ballBrightness > 30) {  // Soglia visibilità
+                    CRGB ball1Color = CHSV(ball1_hue, 255, ballBrightness);
+
+                    if (ballBrightness > brightness) {
+                        color = ball1Color;
+                        brightness = ballBrightness;
+                    }
                 }
             }
         }
 
-        // Ball 2 rendering (smooth gradient) - SOLO SE ATTIVA
+        // BALL 2 RENDERING
         if (ball2_active) {
             float dist2 = abs((float)i - ball2_pos);
-            if (dist2 < ballWidth) {
-                uint8_t ballBrightness = map(dist2 * 10, 0, ballWidth * 10, 255, 30);
-                CRGB ball2Color = CHSV(ball2_hue, 255, ballBrightness);
+            if (dist2 < ballRadius * 2.0f) {
+                const float sigma = ballRadius / 2.5066f;
+                float gaussian = expf(-(dist2 * dist2) / (2.0f * sigma * sigma));
+                uint8_t ballBrightness = 255 * gaussian;
 
-                // Blend with existing color (additive for overlap)
-                if (ballBrightness > brightness) {
-                    // Additive blend if balls overlap
-                    color.r = qadd8(color.r, ball2Color.r);
-                    color.g = qadd8(color.g, ball2Color.g);
-                    color.b = qadd8(color.b, ball2Color.b);
+                if (ballBrightness > 30) {
+                    CRGB ball2Color = CHSV(ball2_hue, 255, ballBrightness);
+
+                    // Se le palle si sovrappongono: blend additivo
+                    if (ballBrightness > brightness / 2) {
+                        color.r = qadd8(color.r, ball2Color.r);
+                        color.g = qadd8(color.g, ball2Color.g);
+                        color.b = qadd8(color.b, ball2Color.b);
+                    }
                 }
             }
         }
 
-        // Apply brightness scaling
+        // Apply global brightness scaling
         color = scaleColorByBrightness(color, safeBrightness);
         setLedPair(i, state.foldPoint, color);
     }
