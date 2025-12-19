@@ -77,19 +77,19 @@ void LedEffectEngine::render(const LedState& state, const MotionProcessor::Proce
             if (state.effect == "solid") {
                 renderSolid(state, motion ? motion->perturbationGrid : nullptr);
             } else if (state.effect == "rainbow") {
-                renderRainbow(state);
+                renderRainbow(state, motion ? motion->perturbationGrid : nullptr);
             } else if (state.effect == "breathe") {
-                renderBreathe(state);
+                renderBreathe(state, motion ? motion->perturbationGrid : nullptr);
             } else if (state.effect == "flicker") {
                 renderFlicker(state, motion ? motion->perturbationGrid : nullptr);
             } else if (state.effect == "unstable") {
                 renderUnstable(state, motion ? motion->perturbationGrid : nullptr);
             } else if (state.effect == "pulse") {
-                renderPulse(state);
+                renderPulse(state, motion ? motion->perturbationGrid : nullptr);
             } else if (state.effect == "dual_pulse") {
-                renderDualPulse(state);
+                renderDualPulse(state, motion ? motion->perturbationGrid : nullptr);
             } else if (state.effect == "rainbow_blade") {
-                renderRainbowBlade(state);
+                renderRainbowBlade(state, motion ? motion->perturbationGrid : nullptr);
             } else if (state.effect == "ignition") {
                 // Manual ignition effect (user triggered)
                 renderIgnition(state);
@@ -154,27 +154,31 @@ void LedEffectEngine::renderSolid(const LedState& state, const uint8_t perturbat
         return;
     }
 
-    // Apply perturbations
+    // Apply DYNAMIC perturbations - blade breathes with motion
     uint8_t safeBrightness = min(state.brightness, MAX_SAFE_BRIGHTNESS);
 
     for (uint16_t i = 0; i < state.foldPoint; i++) {
-        // Map LED logical position i to grid column
-        // foldPoint LEDs -> 8 columns
         uint8_t col = map(i, 0, state.foldPoint - 1, 0, 7);
-        uint8_t row = 3;  // Center row (simulates blade axis)
 
-        uint8_t perturbation = perturbationGrid[row][col];
+        // Sample multiple rows for fuller effect
+        uint8_t maxPerturbation = 0;
+        for (uint8_t row = 2; row <= 4; row++) {
+            maxPerturbation = max(maxPerturbation, perturbationGrid[row][col]);
+        }
 
-        if (perturbation > 15) {  // Threshold minimum
-            // Apply local perturbation: add noise to brightness
-            uint8_t noise = random8(perturbation / 2);
+        if (maxPerturbation > 10) {  // More sensitive threshold
+            // BREATHING EFFECT: motion makes blade pulse locally
+            // Subtle darkening creates visual "wind" effect
+            uint8_t breathEffect = scale8(maxPerturbation, 100);  // 0-100 fade
+            uint8_t randomNoise = random8(breathEffect / 3);      // Add organic variation
+
             CRGB perturbedColor = baseColor;
-            perturbedColor.fadeToBlackBy(noise);
+            perturbedColor.fadeToBlackBy(breathEffect / 2 + randomNoise);
 
             perturbedColor = scaleColorByBrightness(perturbedColor, safeBrightness);
             setLedPair(i, state.foldPoint, perturbedColor);
         } else {
-            // No perturbation: base color
+            // Stable area: full color
             CRGB scaledColor = scaleColorByBrightness(baseColor, safeBrightness);
             setLedPair(i, state.foldPoint, scaledColor);
         }
@@ -183,20 +187,84 @@ void LedEffectEngine::renderSolid(const LedState& state, const uint8_t perturbat
     // Note: Brightness scaling already applied, will be set globally in render()
 }
 
-void LedEffectEngine::renderRainbow(const LedState& state) {
+void LedEffectEngine::renderRainbow(const LedState& state, const uint8_t perturbationGrid[6][8]) {
     uint8_t step = map(state.speed, 1, 255, 1, 15);
     if (step == 0) step = 1;
-    fill_rainbow(_leds, _numLeds, _hue, 256 / _numLeds);
+
+    if (perturbationGrid == nullptr) {
+        // No motion: classic rainbow
+        fill_rainbow(_leds, _numLeds, _hue, 256 / _numLeds);
+    } else {
+        // MOTION SHIMMER: movement creates saturation/brightness waves
+        for (uint16_t i = 0; i < _numLeds; i++) {
+            uint8_t hue = _hue + (i * 256 / _numLeds);
+
+            // Map physical LED to grid column
+            uint16_t logicalPos = (i < _numLeds / 2) ? i : (_numLeds - 1 - i);
+            uint8_t col = map(logicalPos, 0, state.foldPoint - 1, 0, 7);
+
+            // Average perturbation
+            uint16_t perturbSum = 0;
+            for (uint8_t row = 1; row <= 4; row++) {
+                perturbSum += perturbationGrid[row][col];
+            }
+            uint8_t avgPerturbation = perturbSum / 4;
+
+            // Motion creates shimmer: vary saturation and brightness
+            uint8_t saturation = 255;
+            uint8_t brightness = 255;
+
+            if (avgPerturbation > 15) {
+                // Shimmer effect: reduce saturation, boost brightness
+                saturation = 255 - scale8(avgPerturbation, 80);
+                brightness = 255;  // Keep bright when moving
+            }
+
+            _leds[i] = CHSV(hue, saturation, brightness);
+        }
+    }
+
     _hue += step;
 }
 
-void LedEffectEngine::renderBreathe(const LedState& state) {
+void LedEffectEngine::renderBreathe(const LedState& state, const uint8_t perturbationGrid[6][8]) {
     uint8_t breath = beatsin8(state.speed, 0, 255);
-    fill_solid(_leds, _numLeds, CRGB(state.r, state.g, state.b));
-    // Brightness will be applied in render() as scale8(breath, brightness)
-    // Store breath value in a temporary variable for now - apply directly via brightness override
     uint8_t safeBrightness = min(state.brightness, MAX_SAFE_BRIGHTNESS);
-    _breathOverride = scale8(breath, safeBrightness);
+
+    if (perturbationGrid == nullptr) {
+        // No motion: classic breathe
+        fill_solid(_leds, _numLeds, CRGB(state.r, state.g, state.b));
+        _breathOverride = scale8(breath, safeBrightness);
+    } else {
+        // MOTION BREATHING: movement adds local breath variations
+        CRGB baseColor = CRGB(state.r, state.g, state.b);
+
+        for (uint16_t i = 0; i < state.foldPoint; i++) {
+            uint8_t col = map(i, 0, state.foldPoint - 1, 0, 7);
+
+            // Sample perturbation
+            uint16_t perturbSum = 0;
+            for (uint8_t row = 2; row <= 4; row++) {
+                perturbSum += perturbationGrid[row][col];
+            }
+            uint8_t avgPerturbation = perturbSum / 3;
+
+            // Motion modulates breath: creates wave-like breathing
+            uint8_t localBreath = breath;
+            if (avgPerturbation > 20) {
+                // Phase shift based on perturbation (creates traveling waves)
+                uint8_t phaseShift = scale8(avgPerturbation, 60);
+                localBreath = qadd8(localBreath, phaseShift);
+            }
+
+            CRGB breathColor = baseColor;
+            breathColor.fadeToBlackBy(255 - localBreath);
+
+            setLedPair(i, state.foldPoint, breathColor);
+        }
+
+        _breathOverride = scale8(breath, safeBrightness);
+    }
 }
 
 void LedEffectEngine::renderFlicker(const LedState& state, const uint8_t perturbationGrid[6][8]) {
@@ -207,15 +275,28 @@ void LedEffectEngine::renderFlicker(const LedState& state, const uint8_t perturb
     for (uint16_t i = 0; i < state.foldPoint; i++) {
         uint8_t noise = random8(flickerIntensity);
 
-        // Enhance with perturbation if available
+        // KYLO REN STYLE: Motion perturbations VIOLENTLY disturb the blade
         if (perturbationGrid != nullptr) {
             uint8_t col = map(i, 0, state.foldPoint - 1, 0, 7);
-            uint8_t row = 3;
-            uint8_t perturbation = perturbationGrid[row][col];
-            noise = qadd8(noise, perturbation / 4);  // Add 25% of perturbation
+
+            // Sample multiple rows to create wider perturbation effect
+            uint8_t perturbSum = 0;
+            for (uint8_t row = 2; row <= 4; row++) {  // Center 3 rows
+                perturbSum = qadd8(perturbSum, perturbationGrid[row][col] / 3);
+            }
+
+            // AGGRESSIVE: Motion adds MAJOR instability (up to 150% of base flicker)
+            uint8_t motionBoost = scale8(perturbSum, 200);  // Amplify perturbation
+            noise = qadd8(noise, motionBoost);
+
+            // Add random spikes when motion is high (mimics unstable plasma)
+            if (perturbSum > 60 && random8() < 80) {
+                noise = qadd8(noise, random8(40, 100));
+            }
         }
 
-        uint8_t brightness = 255 - (noise / 2);
+        // Clamp noise and convert to brightness
+        uint8_t brightness = 255 - min(noise, (uint8_t)200);  // Don't go completely black
 
         CRGB flickeredColor = baseColor;
         flickeredColor.fadeToBlackBy(255 - brightness);
@@ -237,28 +318,51 @@ void LedEffectEngine::renderUnstable(const LedState& state, const uint8_t pertur
         _unstableHeat[i] = qsub8(_unstableHeat[i], random8(5, 15));
     }
 
-    // Add sparks (base randomness + perturbation boost)
+    // Add sparks (base randomness + MOTION-TRIGGERED PLASMA ERUPTIONS)
     uint8_t sparkChance = state.speed / 2;
 
     if (perturbationGrid != nullptr) {
-        // Increase spark chance in high-perturbation areas
+        // MOTION CREATES PLASMA CHAOS: scan all rows for maximum instability
         for (uint8_t col = 0; col < 8; col++) {
-            uint8_t perturbation = perturbationGrid[3][col];
-            if (perturbation > 50 && random8() < (sparkChance + perturbation / 4)) {
+            uint8_t maxPerturbation = 0;
+            for (uint8_t row = 0; row < 6; row++) {
+                maxPerturbation = max(maxPerturbation, perturbationGrid[row][col]);
+            }
+
+            // Motion-triggered eruptions: MORE AGGRESSIVE
+            if (maxPerturbation > 30) {  // Lower threshold
                 uint16_t pos = map(col, 0, 7, 0, maxIndex - 1);
-                _unstableHeat[pos] = qadd8(_unstableHeat[pos], random8(100, 200));
+
+                // High motion = EXPLOSIVE sparks
+                uint8_t eruptionChance = sparkChance + scale8(maxPerturbation, 150);
+                if (random8() < eruptionChance) {
+                    // VIOLENT eruption: add major heat
+                    _unstableHeat[pos] = qadd8(_unstableHeat[pos], random8(150, 255));
+
+                    // Spread chaos to neighbors (plasma arc effect)
+                    if (pos > 0) {
+                        _unstableHeat[pos - 1] = qadd8(_unstableHeat[pos - 1], random8(80, 150));
+                    }
+                    if (pos < maxIndex - 1) {
+                        _unstableHeat[pos + 1] = qadd8(_unstableHeat[pos + 1], random8(80, 150));
+                    }
+                }
             }
         }
     }
 
+    // Base random sparks (less frequent now)
     if (random8() < sparkChance) {
         uint16_t pos = random16(maxIndex);
-        _unstableHeat[pos] = qadd8(_unstableHeat[pos], random8(100, 200));
+        _unstableHeat[pos] = qadd8(_unstableHeat[pos], random8(100, 180));
     }
 
-    // Render
+    // Render with enhanced contrast
     for (uint16_t i = 0; i < maxIndex; i++) {
-        uint8_t brightness = scale8(255, 200 + (_unstableHeat[i] / 4));
+        // More dramatic brightness swing
+        uint8_t heatBrightness = _unstableHeat[i];
+        uint8_t brightness = 180 + (heatBrightness / 3);  // 180-255 range (darker base)
+
         CRGB unstableColor = baseColor;
         unstableColor.fadeToBlackBy(255 - brightness);
         unstableColor = scaleColorByBrightness(unstableColor, safeBrightness);
@@ -269,7 +373,7 @@ void LedEffectEngine::renderUnstable(const LedState& state, const uint8_t pertur
     // Note: Brightness scaling already applied, will be set globally in render()
 }
 
-void LedEffectEngine::renderPulse(const LedState& state) {
+void LedEffectEngine::renderPulse(const LedState& state, const uint8_t perturbationGrid[6][8]) {
     const unsigned long now = millis();
     uint16_t pulseSpeed = map(state.speed, 1, 255, 80, 1);
 
@@ -285,24 +389,41 @@ void LedEffectEngine::renderPulse(const LedState& state) {
     for (uint16_t i = 0; i < state.foldPoint; i++) {
         int16_t distance = abs((int16_t)i - (int16_t)_pulsePosition);
 
+        uint8_t brightness;
         if (distance < pulseWidth) {
-            uint8_t brightness = map(distance, 0, pulseWidth, 255, 150);
-            CRGB pulseColor = baseColor;
-            pulseColor.fadeToBlackBy(255 - brightness);
-            pulseColor = scaleColorByBrightness(pulseColor, safeBrightness);
-            setLedPair(i, state.foldPoint, pulseColor);
+            brightness = map(distance, 0, pulseWidth, 255, 150);
         } else {
-            CRGB dimColor = baseColor;
-            dimColor.fadeToBlackBy(255 - 150);
-            dimColor = scaleColorByBrightness(dimColor, safeBrightness);
-            setLedPair(i, state.foldPoint, dimColor);
+            brightness = 150;
         }
+
+        // MOTION RIPPLES: movement creates brightness waves along the blade
+        if (perturbationGrid != nullptr) {
+            uint8_t col = map(i, 0, state.foldPoint - 1, 0, 7);
+
+            // Average perturbation across rows for smoother effect
+            uint16_t perturbSum = 0;
+            for (uint8_t row = 1; row <= 4; row++) {
+                perturbSum += perturbationGrid[row][col];
+            }
+            uint8_t avgPerturbation = perturbSum / 4;
+
+            // Motion creates ripples: brighten where there's movement
+            if (avgPerturbation > 20) {
+                uint8_t rippleBoost = scale8(avgPerturbation, 80);  // Up to +80 brightness
+                brightness = qadd8(brightness, rippleBoost);
+            }
+        }
+
+        CRGB pulseColor = baseColor;
+        pulseColor.fadeToBlackBy(255 - brightness);
+        pulseColor = scaleColorByBrightness(pulseColor, safeBrightness);
+        setLedPair(i, state.foldPoint, pulseColor);
     }
 
     // Note: Brightness scaling already applied, will be set globally in render()
 }
 
-void LedEffectEngine::renderDualPulse(const LedState& state) {
+void LedEffectEngine::renderDualPulse(const LedState& state, const uint8_t perturbationGrid[6][8]) {
     const unsigned long now = millis();
 
     if (_pulse2Pos == 0 && _pulse1Pos == 0) {
@@ -333,6 +454,28 @@ void LedEffectEngine::renderDualPulse(const LedState& state) {
             brightness = max(brightness, (uint8_t)map(dist2, 0, pulseWidth, 255, 150));
         }
 
+        // DUAL MOTION RIPPLES: movement creates interference patterns
+        if (perturbationGrid != nullptr) {
+            uint8_t col = map(i, 0, state.foldPoint - 1, 0, 7);
+
+            // Sample perturbation
+            uint16_t perturbSum = 0;
+            for (uint8_t row = 1; row <= 4; row++) {
+                perturbSum += perturbationGrid[row][col];
+            }
+            uint8_t avgPerturbation = perturbSum / 4;
+
+            // Motion creates interference: both brighten AND darken for contrast
+            if (avgPerturbation > 25) {
+                // Alternating pattern based on position
+                if ((i + (now / 100)) % 2 == 0) {
+                    brightness = qadd8(brightness, scale8(avgPerturbation, 60));
+                } else {
+                    brightness = qsub8(brightness, scale8(avgPerturbation, 30));
+                }
+            }
+        }
+
         CRGB dualPulseColor = baseColor;
         dualPulseColor.fadeToBlackBy(255 - brightness);
         dualPulseColor = scaleColorByBrightness(dualPulseColor, safeBrightness);
@@ -342,13 +485,43 @@ void LedEffectEngine::renderDualPulse(const LedState& state) {
     // Note: Brightness scaling already applied, will be set globally in render()
 }
 
-void LedEffectEngine::renderRainbowBlade(const LedState& state) {
+void LedEffectEngine::renderRainbowBlade(const LedState& state, const uint8_t perturbationGrid[6][8]) {
     uint8_t hueStep = map(state.speed, 1, 255, 1, 15);
     if (hueStep == 0) hueStep = 1;
 
     for (uint16_t i = 0; i < state.foldPoint; i++) {
         uint8_t hue = _rainbowHue + (i * 256 / state.foldPoint);
-        CRGB rainbowColor = CHSV(hue, 255, 255);
+        uint8_t saturation = 255;
+        uint8_t brightness = 255;
+
+        // CHROMATIC ABERRATION: motion creates color shifts and sparkles
+        if (perturbationGrid != nullptr) {
+            uint8_t col = map(i, 0, state.foldPoint - 1, 0, 7);
+
+            // Sample perturbation
+            uint16_t perturbSum = 0;
+            for (uint8_t row = 2; row <= 4; row++) {
+                perturbSum += perturbationGrid[row][col];
+            }
+            uint8_t avgPerturbation = perturbSum / 3;
+
+            if (avgPerturbation > 12) {
+                // Motion creates chromatic shimmer: hue shift + saturation pulse
+                int8_t hueShift = (avgPerturbation / 4) - 32;  // ±32 hue shift
+                hue = hue + hueShift;
+
+                // Sparkle effect: reduce saturation = more white
+                saturation = 255 - scale8(avgPerturbation, 120);
+
+                // Random sparkles on high motion
+                if (avgPerturbation > 50 && random8() < 60) {
+                    saturation = random8(100, 200);  // Deep sparkle
+                    brightness = 255;
+                }
+            }
+        }
+
+        CRGB rainbowColor = CHSV(hue, saturation, brightness);
         setLedPair(i, state.foldPoint, rainbowColor);
     }
 

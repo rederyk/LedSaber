@@ -93,13 +93,13 @@ private:
     // ═══════════════════════════════════════════════════════════
 
     void renderSolid(const LedState& state, const uint8_t perturbationGrid[6][8]);
-    void renderRainbow(const LedState& state);
-    void renderBreathe(const LedState& state);
+    void renderRainbow(const LedState& state, const uint8_t perturbationGrid[6][8]);
+    void renderBreathe(const LedState& state, const uint8_t perturbationGrid[6][8]);
     void renderFlicker(const LedState& state, const uint8_t perturbationGrid[6][8]);
     void renderUnstable(const LedState& state, const uint8_t perturbationGrid[6][8]);
-    void renderPulse(const LedState& state);
-    void renderDualPulse(const LedState& state);
-    void renderRainbowBlade(const LedState& state);
+    void renderPulse(const LedState& state, const uint8_t perturbationGrid[6][8]);
+    void renderDualPulse(const LedState& state, const uint8_t perturbationGrid[6][8]);
+    void renderRainbowBlade(const LedState& state, const uint8_t perturbationGrid[6][8]);
 
     // ═══════════════════════════════════════════════════════════
     // GESTURE-TRIGGERED EFFECTS
