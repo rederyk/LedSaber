@@ -92,6 +92,7 @@ private:
         bool active;               // Is this pulse alive?
         uint8_t size;              // Size multiplier: 1=normal, 2=fused, 3=mega-fused
         uint8_t brightness;        // Max brightness: 200=normal, 255=fused
+        uint8_t width;             // Width locked at spawn
     };
     SecondaryPulse _secondaryPulses[5];  // Up to 5 secondary pulses
     unsigned long _lastSecondarySpawn;
@@ -102,6 +103,7 @@ private:
     uint8_t _unstableHeat[72];  // Buffer per unstable effect
     uint8_t _breathOverride;    // Breathe effect brightness override
 
+    uint8_t _mainPulseWidth;    // Width of the main pulse (locked per cycle)
     unsigned long _lastUpdate;
 
     // ═══════════════════════════════════════════════════════════

@@ -29,7 +29,8 @@ LedEffectEngine::LedEffectEngine(CRGB* leds, uint16_t numLeds) :
     _rainbowHue(0),
     _breathOverride(255),
     _lastUpdate(0),
-    _lastSecondarySpawn(0)
+    _lastSecondarySpawn(0),
+    _mainPulseWidth(20)
 {
     memset(_unstableHeat, 0, sizeof(_unstableHeat));
     // Initialize secondary pulses
@@ -40,6 +41,7 @@ LedEffectEngine::LedEffectEngine(CRGB* leds, uint16_t numLeds) :
         _secondaryPulses[i].velocityPhase = 0;
         _secondaryPulses[i].size = 1;          // Normal size
         _secondaryPulses[i].brightness = 200;  // Normal brightness
+        _secondaryPulses[i].width = 20;        // Default width
     }
 }
 
@@ -452,10 +454,15 @@ void LedEffectEngine::renderPulse(const LedState& state, const uint8_t perturbat
 
     // PULSE WIDTH inversely proportional to speed: faster = narrower pulse
     // Speed 1 (slow) = wide pulse (20 pixels), Speed 255 (fast) = narrow pulse (3 pixels)
-    uint8_t pulseWidth = map(effectiveSpeed, 1, 255, 60, 5);
+    uint8_t targetPulseWidth = map(effectiveSpeed, 1, 255, 60, 5);
+
+    // Update main pulse width ONLY at start of cycle to prevent flickering
+    if (_pulsePosition == 0) {
+        _mainPulseWidth = targetPulseWidth;
+    }
 
     // Travel distance for pulse to completely exit from tip
-    uint16_t totalDistance = state.foldPoint + pulseWidth;
+    uint16_t totalDistance = state.foldPoint + _mainPulseWidth;
 
     // SIMPLIFIED VELOCITY: velocità costante basata su effectiveSpeed
     // La velocità è direttamente proporzionale a effectiveSpeed (che include il boost da movimento)
@@ -507,11 +514,12 @@ void LedEffectEngine::renderPulse(const LedState& state, const uint8_t perturbat
                 int16_t spawnOffset = random16(60) - 30;  // -30 a +30 LED dall'impulso principale
                 int16_t spawnPos = spawnCenter + spawnOffset;
 
-                // Clamp alla blade
+                // Clamp alla blade (evita spawn forzato in punta che crea accumulo)
                 if (spawnPos < 0) spawnPos = 0;
-                if (spawnPos >= state.foldPoint) spawnPos = state.foldPoint - 1;
+                if (spawnPos >= state.foldPoint) continue; // Skip spawn se fuori dalla lama
 
                 _secondaryPulses[i].position = spawnPos;
+                _secondaryPulses[i].width = targetPulseWidth; // Lock width at spawn time
                 _secondaryPulses[i].birthTime = now & 0xFFFF;
                 _secondaryPulses[i].velocityPhase = random8();  // Random starting phase
                 _secondaryPulses[i].active = true;
@@ -537,7 +545,7 @@ void LedEffectEngine::renderPulse(const LedState& state, const uint8_t perturbat
                 _secondaryPulses[i].birthTime = now & 0xFFFF;
 
                 // Kill pulse if it exits the blade
-                if (_secondaryPulses[i].position >= state.foldPoint + pulseWidth) {
+                if (_secondaryPulses[i].position >= state.foldPoint + _secondaryPulses[i].width) {
                     _secondaryPulses[i].active = false;
                 }
             }
@@ -559,8 +567,10 @@ void LedEffectEngine::renderPulse(const LedState& state, const uint8_t perturbat
                 _secondaryPulses[i].size = min(3, _secondaryPulses[i].size + 1);  // Increase size (max 3x)
                 _secondaryPulses[i].brightness = 255;  // MAXIMUM BRIGHTNESS!
 
-                // Keep the FORWARD position (pulse can only grow, never shrink back!)
-                _secondaryPulses[i].position = max(_secondaryPulses[i].position, _secondaryPulses[j].position);
+                // FIX: Non usare max() per la posizione! Questo causa un effetto "surfing" dove i pulse
+                // saltano in avanti a catena, accelerando verso l'uscita e svuotando la striscia.
+                // Manteniamo la posizione del pulse "predatore" (i), assorbendo solo energia da j.
+                // _secondaryPulses[i].position = _secondaryPulses[i].position; // (Implicito)
 
                 // Average velocity phase (keeps moving smoothly)
                 _secondaryPulses[i].velocityPhase = (_secondaryPulses[i].velocityPhase + _secondaryPulses[j].velocityPhase) / 2;
@@ -581,9 +591,9 @@ void LedEffectEngine::renderPulse(const LedState& state, const uint8_t perturbat
         // TRAVELING MAIN PULSE: simple gradient
         int16_t distance = abs((int16_t)i - (int16_t)_pulsePosition);
 
-        if (distance < pulseWidth) {
+        if (distance < _mainPulseWidth) {
             // Main pulse body: bright core with smooth falloff
-            brightness = map(distance, 0, pulseWidth, 255, 60);
+            brightness = map(distance, 0, _mainPulseWidth, 255, 60);
         }
 
         // SECONDARY PULSES: add their contribution with FUSION SUPPORT
@@ -592,7 +602,7 @@ void LedEffectEngine::renderPulse(const LedState& state, const uint8_t perturbat
                 int16_t secDistance = abs((int16_t)i - (int16_t)_secondaryPulses[p].position);
 
                 // Size increases with fusion: 1x, 1.5x, 2x for size 1, 2, 3
-                uint8_t basePulseWidth = pulseWidth / 2;
+                uint8_t basePulseWidth = _secondaryPulses[p].width / 2;
                 uint8_t secPulseWidth = basePulseWidth * _secondaryPulses[p].size / 2;
                 if (secPulseWidth < basePulseWidth) secPulseWidth = basePulseWidth;  // Minimum size
 
