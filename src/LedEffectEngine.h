@@ -62,6 +62,8 @@ private:
     unsigned long _lastRetractionUpdate;
     uint16_t _pulsePosition;
     unsigned long _lastPulseUpdate;
+    uint8_t _pulseCharge;          // 0-255 charge level at base
+    bool _pulseCharging;           // true = charging, false = traveling
     uint16_t _pulse1Pos;
     uint16_t _pulse2Pos;
     unsigned long _lastDualPulseUpdate;

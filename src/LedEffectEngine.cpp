@@ -14,6 +14,8 @@ LedEffectEngine::LedEffectEngine(CRGB* leds, uint16_t numLeds) :
     _lastRetractionUpdate(0),
     _pulsePosition(0),
     _lastPulseUpdate(0),
+    _pulseCharge(0),
+    _pulseCharging(true),
     _pulse1Pos(0),
     _pulse2Pos(0),
     _lastDualPulseUpdate(0),
@@ -357,11 +359,12 @@ void LedEffectEngine::renderUnstable(const LedState& state, const uint8_t pertur
         _unstableHeat[pos] = qadd8(_unstableHeat[pos], random8(120, 200));  // Increased range
     }
 
-    // Render with enhanced contrast
+    // Render with INVERTED mapping: high heat = DARK (perturbations are dark/off)
     for (uint16_t i = 0; i < maxIndex; i++) {
-        // More dramatic brightness swing
+        // INVERTED: heat makes LED darker (perturbations = dark spots)
         uint8_t heatBrightness = _unstableHeat[i];
-        uint8_t brightness = 160 + scale8(heatBrightness, 95);  // 160-255 range (higher base, more contrast)
+        // Inverted mapping: 0 heat = bright (255), max heat = dark (60)
+        uint8_t brightness = 255 - scale8(heatBrightness, 195);  // 255 -> 60 range (high contrast)
 
         CRGB unstableColor = baseColor;
         unstableColor.fadeToBlackBy(255 - brightness);
@@ -375,46 +378,80 @@ void LedEffectEngine::renderUnstable(const LedState& state, const uint8_t pertur
 
 void LedEffectEngine::renderPulse(const LedState& state, const uint8_t perturbationGrid[6][8]) {
     const unsigned long now = millis();
-    uint16_t pulseSpeed = map(state.speed, 1, 255, 50, 1);  // Faster pulse
 
-    if (now - _lastPulseUpdate > pulseSpeed) {
-        _pulsePosition = (_pulsePosition + 1) % state.foldPoint;
+    // Speed calculation based on folded index for synchronization
+    // Total travel distance = foldPoint + pulseWidth (to exit completely from tip)
+    const uint8_t pulseWidth = 15;
+    uint16_t totalDistance = state.foldPoint + pulseWidth;
+
+    // Calculate timing for seamless cycle: charge + travel time
+    uint16_t chargeSpeed = map(state.speed, 1, 255, 30, 3);   // Slower charge (piano)
+    uint16_t travelSpeed = map(state.speed, 1, 255, 20, 1);   // Travel speed
+
+    if (now - _lastPulseUpdate > (_pulseCharging ? chargeSpeed : travelSpeed)) {
+        if (_pulseCharging) {
+            // CHARGING PHASE: accumulate plasma at base
+            _pulseCharge += 15;  // Gradual charge increase
+            if (_pulseCharge >= 255) {
+                // Charge complete, launch pulse
+                _pulseCharging = false;
+                _pulsePosition = 0;
+                _pulseCharge = 255;
+            }
+        } else {
+            // TRAVELING PHASE: move pulse along blade
+            _pulsePosition++;
+            if (_pulsePosition >= totalDistance) {
+                // Pulse has exited tip, restart charge cycle (SEAMLESS)
+                _pulseCharging = true;
+                _pulsePosition = 0;
+                _pulseCharge = 0;
+            }
+        }
         _lastPulseUpdate = now;
     }
 
     CRGB baseColor = CRGB(state.r, state.g, state.b);
     uint8_t safeBrightness = min(state.brightness, MAX_SAFE_BRIGHTNESS);
-    const uint8_t pulseWidth = 15;
 
     for (uint16_t i = 0; i < state.foldPoint; i++) {
-        int16_t distance = abs((int16_t)i - (int16_t)_pulsePosition);
+        uint8_t brightness = 80;  // Dark base
 
-        uint8_t brightness;
-        if (distance < pulseWidth) {
-            // Peak brighter for more contrast
-            brightness = map(distance, 0, pulseWidth, 255, 200);
-        } else if (distance < pulseWidth + 8) {
-            // Depth halo: darker zone around pulse for profondità
-            brightness = map(distance, pulseWidth, pulseWidth + 8, 200, 100);
+        if (_pulseCharging) {
+            // CHARGING: show growing plasma ball at base
+            if (i < 10) {  // Charge zone at base (first 10 LEDs)
+                uint8_t chargeDistance = i;
+                // Brighter at base, fades toward position 10
+                uint8_t chargeBrightness = map(chargeDistance, 0, 10, 255, 100);
+                // Scale by charge level (0-255)
+                chargeBrightness = scale8(chargeBrightness, _pulseCharge);
+                brightness = max(brightness, chargeBrightness);
+            }
         } else {
-            // Darker base for more contrast
-            brightness = 100;
+            // TRAVELING: pulse moves along blade
+            int16_t distance = abs((int16_t)i - (int16_t)_pulsePosition);
+
+            if (distance < pulseWidth) {
+                // Main pulse body
+                brightness = map(distance, 0, pulseWidth, 255, 150);
+            } else if (distance < pulseWidth + 5) {
+                // Trailing halo
+                brightness = map(distance, pulseWidth, pulseWidth + 5, 150, 80);
+            }
         }
 
-        // MOTION RIPPLES: movement creates brightness waves along the blade
+        // MOTION RIPPLES: movement creates brightness waves
         if (perturbationGrid != nullptr) {
             uint8_t col = map(i, 0, state.foldPoint - 1, 0, 7);
 
-            // Average perturbation across rows for smoother effect
             uint16_t perturbSum = 0;
             for (uint8_t row = 1; row <= 4; row++) {
                 perturbSum += perturbationGrid[row][col];
             }
             uint8_t avgPerturbation = perturbSum / 4;
 
-            // Motion creates ripples: brighten where there's movement (increased boost)
             if (avgPerturbation > 20) {
-                uint8_t rippleBoost = scale8(avgPerturbation, 100);  // Up to +100 brightness
+                uint8_t rippleBoost = scale8(avgPerturbation, 100);
                 brightness = qadd8(brightness, rippleBoost);
             }
         }
@@ -451,12 +488,14 @@ void LedEffectEngine::renderDualPulse(const LedState& state, const uint8_t pertu
         int16_t dist1 = abs((int16_t)i - (int16_t)_pulse1Pos);
         int16_t dist2 = abs((int16_t)i - (int16_t)_pulse2Pos);
 
-        uint8_t brightness = 150;
+        // Higher base brightness (180 instead of 150) - more difficult to darken
+        uint8_t brightness = 180;
         if (dist1 < pulseWidth) {
-            brightness = max(brightness, (uint8_t)map(dist1, 0, pulseWidth, 255, 150));
+            // Brighter peak (255 -> 200 instead of 255 -> 150)
+            brightness = max(brightness, (uint8_t)map(dist1, 0, pulseWidth, 255, 200));
         }
         if (dist2 < pulseWidth) {
-            brightness = max(brightness, (uint8_t)map(dist2, 0, pulseWidth, 255, 150));
+            brightness = max(brightness, (uint8_t)map(dist2, 0, pulseWidth, 255, 200));
         }
 
         // DUAL MOTION RIPPLES: movement creates interference patterns
@@ -470,13 +509,15 @@ void LedEffectEngine::renderDualPulse(const LedState& state, const uint8_t pertu
             }
             uint8_t avgPerturbation = perturbSum / 4;
 
-            // Motion creates interference: both brighten AND darken for contrast
+            // Motion creates interference: BOOST brightness more, darken LESS
             if (avgPerturbation > 25) {
                 // Alternating pattern based on position
                 if ((i + (now / 100)) % 2 == 0) {
-                    brightness = qadd8(brightness, scale8(avgPerturbation, 60));
+                    // Increased brightening (80 instead of 60)
+                    brightness = qadd8(brightness, scale8(avgPerturbation, 80));
                 } else {
-                    brightness = qsub8(brightness, scale8(avgPerturbation, 30));
+                    // Reduced darkening (15 instead of 30) - harder to darken
+                    brightness = qsub8(brightness, scale8(avgPerturbation, 15));
                 }
             }
         }
