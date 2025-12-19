@@ -695,6 +695,8 @@ void LedEffectEngine::renderDualPulse(const LedState& state, const uint8_t pertu
     static uint8_t ball2_crackle = 0;
     static unsigned long ball1_lastEdgeSave = 0;
     static unsigned long ball2_lastEdgeSave = 0;
+    static unsigned long ball1_edgeStuckSince = 0;
+    static unsigned long ball2_edgeStuckSince = 0;
 
     // FIXED BASE SPEED (independent of state.speed parameter)
     const float FIXED_BASE_SPEED = 0.10f;  // pixel/ms (rallentata per più controllo)
@@ -728,6 +730,8 @@ void LedEffectEngine::renderDualPulse(const LedState& state, const uint8_t pertu
         ball2_crackleLast = 0;
         ball1_crackle = 0;
         ball2_crackle = 0;
+        ball1_edgeStuckSince = 0;
+        ball2_edgeStuckSince = 0;
         collisionFusionFlash = 0;
         collisionWhiteCore = 0;
         initialized = true;
@@ -1045,9 +1049,14 @@ void LedEffectEngine::renderDualPulse(const LedState& state, const uint8_t pertu
     //   e si trova vicino a una estremità, riceve un impulso di salvataggio.
     // - Se invece viene "tenuta" (tempMass alta) mentre è in grace period, recupera vitalità.
     const float HOLD_TRIGGER_MASS = 0.9f;
-    const float EDGE_SAVE_DISTANCE = 10.0f;  // pixel dalla base/punta
+    const float EDGE_SAVE_DISTANCE = 1.0f;  // pixel dalla base/punta
     const uint8_t EDGE_SAVE_CRACKLE = 120;   // lampeggio "molto"
     const unsigned long EDGE_SAVE_COOLDOWN = 1200;
+    // Edge-save SOLO se la palla è davvero "bloccata" sugli ultimi 2 pixel:
+    // - molto lenta
+    // - ferma lì per un minimo di tempo
+    const float EDGE_SAVE_MAX_VELOCITY = 0.010f;       // pixel/ms
+    const unsigned long EDGE_SAVE_STUCK_TIME = 200;    // ms
 
     auto reviveFromHold = [&](bool active,
                               float& pos,
@@ -1076,6 +1085,27 @@ void LedEffectEngine::renderDualPulse(const LedState& state, const uint8_t pertu
         Serial.println(" HELD - Vitality restored (grace cancelled)");
     };
 
+    auto updateEdgeStuckSince = [&](bool active,
+                                    float pos,
+                                    float vel,
+                                    unsigned long& stuckSince) {
+        if (!active) {
+            stuckSince = 0;
+            return;
+        }
+
+        bool nearBase = (pos <= EDGE_SAVE_DISTANCE);
+        bool nearTip = (pos >= (state.foldPoint - 1.0f - EDGE_SAVE_DISTANCE));
+        bool inLastTwoPixels = (nearBase || nearTip);
+        bool verySlow = (abs(vel) <= EDGE_SAVE_MAX_VELOCITY);
+
+        if (inLastTwoPixels && verySlow) {
+            if (stuckSince == 0) stuckSince = now;
+        } else {
+            stuckSince = 0;
+        }
+    };
+
     auto edgeSave = [&](bool active,
                         float& pos,
                         float& vel,
@@ -1083,6 +1113,7 @@ void LedEffectEngine::renderDualPulse(const LedState& state, const uint8_t pertu
                         unsigned long& invulnTime,
                         uint8_t crackle,
                         unsigned long& lastEdgeSave,
+                        unsigned long& stuckSince,
                         const char* label) {
         if (!active || invulnTime == 0) return;
         if (tempMass >= 0.30f) return;  // se l'utente sta "tenendo" anche poco, non interferire con kick
@@ -1093,18 +1124,26 @@ void LedEffectEngine::renderDualPulse(const LedState& state, const uint8_t pertu
         bool nearTip = (pos >= (state.foldPoint - 1.0f - EDGE_SAVE_DISTANCE));
         if (!nearBase && !nearTip) return;
 
+        // Richiede che sia davvero bloccata sugli ultimi 2 pixel.
+        if (abs(vel) > EDGE_SAVE_MAX_VELOCITY) return;
+        if (stuckSince == 0 || (now - stuckSince) < EDGE_SAVE_STUCK_TIME) return;
+
         vel = nearBase ? fabs(FIXED_BASE_SPEED) : -fabs(FIXED_BASE_SPEED);
         invulnTime = 0;
         lastEdgeSave = now;
+        stuckSince = 0;
         Serial.print("[DUAL_PONG] ");
         Serial.print(label);
         Serial.println(" EDGE SAVE (extremis) - Kick applied");
     };
 
+    updateEdgeStuckSince(ball1_active, ball1_pos, ball1_vel, ball1_edgeStuckSince);
+    updateEdgeStuckSince(ball2_active, ball2_pos, ball2_vel, ball2_edgeStuckSince);
+
     reviveFromHold(ball1_active, ball1_pos, ball1_vel, ball1_tempMass, ball1_invulnTime, ball1_crackle, "Ball 1");
     reviveFromHold(ball2_active, ball2_pos, ball2_vel, ball2_tempMass, ball2_invulnTime, ball2_crackle, "Ball 2");
-    edgeSave(ball1_active, ball1_pos, ball1_vel, ball1_tempMass, ball1_invulnTime, ball1_crackle, ball1_lastEdgeSave, "Ball 1");
-    edgeSave(ball2_active, ball2_pos, ball2_vel, ball2_tempMass, ball2_invulnTime, ball2_crackle, ball2_lastEdgeSave, "Ball 2");
+    edgeSave(ball1_active, ball1_pos, ball1_vel, ball1_tempMass, ball1_invulnTime, ball1_crackle, ball1_lastEdgeSave, ball1_edgeStuckSince, "Ball 1");
+    edgeSave(ball2_active, ball2_pos, ball2_vel, ball2_tempMass, ball2_invulnTime, ball2_crackle, ball2_lastEdgeSave, ball2_edgeStuckSince, "Ball 2");
 
     // Check trigger status (massa temporanea attiva)
     // Impedisce il collasso se c'è stata perturbazione recente (assorbimento bloccato)
