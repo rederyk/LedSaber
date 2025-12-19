@@ -628,8 +628,53 @@ void loop() {
             ledManager.setMode(StatusLedManager::Mode::OTA_BLINK);
         }
         ledManager.updateOtaBlink();  // Blink veloce per indicare OTA
-        // LED strip spento durante OTA - NON chiamare FastLED.show() per non rallentare!
-        // FastLED.show() blocca per diversi ms e rallenta il trasferimento BLE
+
+        // Visualizza progresso OTA sulla striscia LED
+        // Aggiorna solo se progresso è cambiato (riduce overhead FastLED.show())
+        static uint8_t lastOtaProgress = 0;
+        uint8_t currentProgress = otaManager.getProgress();
+
+        if (currentProgress != lastOtaProgress) {
+            lastOtaProgress = currentProgress;
+
+            // Calcola numero LED logici da accendere (rispetta fold point)
+            uint16_t foldPoint = ledState.foldPoint;
+            uint16_t logicalLedsToFill = (foldPoint * currentProgress) / 100;
+
+            // Colore in base allo stato OTA
+            CRGB color;
+            OTAState state = otaManager.getState();
+
+            if (state == OTAState::WAITING) {
+                color = CRGB(128, 0, 128);  // Viola - in attesa del primo chunk
+            } else if (state == OTAState::RECEIVING) {
+                color = CRGB(0, 0, 255);    // Blu - trasferimento in corso
+            } else if (state == OTAState::VERIFYING || state == OTAState::READY) {
+                color = CRGB(0, 255, 0);    // Verde - completato/verifica
+            } else if (state == OTAState::ERROR) {
+                color = CRGB(255, 0, 0);    // Rosso - errore
+            } else {
+                color = CRGB(128, 0, 128);  // Viola - default (IDLE/RECOVERY)
+            }
+
+            // Riempimento progressivo simmetrico dalla base (rispetta fold point)
+            fill_solid(leds, NUM_LEDS, CRGB::Black);
+
+            for (uint16_t i = 0; i < logicalLedsToFill; i++) {
+                // Accende LED simmetrici (base verso punta su entrambi i lati)
+                uint16_t led1 = i;
+                uint16_t led2 = (NUM_LEDS - 1) - i;
+                leds[led1] = color;
+                leds[led2] = color;
+            }
+
+            // Show solo quando cambia % (max 100 chiamate invece di migliaia)
+            FastLED.setBrightness(60);  // Luminosità media per visibilità
+            FastLED.show();
+
+            Serial.printf("[OTA LED] Progress: %u%% | Logical LEDs: %u/%u | Physical LEDs: %u | State: %d\n",
+                currentProgress, logicalLedsToFill, foldPoint, logicalLedsToFill * 2, (int)state);
+        }
     } else {
         // Funzionamento normale
 

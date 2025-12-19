@@ -467,18 +467,23 @@ async def main():
 
         if len(devices) == 1:
             target = devices[0]
+            print(f"{Colors.CYAN}🔁 Connessione automatica a {target.name} ({target.address}){Colors.RESET}")
         else:
             print(f"\n{Colors.BOLD}Dispositivi trovati:{Colors.RESET}")
             for idx, dev in enumerate(devices, 1):
                 print(f"  {idx}. {dev.name} ({dev.address})")
 
-            selection = input(f"\n{Colors.BOLD}Seleziona dispositivo (1-{len(devices)}): {Colors.RESET}")
-            try:
-                idx = int(selection) - 1
-                target = devices[idx]
-            except (ValueError, IndexError):
-                print(f"{Colors.RED}✗ Selezione non valida{Colors.RESET}")
-                sys.exit(1)
+            while True:
+                selection = input(f"\n{Colors.BOLD}Seleziona dispositivo (1-{len(devices)}, Enter per uscire): {Colors.RESET}").strip()
+                if not selection:
+                    print(f"{Colors.YELLOW}↩ Selezione annullata{Colors.RESET}")
+                    sys.exit(0)
+                if selection.isdigit():
+                    idx = int(selection) - 1
+                    if 0 <= idx < len(devices):
+                        target = devices[idx]
+                        break
+                print(f"{Colors.RED}✗ Selezione non valida. Inserisci un numero tra 1 e {len(devices)}{Colors.RESET}")
 
         if not await updater.connect(target.address):
             sys.exit(1)
