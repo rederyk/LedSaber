@@ -24,6 +24,7 @@ public:
 
     struct ProcessedMotion {
         GestureType gesture;
+        uint8_t gestureConfidence;     // 0-100
         uint8_t motionIntensity;      // 0-255 (raw motion intensity)
         OpticalFlowDetector::Direction direction;
         float speed;                   // px/frame
@@ -38,15 +39,19 @@ public:
         uint8_t gestureThreshold;      // Min intensity for gesture (default: 20)
         uint16_t gestureDurationMs;    // Min duration for sustained gestures (default: 100ms)
         uint8_t clashDeltaThreshold;   // Min delta for clash (default: 15)
+        uint16_t clashWindowMs;        // Time window for clash delta (default: 350ms)
+        uint16_t gestureCooldownMs;    // Cooldown after major gesture (default: 800ms)
 
         bool perturbationEnabled;
         uint8_t perturbationScale;     // Perturbation multiplier 0-255 (default: 128)
 
         Config() :
             gesturesEnabled(true),
-            gestureThreshold(20),   // Abbassato da 180 a 20 per movimenti meno intensi
-            gestureDurationMs(100), // Abbassato da 150ms a 100ms per reattività
+            gestureThreshold(12),   // Più sensibile (5fps + mano vicina alla camera)
+            gestureDurationMs(80),  // Più reattivo
             clashDeltaThreshold(15), // Abbassato da 100 a 15 per clash più sensibili
+            clashWindowMs(350),     // 5fps ~200ms/frame: 100ms era troppo stretto
+            gestureCooldownMs(800), // Meno "bloccante" del vecchio 2s
             perturbationEnabled(true),
             perturbationScale(128) {}
     };
@@ -95,6 +100,7 @@ private:
     uint32_t _directionStartTime;
     bool _gestureCooldown;
     uint32_t _gestureCooldownEnd;
+    uint8_t _lastGestureConfidence;
 
     /**
      * @brief Detect gesture from motion data

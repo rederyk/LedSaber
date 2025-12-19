@@ -7,7 +7,8 @@ MotionProcessor::MotionProcessor() :
     _lastDirection(OpticalFlowDetector::Direction::NONE),
     _directionStartTime(0),
     _gestureCooldown(false),
-    _gestureCooldownEnd(0)
+    _gestureCooldownEnd(0),
+    _lastGestureConfidence(0)
 {
 }
 
@@ -24,6 +25,7 @@ MotionProcessor::ProcessedMotion MotionProcessor::process(
     result.speed = speed;
     result.timestamp = timestamp;
     result.gesture = GestureType::NONE;
+    result.gestureConfidence = 0;
 
     // Calculate perturbation grid
     if (_config.perturbationEnabled) {
@@ -35,6 +37,7 @@ MotionProcessor::ProcessedMotion MotionProcessor::process(
     // Detect gestures
     if (_config.gesturesEnabled) {
         result.gesture = _detectGesture(motionIntensity, direction, speed, timestamp);
+        result.gestureConfidence = (result.gesture != GestureType::NONE) ? _lastGestureConfidence : 0;
     }
 
     return result;
@@ -46,6 +49,8 @@ MotionProcessor::GestureType MotionProcessor::_detectGesture(
     float speed,
     uint32_t timestamp)
 {
+    _lastGestureConfidence = 0;
+
     // Cooldown management: prevent gesture spam
     if (_gestureCooldown) {
         if (timestamp < _gestureCooldownEnd) {
@@ -63,17 +68,26 @@ MotionProcessor::GestureType MotionProcessor::_detectGesture(
     }
 
     // CLASH detection: sudden spike in intensity
-    // Check for large delta in short time (< 100ms)
-    if (_lastMotionTime > 0 && (timestamp - _lastMotionTime) < 100) {
+    // Check for large delta in a window suitable for low FPS (default: 350ms)
+    if (_lastMotionTime > 0 && (timestamp - _lastMotionTime) <= _config.clashWindowMs) {
         int16_t deltaIntensity = intensity - _lastIntensity;
         if (deltaIntensity > _config.clashDeltaThreshold) {
             // Clash detected!
             _gestureCooldown = true;
-            _gestureCooldownEnd = timestamp + 1000;  // 1 second cooldown
+            uint16_t cooldownHalf = (uint16_t)(_config.gestureCooldownMs / 2);
+            if (cooldownHalf < 250) cooldownHalf = 250;
+            _gestureCooldownEnd = timestamp + cooldownHalf;
 
             _lastIntensity = intensity;
             _lastDirection = direction;
             _lastMotionTime = timestamp;
+
+            // Confidence: più delta = più confidence
+            int16_t over = deltaIntensity - _config.clashDeltaThreshold;
+            int conf = 50 + (over * 3);
+            if (conf < 0) conf = 0;
+            if (conf > 100) conf = 100;
+            _lastGestureConfidence = (uint8_t)conf;
 
             Serial.printf("[MOTION] CLASH detected! (delta=%d)\n", deltaIntensity);
             return GestureType::CLASH;
@@ -96,16 +110,28 @@ MotionProcessor::GestureType MotionProcessor::_detectGesture(
 
     // IGNITION: UP veloce e sostenuto
     if (direction == OpticalFlowDetector::Direction::UP &&
-        speed > 1.2f &&  // OTTIMIZZATO 5FPS: abbassato da 3.0f a 1.2f
+        speed > 0.6f &&  // Più permissivo (5fps + tracking grossolano)
         intensity > _config.gestureThreshold &&
         duration >= _config.gestureDurationMs)
     {
         _gestureCooldown = true;
-        _gestureCooldownEnd = timestamp + 2000;  // 2 second cooldown
+        _gestureCooldownEnd = timestamp + _config.gestureCooldownMs;
 
         _lastIntensity = intensity;
         _lastDirection = direction;
         _lastMotionTime = timestamp;
+
+        // Confidence: intensity + speed + duration
+        float speedScore = speed / 2.0f;
+        if (speedScore > 1.0f) speedScore = 1.0f;
+        float intScore = (float)(intensity - _config.gestureThreshold) / 60.0f;
+        if (intScore > 1.0f) intScore = 1.0f;
+        float durScore = (float)duration / 300.0f;
+        if (durScore > 1.0f) durScore = 1.0f;
+        int conf = (int)roundf((0.45f * speedScore + 0.35f * intScore + 0.20f * durScore) * 100.0f);
+        if (conf < 0) conf = 0;
+        if (conf > 100) conf = 100;
+        _lastGestureConfidence = (uint8_t)conf;
 
         Serial.printf("[MOTION] IGNITION detected! (speed=%.1f, duration=%ums)\n", speed, duration);
         return GestureType::IGNITION;
@@ -113,31 +139,57 @@ MotionProcessor::GestureType MotionProcessor::_detectGesture(
 
     // RETRACT: DOWN veloce e sostenuto
     if (direction == OpticalFlowDetector::Direction::DOWN &&
-        speed > 1.2f &&  // OTTIMIZZATO 5FPS: abbassato da 3.0f a 1.2f
+        speed > 0.6f &&
         intensity > _config.gestureThreshold &&
         duration >= _config.gestureDurationMs)
     {
         _gestureCooldown = true;
-        _gestureCooldownEnd = timestamp + 2000;  // 2 second cooldown
+        _gestureCooldownEnd = timestamp + _config.gestureCooldownMs;
 
         _lastIntensity = intensity;
         _lastDirection = direction;
         _lastMotionTime = timestamp;
+
+        float speedScore = speed / 2.0f;
+        if (speedScore > 1.0f) speedScore = 1.0f;
+        float intScore = (float)(intensity - _config.gestureThreshold) / 60.0f;
+        if (intScore > 1.0f) intScore = 1.0f;
+        float durScore = (float)duration / 300.0f;
+        if (durScore > 1.0f) durScore = 1.0f;
+        int conf = (int)roundf((0.45f * speedScore + 0.35f * intScore + 0.20f * durScore) * 100.0f);
+        if (conf < 0) conf = 0;
+        if (conf > 100) conf = 100;
+        _lastGestureConfidence = (uint8_t)conf;
 
         Serial.printf("[MOTION] RETRACT detected! (speed=%.1f, duration=%ums)\n", speed, duration);
         return GestureType::RETRACT;
     }
 
     // SWING: LEFT/RIGHT veloce
+    // Include diagonali per catturare movimenti circolari (mano vicina alla camera)
     if ((direction == OpticalFlowDetector::Direction::LEFT ||
-         direction == OpticalFlowDetector::Direction::RIGHT) &&
-        intensity > 10 &&  // OTTIMIZZATO 5FPS: abbassato da 15 a 10
-        speed > 1.0f)      // OTTIMIZZATO 5FPS: abbassato da 2.5f a 1.0f
+         direction == OpticalFlowDetector::Direction::RIGHT ||
+         direction == OpticalFlowDetector::Direction::UP_LEFT ||
+         direction == OpticalFlowDetector::Direction::UP_RIGHT ||
+         direction == OpticalFlowDetector::Direction::DOWN_LEFT ||
+         direction == OpticalFlowDetector::Direction::DOWN_RIGHT) &&
+        intensity >= (uint8_t)max(8, (int)_config.gestureThreshold - 4) &&
+        speed > 0.5f)
     {
         // Note: SWING non ha cooldown lungo, può ripetersi
         _lastIntensity = intensity;
         _lastDirection = direction;
         _lastMotionTime = timestamp;
+
+        float speedScore = speed / 2.0f;
+        if (speedScore > 1.0f) speedScore = 1.0f;
+        uint8_t swingThreshold = (uint8_t)max(1, (int)_config.gestureThreshold - 4);
+        float intScore = (float)(intensity - swingThreshold) / 50.0f;
+        if (intScore > 1.0f) intScore = 1.0f;
+        int conf = (int)roundf((0.55f * speedScore + 0.45f * intScore) * 100.0f);
+        if (conf < 0) conf = 0;
+        if (conf > 100) conf = 100;
+        _lastGestureConfidence = (uint8_t)conf;
 
         Serial.printf("[MOTION] SWING detected! (dir=%s, speed=%.1f)\n",
                      OpticalFlowDetector::directionToString(direction), speed);
@@ -218,6 +270,7 @@ void MotionProcessor::reset() {
     _directionStartTime = 0;
     _gestureCooldown = false;
     _gestureCooldownEnd = 0;
+    _lastGestureConfidence = 0;
 }
 
 const char* MotionProcessor::gestureToString(GestureType gesture) {

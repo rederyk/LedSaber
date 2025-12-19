@@ -50,13 +50,13 @@ ConfigManager configManager(&ledState);
 CameraManager cameraManager;
 BLECameraService bleCameraService(&cameraManager);
 
-// Optical Flow Detector
-OpticalFlowDetector motionDetector;
-BLEMotionService bleMotionService(&motionDetector);
-
 // Motion Processor & LED Effect Engine
 MotionProcessor motionProcessor;
 LedEffectEngine effectEngine(leds, NUM_LEDS);
+
+// Optical Flow Detector
+OpticalFlowDetector motionDetector;
+BLEMotionService bleMotionService(&motionDetector, &motionProcessor);
 
 struct MotionTaskResult {
     bool valid = false;
@@ -603,7 +603,7 @@ void loop() {
         processedMotion = &gCachedMotionResult.processedMotion;
 
         // Update BLE motion service
-        bleMotionService.update(gCachedMotionResult.motionDetected, false);
+        bleMotionService.update(gCachedMotionResult.motionDetected, false, processedMotion);
         if (now - lastMotionStatusNotify > 300) {
             bleMotionService.notifyStatus();
             lastMotionStatusNotify = now;

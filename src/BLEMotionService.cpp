@@ -14,6 +14,9 @@ BLEMotionService::BLEMotionService(OpticalFlowDetector* motionDetector, MotionPr
     , _wasMotionActive(false)
     , _wasShakeDetected(false)
     , _lastEventTime(0)
+    , _lastGesture(MotionProcessor::GestureType::NONE)
+    , _lastGestureConfidence(0)
+    , _lastGestureTime(0)
 {
 }
 
@@ -106,6 +109,8 @@ void BLEMotionService::notifyEvent(const String& eventType) {
     doc["confidence"] = round(metrics.avgConfidence * 100.0f);
     doc["activeBlocks"] = metrics.avgActiveBlocks;
     doc["frameDiff"] = metrics.frameDiff;
+    doc["gesture"] = MotionProcessor::gestureToString(_lastGesture);
+    doc["gestureConfidence"] = _lastGestureConfidence;
 
     String output;
     serializeJson(doc, output);
@@ -119,9 +124,27 @@ void BLEMotionService::notifyEvent(const String& eventType) {
                   eventType.c_str(), (unsigned)output.length());
 }
 
-void BLEMotionService::update(bool motionDetected, bool shakeDetected) {
+void BLEMotionService::update(bool motionDetected, bool shakeDetected, const MotionProcessor::ProcessedMotion* processed) {
     if (!_motionEnabled) {
         return;
+    }
+
+    // Track last gesture from processor (if available)
+    if (processed) {
+        const MotionProcessor::GestureType gesture = processed->gesture;
+        const uint8_t confidence = processed->gestureConfidence;
+        if (gesture != MotionProcessor::GestureType::NONE && confidence > 0) {
+            const unsigned long now = millis();
+            const bool changed = (gesture != _lastGesture);
+            _lastGesture = gesture;
+            _lastGestureConfidence = confidence;
+            _lastGestureTime = now;
+
+            // Optional: emit a specific gesture event (debounced)
+            if (changed && (now - _lastEventTime) >= 120) {
+                notifyEvent("gesture_detected");
+            }
+        }
     }
 
     // Rileva inizio movimento
@@ -169,6 +192,11 @@ String BLEMotionService::_getStatusJson() {
     doc["activeBlocks"] = metrics.avgActiveBlocks;
     doc["computeTimeMs"] = metrics.avgComputeTimeMs;
     doc["frameDiff"] = metrics.frameDiff;
+
+    // Gesture fields (from MotionProcessor via update())
+    doc["gesture"] = MotionProcessor::gestureToString(_lastGesture);
+    doc["gestureConfidence"] = _lastGestureConfidence;
+    doc["gestureTimestamp"] = _lastGestureTime;
 
     // 8x6 grid tags for quick visualization via BLE
     doc["gridRows"] = OpticalFlowDetector::GRID_ROWS;

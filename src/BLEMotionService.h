@@ -61,8 +61,9 @@ public:
      * @brief Aggiorna stato e rileva eventi
      * @param motionDetected Movimento rilevato nel frame corrente
      * @param shakeDetected Shake rilevato
+     * @param processed MotionProcessor output (gesture, ecc.) opzionale
      */
-    void update(bool motionDetected, bool shakeDetected);
+    void update(bool motionDetected, bool shakeDetected, const MotionProcessor::ProcessedMotion* processed = nullptr);
 
 private:
     OpticalFlowDetector* _motion;
@@ -81,6 +82,9 @@ private:
     bool _wasMotionActive;
     bool _wasShakeDetected;
     unsigned long _lastEventTime;
+    MotionProcessor::GestureType _lastGesture;
+    uint8_t _lastGestureConfidence;
+    unsigned long _lastGestureTime;
 
     /**
      * @brief Callback per ricezione comandi
