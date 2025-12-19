@@ -1962,6 +1962,12 @@ void LedEffectEngine::renderChronoHybrid(const LedState& state, const uint8_t pe
         case 3:  // Digital Glitch
             renderChronoHours_Digital(state.foldPoint, baseColor, seconds);
             break;
+        case 4:  // Inferno
+            renderChronoHours_Inferno(state.foldPoint, baseColor, hours);
+            break;
+        case 5:  // Storm
+            renderChronoHours_Storm(state.foldPoint, baseColor, hours);
+            break;
         default:
             renderChronoHours_Classic(state.foldPoint, baseColor);
             break;
@@ -2101,6 +2107,67 @@ void LedEffectEngine::renderChronoHours_Digital(uint16_t foldPoint, CRGB baseCol
                 setLedPair(scanPos, foldPoint, digitColor);
             }
         }
+    }
+}
+
+void LedEffectEngine::renderChronoHours_Inferno(uint16_t foldPoint, CRGB baseColor, uint8_t hours) {
+    // TEMA INFERNO: Letto di braci ardenti e magma
+    // Ideale come sfondo per Fire Clock
+
+    unsigned long now = millis();
+    
+    // Sfondo: Rumore di calore a bassa frequenza
+    for (uint16_t i = 0; i < foldPoint; i++) {
+        // Combina due onde per simulare il movimento del magma
+        uint8_t wave1 = sin8(i * 4 + now / 15);
+        uint8_t wave2 = sin8(i * 9 - now / 22);
+        uint8_t heat = (wave1 + wave2) / 2;
+        
+        // Mappa su colori scuri rosso/arancio (braci)
+        // Hue: 0 (Red) -> 32 (Orange)
+        uint8_t hue = map(heat, 0, 255, 0, 25);
+        uint8_t bri = map(heat, 0, 255, 15, 50); // Dim background
+        
+        CRGB emberColor = CHSV(hue, 255, bri);
+        setLedPair(i, foldPoint, emberColor);
+    }
+
+    // Marker Ore: Punti caldi che pulsano
+    for (uint8_t h = 0; h < 12; h++) {
+        uint16_t pos = map(h, 0, 12, 0, foldPoint);
+        bool isCurrent = (h == hours);
+        
+        // Pulsazione lenta "respiro del drago"
+        uint8_t pulse = beatsin8(isCurrent ? 40 : 15, 120, 255);
+        
+        CRGB markerColor = CHSV(0, 255, isCurrent ? pulse : 80);
+        if (isCurrent) markerColor += CRGB(60, 20, 0); // Core giallo/bianco per l'ora corrente
+        
+        setLedPair(pos, foldPoint, markerColor);
+    }
+}
+
+void LedEffectEngine::renderChronoHours_Storm(uint16_t foldPoint, CRGB baseColor, uint8_t hours) {
+    // TEMA STORM: Nuvole scure ed elettricità statica
+    // Ideale come sfondo per Lightning
+
+    unsigned long now = millis();
+
+    // Sfondo: Nuvole temporalesche (Blu scuro/Viola)
+    for (uint16_t i = 0; i < foldPoint; i++) {
+        uint8_t cloud = sin8(i * 3 + now / 40); // Movimento lento
+        uint8_t hue = map(cloud, 0, 255, 155, 185); // Blue -> Purple
+        uint8_t bri = map(cloud, 0, 255, 5, 30); // Molto scuro
+        setLedPair(i, foldPoint, CHSV(hue, 200, bri));
+    }
+
+    // Marker Ore: Nodi elettrici
+    for (uint8_t h = 0; h < 12; h++) {
+        uint16_t pos = map(h, 0, 12, 0, foldPoint);
+        bool isCurrent = (h == hours);
+        // Jitter elettrico per l'ora corrente
+        uint8_t jitter = isCurrent ? random8(100, 255) : 60;
+        setLedPair(pos, foldPoint, CHSV(140, 180, jitter)); // Cyan elettrico
     }
 }
 

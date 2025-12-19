@@ -613,7 +613,7 @@ class ChronoThemesCard(Static):
     chrono_second_theme: reactive[int] = reactive(0)
     connected: reactive[bool] = reactive(False)
 
-    HOUR_THEMES = ["Classic", "Neon", "Plasma", "Digital"]
+    HOUR_THEMES = ["Classic", "Neon", "Plasma", "Digital", "Inferno", "Storm"]
     SECOND_THEMES = ["Classic", "Spiral", "Fire", "Lightning", "Particle", "Quantum"]
 
     def render(self):
@@ -625,7 +625,7 @@ class ChronoThemesCard(Static):
             second_name = self.SECOND_THEMES[self.chrono_second_theme % len(self.SECOND_THEMES)]
 
             # Icone tematiche
-            hour_icons = ["◎", "◉", "◈", "◆"]
+            hour_icons = ["◎", "◉", "◈", "◆", "🔥", "⚡"]
             second_icons = ["○", "◐", "🔥", "⚡", "●", "◯"]
 
             hour_icon = hour_icons[self.chrono_hour_theme % len(hour_icons)]
