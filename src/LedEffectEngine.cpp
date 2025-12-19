@@ -761,11 +761,11 @@ void LedEffectEngine::renderDualPulse(const LedState& state, const uint8_t pertu
         // Alta massa = palla difficile da spostare (si muove poco se colpita)
         // Bassa massa = palla normale (si muove normalmente)
 
-        if (globalPerturbation > 35) {  // Soglia più alta: trigger più Difficile!
+        if (globalPerturbation > 15) {  // Soglia più alta: trigger più Difficile!
             perturbAccumulator = min(255, perturbAccumulator + (globalPerturbation / 4));  // Accumula più velocemente
 
             // Soglia di attivazione ridotta
-            if (perturbAccumulator > 60) {  // Era 60, ora 40: si attiva prima! meglio 60
+            if (perturbAccumulator > 50) {  // Era 60, ora 40: si attiva prima! meglio 60
                 // Scegli quale palla aumentare di massa (se non già scelta)
                 if (perturbTarget == 0) {
                     perturbTarget = (random8() < 128) ? -1 : 1;
@@ -780,20 +780,20 @@ void LedEffectEngine::renderDualPulse(const LedState& state, const uint8_t pertu
                 if (perturbTarget == -1 && ball1_active) {
                     // Aggiorna massa temporanea smoothly
                     ball1_tempMass = ball1_tempMass * 0.7f + tempMassFromMotion * 0.3f; // Smooth transition
-                    ball1_tempMass = min(ball1_tempMass, 3.0f);  // Cap massimo ridotto da 20 a 3
+                    ball1_tempMass = min(ball1_tempMass, 7.0f);  // Cap massimo ridotto da 20 a 3
 
                     // AGGIUNGI anche massa permanente (MOLTO più lentamente - quasi disabled)
                     // Era 0.003, ora 0.0005 (6x più lento)
-                    float permMassIncrement = (globalPerturbation / 255.0f) * 0.0005f;
+                    float permMassIncrement = (globalPerturbation / 255.0f) * 0.005f;
                     ball1_mass += permMassIncrement;
-                    ball1_mass = min(ball1_mass, 1.8f);  // Massa permanente max 1.8x (era 5x)
+                    ball1_mass = min(ball1_mass, 4.0f);  // Massa permanente max 1.8x (era 5x)
                 } else if (perturbTarget == 1 && ball2_active) {
                     ball2_tempMass = ball2_tempMass * 0.7f + tempMassFromMotion * 0.3f;
-                    ball2_tempMass = min(ball2_tempMass, 3.0f);
+                    ball2_tempMass = min(ball2_tempMass, 7.0f);
 
                     float permMassIncrement = (globalPerturbation / 255.0f) * 0.0005f;
                     ball2_mass += permMassIncrement;
-                    ball2_mass = min(ball2_mass, 1.8f);
+                    ball2_mass = min(ball2_mass, 4.0f);
                 }
             }
         } else {
@@ -805,23 +805,23 @@ void LedEffectEngine::renderDualPulse(const LedState& state, const uint8_t pertu
 
             // Ball 1 Release - BONUS BASSO (era 0.08, ora 0.015)
             if (ball1_tempMass > 0.5f) {
-                float bonus = ball1_tempMass * 0.04f; // Aumentato per premiare il colpo
+                float bonus = ball1_tempMass * 0.1f; // Aumentato per premiare il colpo
                 float targetSpeed = FIXED_BASE_SPEED + bonus;
                 float dir = 1.0f; // Sempre verso l'avversario (Destra)
 
                 // Riaccelerazione rapida verso la direzione corretta
-                float snapFactor = 0.2f;
+                float snapFactor = 0.4f;
                 ball1_vel = ball1_vel * (1.0f - snapFactor) + (dir * targetSpeed) * snapFactor;
             }
 
             // Ball 2 Release - BONUS BASSO
             if (ball2_tempMass > 0.5f) {
-                float bonus = ball2_tempMass * 0.04f; // Aumentato per premiare il colpo
+                float bonus = ball2_tempMass * 0.1f; // Aumentato per premiare il colpo
                 float targetSpeed = FIXED_BASE_SPEED + bonus;
                 float dir = -1.0f; // Sempre verso l'avversario (Sinistra)
 
                 // Riaccelerazione rapida verso la direzione corretta
-                float snapFactor = 0.2f;
+                float snapFactor = 0.4f;
                 ball2_vel = ball2_vel * (1.0f - snapFactor) + (dir * targetSpeed) * snapFactor;
             }
 
@@ -867,8 +867,8 @@ void LedEffectEngine::renderDualPulse(const LedState& state, const uint8_t pertu
             if (ball1_tempMass > 0.5f) {
                 // Calcola drag factor: ridotto drasticamente
                 // Max drag ora = 0.60 (era 0.98) - 60% invece di 98%!
-                float dragFactor = min(ball1_tempMass / 5.0f, 0.60f);  // Era /20 max 0.98
-                ball1_vel *= (1.0f - dragFactor * dt * 2.0f);  // Era 5.0, ora 2.0 (2.5x meno aggressivo)
+                float dragFactor = min(ball1_tempMass / 5.0f, 0.98f);  // Era /20 max 0.98
+                ball1_vel *= (1.0f - dragFactor * dt * 5.0f);  // Era 5.0, ora 2.0 (2.5x meno aggressivo)
             }
 
             // INVULNERABILITÀ: Se la palla è quasi ferma, attiva grace period
@@ -884,8 +884,8 @@ void LedEffectEngine::renderDualPulse(const LedState& state, const uint8_t pertu
 
             // DRAG/ATTRITO proporzionale alla massa temporanea - MODALITÀ FACILE (ridotto!)
             if (ball2_tempMass > 0.5f) {
-                float dragFactor = min(ball2_tempMass / 5.0f, 0.60f);  // Era /20 max 0.98
-                ball2_vel *= (1.0f - dragFactor * dt * 2.0f);  // Era 5.0, ora 2.0
+                float dragFactor = min(ball2_tempMass / 5.0f, 0.98f);  // Era /20 max 0.98
+                ball2_vel *= (1.0f - dragFactor * dt * 5.0f);  // Era 5.0, ora 2.0
             }
 
             // INVULNERABILITÀ: Se la palla è quasi ferma, attiva grace period
@@ -1027,7 +1027,7 @@ void LedEffectEngine::renderDualPulse(const LedState& state, const uint8_t pertu
     // ═══════════════════════════════════════════════════════════
 
     // GRACE PERIOD: 1500ms (1.5 secondi) per recuperare velocità
-    const unsigned long GRACE_PERIOD = 700; // Ridotto a 1s per rendere la sconfitta più probabile
+    const unsigned long GRACE_PERIOD = 300; // Ridotto a 1s per rendere la sconfitta più probabile
 
     // COLLASSO quando una palla diventa troppo lenta E il grace period scade
     const float minVelocity = 0.05f;  // pixel/ms (Soglia alzata: muore prima)
@@ -1049,7 +1049,7 @@ void LedEffectEngine::renderDualPulse(const LedState& state, const uint8_t pertu
     //   e si trova vicino a una estremità, riceve un impulso di salvataggio.
     // - Se invece viene "tenuta" (tempMass alta) mentre è in grace period, recupera vitalità.
     const float HOLD_TRIGGER_MASS = 0.9f;
-    const float EDGE_SAVE_DISTANCE = 1.0f;  // pixel dalla base/punta
+    const float EDGE_SAVE_DISTANCE = 0.0f;  // pixel dalla base/punta
     const uint8_t EDGE_SAVE_CRACKLE = 120;   // lampeggio "molto"
     const unsigned long EDGE_SAVE_COOLDOWN = 30000;
     // Edge-save SOLO se la palla è davvero "bloccata" sugli ultimi 2 pixel:
