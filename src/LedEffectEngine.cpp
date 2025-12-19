@@ -648,67 +648,230 @@ void LedEffectEngine::renderPulse(const LedState& state, const uint8_t perturbat
 void LedEffectEngine::renderDualPulse(const LedState& state, const uint8_t perturbationGrid[6][8]) {
     const unsigned long now = millis();
 
-    if (_pulse2Pos == 0 && _pulse1Pos == 0) {
-        _pulse2Pos = state.foldPoint / 2;
+    // DUAL PONG PHYSICS SIMULATION
+    // Due palle rimbalzano elasticamente da un'estremità all'altra
+    // La perturbazione accelera/rallenta UNA palla alla volta
+    // Quando la differenza di velocità diventa critica, il sistema collassa
+
+    // Initialize static variables for ball physics
+    static float ball1_pos = 10.0f;           // Position (float for smooth physics)
+    static float ball2_pos = 0.0f;
+    static float ball1_vel = 1.0f;            // Velocity (positive = moving right)
+    static float ball2_vel = -1.0f;           // Velocity (negative = moving left)
+    static uint8_t ball1_hue = 0;             // Color of ball 1
+    static uint8_t ball2_hue = 96;            // Color of ball 2 (different from ball 1)
+    static bool ball1_perturbed = false;      // Which ball is being perturbed
+    static unsigned long lastCollapseTime = 0;
+    static bool ball1_active = true;          // Ball existence flags
+    static bool ball2_active = true;
+    static uint8_t collapsedBallHue = 0;      // Color for the next ball to spawn
+    static bool waitingForRespawn = false;    // Waiting for respawn at base
+    static uint8_t spawnFlashBrightness = 0;  // Flash effect on spawn
+
+    // Initialize positions on first run
+    if (ball2_pos == 0.0f && ball1_pos == 10.0f && now > 100) {
+        ball1_pos = state.foldPoint * 0.25f;
+        ball2_pos = state.foldPoint * 0.75f;
     }
 
-    uint16_t pulseSpeed = map(state.speed, 1, 255, 60, 1);
+    // Base speed from state
+    float baseSpeed = map(state.speed, 1, 255, 20, 200) / 1000.0f;  // Pixels per ms
 
-    if (now - _lastDualPulseUpdate > pulseSpeed) {
-        _pulse1Pos = (_pulse1Pos + 1) % state.foldPoint;
-        _pulse2Pos = (_pulse2Pos > 0) ? (_pulse2Pos - 1) : (state.foldPoint - 1);
-        _lastDualPulseUpdate = now;
+    // PERTURBATION SYSTEM: accelera/rallenta UNA palla alla volta
+    float perturbationAccel1 = 0.0f;
+    float perturbationAccel2 = 0.0f;
+
+    if (perturbationGrid != nullptr) {
+        // Calculate average perturbation across the blade
+        uint16_t totalPerturb = 0;
+        uint8_t samples = 0;
+        for (uint8_t row = 2; row <= 4; row++) {
+            for (uint8_t col = 0; col < 8; col++) {
+                totalPerturb += perturbationGrid[row][col];
+                samples++;
+            }
+        }
+        uint8_t avgPerturbation = totalPerturb / samples;
+
+        // LOW SENSITIVITY: perturbation affects only one ball at a time, requires strong motion
+        if (avgPerturbation > 50) {  // Soglia alta - difficile da attivare
+            // Alternate which ball gets perturbed (or based on random/time)
+            // Use time-based alternation for predictable behavior
+            if ((now / 500) % 2 == 0) {
+                ball1_perturbed = true;
+                // Accelerazione ridotta - difficile accelerare
+                perturbationAccel1 = (avgPerturbation / 255.0f) * baseSpeed * 3.0f;
+            } else {
+                ball1_perturbed = false;
+                perturbationAccel2 = (avgPerturbation / 255.0f) * baseSpeed * 3.0f;
+            }
+        }
     }
 
-    CRGB baseColor = CRGB(state.r, state.g, state.b);
+    // Update velocities with perturbation
+    unsigned long deltaTime = now - _lastDualPulseUpdate;
+    if (deltaTime > 100) deltaTime = 20;  // Prevent huge jumps
+
+    float ball1_speed = abs(ball1_vel) + perturbationAccel1;
+    float ball2_speed = abs(ball2_vel) + perturbationAccel2;
+
+    // STABILITY CHECK: se la differenza di velocità è troppo alta, COLLASSO!
+    float speedDifference = abs(ball1_speed - ball2_speed);
+    float criticalDifference = baseSpeed * 6.0f;  // Soglia critica
+
+    if (speedDifference > criticalDifference && now - lastCollapseTime > 1000 && !waitingForRespawn) {
+        // SYSTEM COLLAPSE! La palla lenta viene cancellata, quella veloce rallentata
+        lastCollapseTime = now;
+        waitingForRespawn = true;
+
+        if (ball1_speed > ball2_speed) {
+            // Ball 1 è troppo veloce: sopravvive rallentata, Ball 2 cancellata
+            ball1_vel = (ball1_vel > 0) ? baseSpeed : -baseSpeed;  // Reset a velocità base
+            ball1_hue = ball1_hue + random8(60, 120);  // Shift colore
+
+            // Ball 2 cancellata
+            ball2_active = false;
+
+            // Salva il colore complementare per la prossima palla
+            collapsedBallHue = ball1_hue + 128;
+
+            Serial.println("[DUAL_PONG] Ball 2 DELETED! Ball 1 continues alone, waiting for respawn...");
+        } else {
+            // Ball 2 è troppo veloce: sopravvive rallentata, Ball 1 cancellata
+            ball2_vel = (ball2_vel > 0) ? baseSpeed : -baseSpeed;  // Reset a velocità base
+            ball2_hue = ball2_hue + random8(60, 120);  // Shift colore
+
+            // Ball 1 cancellata
+            ball1_active = false;
+
+            // Salva il colore complementare per la prossima palla
+            collapsedBallHue = ball2_hue + 128;
+
+            Serial.println("[DUAL_PONG] Ball 1 DELETED! Ball 2 continues alone, waiting for respawn...");
+        }
+    }
+
+    // Update positions (physics integration) - solo per palle attive
+    if (ball1_active) {
+        ball1_pos += ball1_vel * ball1_speed * deltaTime;
+    }
+    if (ball2_active) {
+        ball2_pos += ball2_vel * ball2_speed * deltaTime;
+    }
+
+    // ELASTIC COLLISION with boundaries (perfect bounce)
+    if (ball1_active) {
+        if (ball1_pos <= 0) {
+            ball1_pos = 0;
+            ball1_vel = abs(ball1_vel);  // Reverse direction (bounce)
+        }
+        if (ball1_pos >= state.foldPoint - 1) {
+            ball1_pos = state.foldPoint - 1;
+            ball1_vel = -abs(ball1_vel);  // Reverse direction (bounce)
+        }
+    }
+
+    if (ball2_active) {
+        if (ball2_pos <= 0) {
+            ball2_pos = 0;
+            ball2_vel = abs(ball2_vel);  // Reverse direction (bounce)
+        }
+        if (ball2_pos >= state.foldPoint - 1) {
+            ball2_pos = state.foldPoint - 1;
+            ball2_vel = -abs(ball2_vel);  // Reverse direction (bounce)
+        }
+    }
+
+    // RESPAWN LOGIC: quando la palla solitaria è in fondo alla punta e torna verso la base
+    if (waitingForRespawn) {
+        float tipPoint = state.foldPoint * 0.9f;  // Vicino alla punta (90%)
+
+        // Check se la palla attiva è alla punta e va verso la base (velocità negativa)
+        if (ball1_active && ball1_pos > tipPoint && ball1_vel < 0) {
+            // Ball 1 è solitaria alla punta e torna indietro: spawn Ball 2 dalla base
+            ball2_active = true;
+            ball2_pos = 0;  // Spawn dalla base
+            ball2_vel = baseSpeed;  // Va verso la punta
+            ball2_hue = collapsedBallHue;
+            spawnFlashBrightness = 255;  // Lampo iniziale!
+            waitingForRespawn = false;
+            Serial.println("[DUAL_PONG] Ball 2 SPAWNED from base with FLASH!");
+        }
+        else if (ball2_active && ball2_pos > tipPoint && ball2_vel < 0) {
+            // Ball 2 è solitaria alla punta e torna indietro: spawn Ball 1 dalla base
+            ball1_active = true;
+            ball1_pos = 0;  // Spawn dalla base
+            ball1_vel = baseSpeed;  // Va verso la punta
+            ball1_hue = collapsedBallHue;
+            spawnFlashBrightness = 255;  // Lampo iniziale!
+            waitingForRespawn = false;
+            Serial.println("[DUAL_PONG] Ball 1 SPAWNED from base with FLASH!");
+        }
+    }
+
+    // Fade del lampo di spawn
+    if (spawnFlashBrightness > 0) {
+        spawnFlashBrightness = qsub8(spawnFlashBrightness, 15);  // Fade rapido
+    }
+
+    _lastDualPulseUpdate = now;
+
+    // RENDERING: base scura con palle colorate brillanti
     uint8_t safeBrightness = min(state.brightness, MAX_SAFE_BRIGHTNESS);
-    const uint8_t pulseWidth = 10;
+    const uint8_t ballWidth = 8;  // Width of each ball
 
     for (uint16_t i = 0; i < state.foldPoint; i++) {
-        int16_t dist1 = abs((int16_t)i - (int16_t)_pulse1Pos);
-        int16_t dist2 = abs((int16_t)i - (int16_t)_pulse2Pos);
+        // Dark base for contrast
+        uint8_t brightness = 20;
+        CRGB color = CRGB::Black;
 
-        // Higher base brightness (180 instead of 150) - more difficult to darken
-        uint8_t brightness = 180;
-        if (dist1 < pulseWidth) {
-            // Brighter peak (255 -> 200 instead of 255 -> 150)
-            brightness = max(brightness, (uint8_t)map(dist1, 0, pulseWidth, 255, 200));
+        // SPAWN FLASH EFFECT: lampo bianco alla base quando spawna una nuova palla
+        if (spawnFlashBrightness > 0 && i < 15) {
+            // Lampo localizzato alla base (primi 15 LED)
+            uint8_t flashIntensity = map(i, 0, 15, spawnFlashBrightness, 0);
+            CRGB flashColor = CRGB(flashIntensity, flashIntensity, flashIntensity);
+            color.r = qadd8(color.r, flashColor.r);
+            color.g = qadd8(color.g, flashColor.g);
+            color.b = qadd8(color.b, flashColor.b);
+            brightness = qadd8(brightness, flashIntensity / 2);
         }
-        if (dist2 < pulseWidth) {
-            brightness = max(brightness, (uint8_t)map(dist2, 0, pulseWidth, 255, 200));
-        }
 
-        // DUAL MOTION RIPPLES: movement creates interference patterns
-        if (perturbationGrid != nullptr) {
-            uint8_t col = map(i, 0, state.foldPoint - 1, 0, 7);
+        // Ball 1 rendering (smooth gradient) - SOLO SE ATTIVA
+        if (ball1_active) {
+            float dist1 = abs((float)i - ball1_pos);
+            if (dist1 < ballWidth) {
+                uint8_t ballBrightness = map(dist1 * 10, 0, ballWidth * 10, 255, 30);
+                CRGB ball1Color = CHSV(ball1_hue, 255, ballBrightness);
 
-            // Sample perturbation
-            uint16_t perturbSum = 0;
-            for (uint8_t row = 1; row <= 4; row++) {
-                perturbSum += perturbationGrid[row][col];
-            }
-            uint8_t avgPerturbation = perturbSum / 4;
-
-            // Motion creates interference: BOOST brightness more, darken LESS
-            if (avgPerturbation > 25) {
-                // Alternating pattern based on position
-                if ((i + (now / 100)) % 2 == 0) {
-                    // Increased brightening (80 instead of 60)
-                    brightness = qadd8(brightness, scale8(avgPerturbation, 80));
-                } else {
-                    // Reduced darkening (15 instead of 30) - harder to darken
-                    brightness = qsub8(brightness, scale8(avgPerturbation, 15));
+                // Blend with existing color
+                if (ballBrightness > brightness) {
+                    color = ball1Color;
+                    brightness = ballBrightness;
                 }
             }
         }
 
-        CRGB dualPulseColor = baseColor;
-        dualPulseColor.fadeToBlackBy(255 - brightness);
-        dualPulseColor = scaleColorByBrightness(dualPulseColor, safeBrightness);
-        setLedPair(i, state.foldPoint, dualPulseColor);
-    }
+        // Ball 2 rendering (smooth gradient) - SOLO SE ATTIVA
+        if (ball2_active) {
+            float dist2 = abs((float)i - ball2_pos);
+            if (dist2 < ballWidth) {
+                uint8_t ballBrightness = map(dist2 * 10, 0, ballWidth * 10, 255, 30);
+                CRGB ball2Color = CHSV(ball2_hue, 255, ballBrightness);
 
-    // Note: Brightness scaling already applied, will be set globally in render()
+                // Blend with existing color (additive for overlap)
+                if (ballBrightness > brightness) {
+                    // Additive blend if balls overlap
+                    color.r = qadd8(color.r, ball2Color.r);
+                    color.g = qadd8(color.g, ball2Color.g);
+                    color.b = qadd8(color.b, ball2Color.b);
+                }
+            }
+        }
+
+        // Apply brightness scaling
+        color = scaleColorByBrightness(color, safeBrightness);
+        setLedPair(i, state.foldPoint, color);
+    }
 }
 
 void LedEffectEngine::renderRainbowBlade(const LedState& state, const uint8_t perturbationGrid[6][8]) {
