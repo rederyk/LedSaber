@@ -65,6 +65,7 @@ private:
 
     Mode _mode;
     uint32_t _modeStartTime;
+    bool _suppressGestureOverrides;
 
     // Animation state variables
     uint8_t _hue;

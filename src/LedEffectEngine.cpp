@@ -7,6 +7,7 @@ LedEffectEngine::LedEffectEngine(CRGB* leds, uint16_t numLeds) :
     _numLeds(numLeds),
     _mode(Mode::IDLE),
     _modeStartTime(0),
+    _suppressGestureOverrides(false),
     _hue(0),
     _ignitionProgress(0),
     _lastIgnitionUpdate(0),
@@ -59,6 +60,10 @@ void LedEffectEngine::render(const LedState& state, const MotionProcessor::Proce
         _lastUpdate = now;
         return;
     }
+
+    // In some modes we don't want gestures to override the running effect
+    // (e.g. Dual Pong/Dual Pulse manages its own "collision clash").
+    _suppressGestureOverrides = (state.effect == "dual_pulse");
 
     // Handle gesture triggers (if motion available)
     if (motion != nullptr) {
@@ -679,6 +684,8 @@ void LedEffectEngine::renderDualPulse(const LedState& state, const uint8_t pertu
     static float ball2_tempMass = 0.0f;         // Massa temporanea aggiunta da motion
     static unsigned long ball1_invulnTime = 0;  // Tempo di invulnerabilità (grace period)
     static unsigned long ball2_invulnTime = 0;  // Tempo di invulnerabilità (grace period)
+    static float collisionFlashPos = 0.0f;      // Centro flash collisione (pixel)
+    static uint8_t collisionFlash = 0;          // Intensità flash collisione (0-255)
 
     // FIXED BASE SPEED (independent of state.speed parameter)
     const float FIXED_BASE_SPEED = 0.10f;  // pixel/ms (rallentata per più controllo)
@@ -735,11 +742,11 @@ void LedEffectEngine::renderDualPulse(const LedState& state, const uint8_t pertu
         // Alta massa = palla difficile da spostare (si muove poco se colpita)
         // Bassa massa = palla normale (si muove normalmente)
 
-        if (globalPerturbation > 20) {  // Soglia più bassa: trigger più facile!
+        if (globalPerturbation > 35) {  // Soglia più alta: trigger più Difficile!
             perturbAccumulator = min(255, perturbAccumulator + (globalPerturbation / 4));  // Accumula più velocemente
 
             // Soglia di attivazione ridotta
-            if (perturbAccumulator > 40) {  // Era 60, ora 40: si attiva prima!
+            if (perturbAccumulator > 60) {  // Era 60, ora 40: si attiva prima! meglio 60
                 // Scegli quale palla aumentare di massa (se non già scelta)
                 if (perturbTarget == 0) {
                     perturbTarget = (random8() < 128) ? -1 : 1;
@@ -970,6 +977,13 @@ void LedEffectEngine::renderDualPulse(const LedState& state, const uint8_t pertu
                         Serial.print(" v2="); Serial.println(ball2_vel);
                     }
 
+                    // Leggero clash localizzato nel punto d'urto
+                    float relativeSpeed = abs(ball1_vel - ball2_vel);
+                    float impact = min(1.0f, relativeSpeed / 0.25f);  // 0..1
+                    uint8_t impactBrightness = (uint8_t)(60.0f + impact * 120.0f); // 60..180
+                    collisionFlashPos = midPoint;
+                    collisionFlash = max(collisionFlash, impactBrightness);
+
                     collisionCount++;
                 }
             }
@@ -1121,6 +1135,11 @@ void LedEffectEngine::renderDualPulse(const LedState& state, const uint8_t pertu
         spawnFlashBrightness = qsub8(spawnFlashBrightness, 20);  // Fade veloce
     }
 
+    // Decay del clash collisione (breve e sottile)
+    if (collisionFlash > 0) {
+        collisionFlash = qsub8(collisionFlash, 35);
+    }
+
     _lastDualPulseUpdate = now;
 
     // ═══════════════════════════════════════════════════════════
@@ -1268,6 +1287,19 @@ void LedEffectEngine::renderDualPulse(const LedState& state, const uint8_t pertu
                         color.b = qadd8(color.b, ball2Color.b);
                     }
                 }
+            }
+        }
+
+        // Clash localizzato: flash bianco breve attorno alla collisione
+        if (collisionFlash > 0) {
+            float dist = abs((float)i - collisionFlashPos);
+            const float radius = 10.0f;
+            if (dist < radius) {
+                float t = 1.0f - (dist / radius);
+                uint8_t boost = (uint8_t)(collisionFlash * t * t);
+                color.r = qadd8(color.r, boost);
+                color.g = qadd8(color.g, boost);
+                color.b = qadd8(color.b, boost);
             }
         }
 
@@ -1535,6 +1567,17 @@ void LedEffectEngine::handleGestureTriggers(MotionProcessor::GestureType gesture
     if (_mode != Mode::IDLE) {
         // Already in override mode, ignore new gestures
         return;
+    }
+
+    if (_suppressGestureOverrides) {
+        switch (gesture) {
+            case MotionProcessor::GestureType::IGNITION:
+            case MotionProcessor::GestureType::RETRACT:
+            case MotionProcessor::GestureType::CLASH:
+                return;
+            default:
+                break;
+        }
     }
 
     switch (gesture) {
