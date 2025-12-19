@@ -677,6 +677,8 @@ void LedEffectEngine::renderDualPulse(const LedState& state, const uint8_t pertu
     static uint16_t collisionCount = 0;         // Conta le collisioni per debug
     static float ball1_tempMass = 0.0f;         // Massa temporanea aggiunta da motion
     static float ball2_tempMass = 0.0f;         // Massa temporanea aggiunta da motion
+    static unsigned long ball1_invulnTime = 0;  // Tempo di invulnerabilità (grace period)
+    static unsigned long ball2_invulnTime = 0;  // Tempo di invulnerabilità (grace period)
 
     // FIXED BASE SPEED (independent of state.speed parameter)
     const float FIXED_BASE_SPEED = 0.10f;  // pixel/ms (rallentata per più controllo)
@@ -704,9 +706,11 @@ void LedEffectEngine::renderDualPulse(const LedState& state, const uint8_t pertu
         perturbTarget = 0;
         perturbAccumulator = 0;
         collisionCount = 0;
+        ball1_invulnTime = 0;
+        ball2_invulnTime = 0;
         initialized = true;
 
-        Serial.println("[DUAL_PONG] Initialized with MASS-based physics");
+        Serial.println("[DUAL_PONG] Initialized with MASS-based physics (EASY MODE)");
     }
 
     // ═══════════════════════════════════════════════════════════
@@ -743,62 +747,60 @@ void LedEffectEngine::renderDualPulse(const LedState& state, const uint8_t pertu
                     Serial.println((perturbTarget == -1) ? "1" : "2");
                 }
 
-                // CALCOLA MASSA TEMPORANEA in base al motion (può diventare MOLTO alta!)
-                // Range: 0 (motion basso) -> 20.0 (motion altissimo!)
-                float tempMassFromMotion = (globalPerturbation / 255.0f) * (globalPerturbation / 255.0f) * 20.0f;
+                // CALCOLA MASSA TEMPORANEA - MODALITÀ FACILE (drasticamente ridotta!)
+                // Range: 0 (motion basso) -> 3.0 (motion altissimo!) - Era 20.0, ora 3.0 (6.6x meno!)
+                float tempMassFromMotion = (globalPerturbation / 255.0f) * (globalPerturbation / 255.0f) * 3.0f;
 
                 if (perturbTarget == -1 && ball1_active) {
                     // Aggiorna massa temporanea smoothly
                     ball1_tempMass = ball1_tempMass * 0.7f + tempMassFromMotion * 0.3f; // Smooth transition
-                    ball1_tempMass = min(ball1_tempMass, 20.0f);  // Cap massimo
+                    ball1_tempMass = min(ball1_tempMass, 3.0f);  // Cap massimo ridotto da 20 a 3
 
-                    // AGGIUNGI anche massa permanente (molto più lentamente)
-                    float permMassIncrement = (globalPerturbation / 255.0f) * 0.003f;
+                    // AGGIUNGI anche massa permanente (MOLTO più lentamente - quasi disabled)
+                    // Era 0.003, ora 0.0005 (6x più lento)
+                    float permMassIncrement = (globalPerturbation / 255.0f) * 0.0005f;
                     ball1_mass += permMassIncrement;
-                    ball1_mass = min(ball1_mass, 5.0f);  // Massa permanente max 5x
+                    ball1_mass = min(ball1_mass, 1.8f);  // Massa permanente max 1.8x (era 5x)
                 } else if (perturbTarget == 1 && ball2_active) {
                     ball2_tempMass = ball2_tempMass * 0.7f + tempMassFromMotion * 0.3f;
-                    ball2_tempMass = min(ball2_tempMass, 20.0f);
+                    ball2_tempMass = min(ball2_tempMass, 3.0f);
 
-                    float permMassIncrement = (globalPerturbation / 255.0f) * 0.003f;
+                    float permMassIncrement = (globalPerturbation / 255.0f) * 0.0005f;
                     ball2_mass += permMassIncrement;
-                    ball2_mass = min(ball2_mass, 5.0f);
+                    ball2_mass = min(ball2_mass, 1.8f);
                 }
             }
         } else {
             // Decay VELOCE della massa temporanea quando motion cala
-            
-            // SLINGSHOT / JERK LOGIC
-            // Quando si rilascia (no motion), la massa agisce come una molla che restituisce velocità
-            // "falla scattare all inzio come un jerk se rilasciat al momento giusto va ancora piu veloce"
-            
-            // Ball 1 Release
+
+            // MODALITÀ FACILE: SLINGSHOT BONUS BASSO
+            // La palla accelera leggermente quando rilasci, ma MOLTO meno rispetto alla modalità normale
+            // Bonus ridotto drasticamente per gameplay più prevedibile
+
+            // Ball 1 Release - BONUS BASSO (era 0.08, ora 0.015)
             if (ball1_tempMass > 0.5f) {
-                // Calcola target speed: Base + Bonus proporzionale alla massa (carica)
-                // AUMENTATO BONUS: Premia il rilascio con molta più velocità (0.03 -> 0.08)
-                float bonus = ball1_tempMass * 0.08f; 
+                float bonus = ball1_tempMass * 0.015f;  // Era 0.08, ridotto a 0.015 (5.3x meno!)
                 float targetSpeed = FIXED_BASE_SPEED + bonus;
                 float dir = (ball1_vel >= 0) ? 1.0f : -1.0f;
-                
-                // JERK: Se è più lenta del target (es. frenata dal drag), accelera bruscamente
+
+                // JERK gentile: Se è più lenta del target, accelera dolcemente
                 if (abs(ball1_vel) < targetSpeed) {
-                    // Fattore di scatto: più massa = scatto più violento e immediato
-                    // AUMENTATO SNAP: Risposta più immediata al rilascio (0.15 -> 0.25, div 30 -> 10)
-                    float snapFactor = 0.25f + (ball1_tempMass / 10.0f); 
-                    if (snapFactor > 0.9f) snapFactor = 0.9f; // Cap alzato a 0.9
+                    // Snap factor ridotto per accelerazione più graduale
+                    float snapFactor = 0.10f + (ball1_tempMass / 30.0f);  // Era 0.25 + /10, ora 0.10 + /30
+                    if (snapFactor > 0.3f) snapFactor = 0.3f;  // Cap ridotto da 0.9 a 0.3
                     ball1_vel = ball1_vel * (1.0f - snapFactor) + (dir * targetSpeed) * snapFactor;
                 }
             }
 
-            // Ball 2 Release
+            // Ball 2 Release - BONUS BASSO
             if (ball2_tempMass > 0.5f) {
-                float bonus = ball2_tempMass * 0.08f; // Aumentato bonus
+                float bonus = ball2_tempMass * 0.015f;  // Ridotto drasticamente
                 float targetSpeed = FIXED_BASE_SPEED + bonus;
                 float dir = (ball2_vel >= 0) ? 1.0f : -1.0f;
-                
+
                 if (abs(ball2_vel) < targetSpeed) {
-                    float snapFactor = 0.25f + (ball2_tempMass / 10.0f); // Aumentato snap
-                    if (snapFactor > 0.9f) snapFactor = 0.9f;
+                    float snapFactor = 0.10f + (ball2_tempMass / 30.0f);
+                    if (snapFactor > 0.3f) snapFactor = 0.3f;
                     ball2_vel = ball2_vel * (1.0f - snapFactor) + (dir * targetSpeed) * snapFactor;
                 }
             }
@@ -840,22 +842,34 @@ void LedEffectEngine::renderDualPulse(const LedState& state, const uint8_t pertu
         if (ball1_active) {
             ball1_pos += ball1_vel * dt * 1000.0f;
 
-            // DRAG/ATTRITO proporzionale alla massa temporanea
-            // Più massa temporanea = più rallenta (effetto "frenata FORTE")
+            // DRAG/ATTRITO proporzionale alla massa temporanea - MODALITÀ FACILE (ridotto!)
+            // Più massa temporanea = più rallenta, ma MOLTO meno rispetto a prima
             if (ball1_tempMass > 0.5f) {
-                // Calcola drag factor: più massa = più attrito
-                // Range: 0.0 (no drag) -> 0.98 (massimo attrito - FERMATA quasi totale!)
-                float dragFactor = min(ball1_tempMass / 20.0f, 0.98f);  // Diviso 20 invece di 25: drag più forte!
-                ball1_vel *= (1.0f - dragFactor * dt * 5.0f);  // Rallenta MOLTO più velocemente (era 2.0)
+                // Calcola drag factor: ridotto drasticamente
+                // Max drag ora = 0.60 (era 0.98) - 60% invece di 98%!
+                float dragFactor = min(ball1_tempMass / 5.0f, 0.60f);  // Era /20 max 0.98
+                ball1_vel *= (1.0f - dragFactor * dt * 2.0f);  // Era 5.0, ora 2.0 (2.5x meno aggressivo)
+            }
+
+            // INVULNERABILITÀ: Se la palla è quasi ferma, attiva grace period
+            if (abs(ball1_vel) < 0.03f && ball1_invulnTime == 0) {
+                ball1_invulnTime = now;
+                Serial.println("[DUAL_PONG] Ball 1 SLOW - Grace period activated!");
             }
         }
         if (ball2_active) {
             ball2_pos += ball2_vel * dt * 1000.0f;
 
-            // DRAG/ATTRITO proporzionale alla massa temporanea
+            // DRAG/ATTRITO proporzionale alla massa temporanea - MODALITÀ FACILE (ridotto!)
             if (ball2_tempMass > 0.5f) {
-                float dragFactor = min(ball2_tempMass / 20.0f, 0.98f);  // Drag più forte!
-                ball2_vel *= (1.0f - dragFactor * dt * 5.0f);  // Rallenta MOLTO più velocemente
+                float dragFactor = min(ball2_tempMass / 5.0f, 0.60f);  // Era /20 max 0.98
+                ball2_vel *= (1.0f - dragFactor * dt * 2.0f);  // Era 5.0, ora 2.0
+            }
+
+            // INVULNERABILITÀ: Se la palla è quasi ferma, attiva grace period
+            if (abs(ball2_vel) < 0.03f && ball2_invulnTime == 0) {
+                ball2_invulnTime = now;
+                Serial.println("[DUAL_PONG] Ball 2 SLOW - Grace period activated!");
             }
         }
 
@@ -946,21 +960,35 @@ void LedEffectEngine::renderDualPulse(const LedState& state, const uint8_t pertu
     }
 
     // ═══════════════════════════════════════════════════════════
-    // STABILITY CHECK - Collasso quando velocità critiche
+    // STABILITY CHECK - Collasso con GRACE PERIOD (invulnerabilità)
     // ═══════════════════════════════════════════════════════════
 
-    // COLLASSO quando una palla diventa troppo lenta (quasi ferma)
-    // Dopo ~π collisioni, la palla leggera si ferma
+    // GRACE PERIOD: 1500ms (1.5 secondi) per recuperare velocità
+    const unsigned long GRACE_PERIOD = 1500;
+
+    // COLLASSO quando una palla diventa troppo lenta E il grace period scade
     const float minVelocity = 0.02f;  // pixel/ms (quasi ferma)
+
+    // Reset grace period se la palla recupera velocità
+    if (ball1_invulnTime > 0 && abs(ball1_vel) >= 0.06f) {
+        ball1_invulnTime = 0;  // Recuperata! Resetta grace period
+        Serial.println("[DUAL_PONG] Ball 1 RECOVERED - Grace period cancelled");
+    }
+    if (ball2_invulnTime > 0 && abs(ball2_vel) >= 0.06f) {
+        ball2_invulnTime = 0;
+        Serial.println("[DUAL_PONG] Ball 2 RECOVERED - Grace period cancelled");
+    }
 
     // Check trigger status (massa temporanea attiva)
     // Impedisce il collasso se c'è stata perturbazione recente (assorbimento bloccato)
     bool isTriggered = (ball1_tempMass > 0.8f || ball2_tempMass > 0.8f);
 
     if (!singleBallMode && (now - lastCollapseTime) > 2000 && !isTriggered) {
-        // Check se una palla è quasi ferma (dominata dall'altra)
-        bool ball1_stopped = ball1_active && (abs(ball1_vel) < minVelocity);
-        bool ball2_stopped = ball2_active && (abs(ball2_vel) < minVelocity);
+        // Check se una palla è quasi ferma E il grace period è scaduto
+        bool ball1_stopped = ball1_active && (abs(ball1_vel) < minVelocity) &&
+                             (ball1_invulnTime > 0) && ((now - ball1_invulnTime) > GRACE_PERIOD);
+        bool ball2_stopped = ball2_active && (abs(ball2_vel) < minVelocity) &&
+                             (ball2_invulnTime > 0) && ((now - ball2_invulnTime) > GRACE_PERIOD);
 
         // OPPURE se una è troppo veloce (oltre limite rendering)
         float maxRenderSpeed = 1.2f;
@@ -972,6 +1000,10 @@ void LedEffectEngine::renderDualPulse(const LedState& state, const uint8_t pertu
             singleBallMode = true;
             lastCollapseTime = now;
 
+            // Reset grace periods
+            ball1_invulnTime = 0;
+            ball2_invulnTime = 0;
+
             // Determina quale palla vince (la più veloce o quella in movimento)
             bool ball1_wins = false;
 
@@ -979,12 +1011,12 @@ void LedEffectEngine::renderDualPulse(const LedState& state, const uint8_t pertu
                 ball1_wins = false;  // Ball 2 vince (ball 1 ferma)
                 Serial.print("[DUAL_PONG] COLLAPSE after ");
                 Serial.print(collisionCount);
-                Serial.println(" collisions! Ball 1 STOPPED - Ball 2 WINS");
+                Serial.println(" collisions! Ball 1 STOPPED (grace period expired) - Ball 2 WINS");
             } else if (ball2_stopped && !ball1_stopped) {
                 ball1_wins = true;   // Ball 1 vince (ball 2 ferma)
                 Serial.print("[DUAL_PONG] COLLAPSE after ");
                 Serial.print(collisionCount);
-                Serial.println(" collisions! Ball 2 STOPPED - Ball 1 WINS");
+                Serial.println(" collisions! Ball 2 STOPPED (grace period expired) - Ball 1 WINS");
             } else if (ball1_critical && !ball2_critical) {
                 ball1_wins = true;   // Ball 1 troppo veloce: vince
                 Serial.println("[DUAL_PONG] COLLAPSE! Ball 1 too fast - Ball 2 DELETED");
@@ -1000,13 +1032,28 @@ void LedEffectEngine::renderDualPulse(const LedState& state, const uint8_t pertu
                 // Vincitore mantiene il colore
                 ball1_vel = (ball1_vel > 0) ? FIXED_BASE_SPEED : -FIXED_BASE_SPEED;
                 ball1_mass = 1.0f;  // Reset massa
-                nextBallHue = ball2_hue + random8(80, 160); // Il perdente cambia colore al respawn
+
+                // Genera colore OPPOSTO con minimo 90° di differenza (garantisce contrasto)
+                // Range: 90-180° = da 1/4 a 1/2 della ruota cromatica (sempre visibile)
+                uint8_t hueOffset = random8(90, 180);
+                nextBallHue = ball2_hue + hueOffset;
+                Serial.print("[DUAL_PONG] New color: old_hue=");
+                Serial.print(ball2_hue);
+                Serial.print(" new_hue=");
+                Serial.println(nextBallHue);
             } else {
                 ball1_active = false;
                 // Vincitore mantiene il colore
                 ball2_vel = (ball2_vel > 0) ? FIXED_BASE_SPEED : -FIXED_BASE_SPEED;
                 ball2_mass = 1.0f;  // Reset massa
-                nextBallHue = ball1_hue + random8(80, 160); // Il perdente cambia colore al respawn
+
+                // Genera colore OPPOSTO con minimo 90° di differenza
+                uint8_t hueOffset = random8(90, 180);
+                nextBallHue = ball1_hue + hueOffset;
+                Serial.print("[DUAL_PONG] New color: old_hue=");
+                Serial.print(ball1_hue);
+                Serial.print(" new_hue=");
+                Serial.println(nextBallHue);
             }
 
             // Reset sistema
