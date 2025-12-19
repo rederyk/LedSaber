@@ -1,0 +1,36 @@
+MAPPATURA SETTING DASHBOARD LEDSABER
+====================================
+
+Questa lista raggruppa i parametri del firmware esposti dal client Python
+e la loro collocazione nell'interfaccia grafica (Dashboard).
+
+1. ILLUMINAZIONE (LED)
+----------------------
+- Stato (ON/OFF)      : LEDPanelWidget (Icona Status)
+- Colore (R, G, B)    : LEDPanelWidget (Barra RGB)
+- Luminosità (0-255)  : LEDPanelWidget (Barra Brightness)
+- Effetto (Mode)      : LEDPanelWidget (FX Label) e ActiveFXCard (Titolo)
+- Velocità Effetto    : ActiveFXCard (ms)
+
+2. MOVIMENTO (MOTION)
+---------------------
+- Stato (Abilitato)   : MotionStatusCard (Status Icon)
+- Sensibilità (0-255) : MotionStatusCard (NUOVO - Aggiunto)
+- Rilevamento Moto    : MotionStatusCard (Icona Fulmine)
+- Rilevamento Shake   : MotionStatusCard (Icona Warning)
+- Intensità           : MotionIntensityCard (Barra e Sparkline)
+- Direzione/Gesture   : MotionDirectionCard (Frecce e Testo)
+
+3. FOTOCAMERA (CAMERA)
+----------------------
+- Stato (Init/Active) : CameraPanelWidget (Icone Status/Init)
+- FPS (Frame Rate)    : CameraPanelWidget (Valore e Sparkline)
+- Conteggio Frame     : CameraFramesCard
+
+4. CONNETTIVITÀ (BLE) E DEVICE INFO
+------------------------------------
+- RSSI (Segnale)      : BLERSSICard
+- Nome/Indirizzo      : HeaderWidget
+- Versione Firmware   : HeaderWidget (vicino al nome BLE) + DeviceInfoCard
+- Indirizzo MAC       : HeaderWidget (sotto il nome) + DeviceInfoCard
+- MTU Size            : DeviceInfoCard

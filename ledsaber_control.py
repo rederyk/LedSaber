@@ -453,6 +453,10 @@ class LedSaberClient:
             print(f"{Colors.YELLOW}⚠ Impossibile leggere versione firmware: {e}{Colors.RESET}")
             return None
 
+    async def read_firmware_version(self) -> Optional[str]:
+        """Alias per get_firmware_version (compatibilità dashboard)"""
+        return await self.get_firmware_version()
+
     async def set_status_led(self, enabled: Optional[bool] = None, brightness: Optional[int] = None):
         """Imposta stato/brightness del LED integrato (pin 4)"""
         if not self.client or not self.client.is_connected:

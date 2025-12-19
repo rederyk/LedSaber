@@ -43,16 +43,9 @@ class HeaderWidget(Static):
     connected: reactive[bool] = reactive(False)
     device_name: reactive[str] = reactive("NO DEVICE")
     device_address: reactive[str] = reactive("")
+    firmware_version: reactive[str] = reactive("")
 
     def render(self):
-        # Status BLE
-        if self.connected:
-            ble_status = f"[green]◉[/] {self.device_name}"
-            ble_detail = f"[dim]{self.device_address}[/]"
-        else:
-            ble_status = f"[red]●[/] DISCONNECTED"
-            ble_detail = "[dim]No device[/]"
-
         # Crea tabella a 2 colonne
         table = Table.grid(padding=(0, 2), expand=True)
         table.add_column(justify="left", ratio=1)
@@ -70,7 +63,23 @@ class HeaderWidget(Static):
         # Row 2: BLE status
         ble_text = Text()
         ble_text.append("BLE: ", style="cyan")
-        ble_text.append(ble_status)
+
+        if self.connected:
+            ble_text.append("◉ ", style="green")
+            ble_text.append(self.device_name, style="white")
+            if self.firmware_version:
+                ble_text.append(" v", style="dim")
+                ble_text.append(self.firmware_version, style="yellow")
+        else:
+            ble_text.append("● ", style="red")
+            ble_text.append("DISCONNECTED", style="white")
+
+        # Detail row (indirizzo MAC)
+        ble_detail = Text()
+        if self.connected and self.device_address:
+            ble_detail.append(self.device_address, style="dim")
+        else:
+            ble_detail.append("No device", style="dim")
 
         table.add_row(ble_text, ble_detail)
 
@@ -213,6 +222,7 @@ class MotionStatusCard(Static):
         enabled = state.get('enabled', False)
         motion_detected = state.get('motionDetected', False)
         shake_detected = state.get('shakeDetected', False)
+        sensitivity = state.get('sensitivity', 0)
 
         status_icon = "[green]◉ ENABLED[/]" if enabled else "[red]● DISABLED[/]"
         motion_icon = "[yellow]⚡[/]" if motion_detected else "[dim]○[/]"
@@ -221,6 +231,7 @@ class MotionStatusCard(Static):
         table = Table.grid(padding=(0, 1))
         table.add_column(justify="left")
         table.add_row(f"Status: {status_icon}")
+        table.add_row(f"Sens:   [cyan]{sensitivity}[/]")
         table.add_row(f"Motion: {motion_icon}")
         table.add_row(f"Shake: {shake_icon}")
 
@@ -332,7 +343,7 @@ class MotionDirectionCard(Static):
 
 
 class MotionSection(Container):
-    """Container responsive per widget Motion summary"""
+    """Container responsive per widget Motion summary + Device Info"""
 
     motion_state: reactive[Dict] = reactive({})
 
@@ -341,11 +352,13 @@ class MotionSection(Container):
         self.status_card = MotionStatusCard(id="motion_status_card")
         self.intensity_card = MotionIntensityCard(id="motion_intensity_card")
         self.direction_card = MotionDirectionCard(id="motion_direction_card")
+        self.device_info_card = DeviceInfoCard(id="device_info_card")
 
     def compose(self) -> ComposeResult:
         yield self.status_card
         yield self.intensity_card
         yield self.direction_card
+        yield self.device_info_card
 
     def watch_motion_state(self, new_state: Dict):
         self.status_card.motion_state = new_state or {}
@@ -591,6 +604,47 @@ class CameraFramesCard(Static):
         )
 
 
+class DeviceInfoCard(Static):
+    """Card con informazioni sul device: FW version, MAC, uptime, etc."""
+
+    firmware_version: reactive[str] = reactive("")
+    device_address: reactive[str] = reactive("")
+    connected: reactive[bool] = reactive(False)
+    mtu: reactive[int] = reactive(0)
+
+    def render(self):
+        if not self.connected:
+            content = Text("No device\nconnected", style="dim", justify="center")
+        else:
+            content = Text()
+
+            if self.firmware_version:
+                content.append("FW: ", style="yellow")
+                content.append(f"{self.firmware_version}", style="bold white")
+                content.append("\n")
+
+            if self.device_address:
+                mac_short = self.device_address[-8:] if len(self.device_address) > 8 else self.device_address
+                content.append("MAC: ", style="cyan")
+                content.append(f"{mac_short}", style="dim white")
+                content.append("\n")
+
+            if self.mtu > 0:
+                content.append("MTU: ", style="green")
+                content.append(f"{self.mtu}", style="dim white")
+
+            if not content.plain:
+                content = Text("Loading...", style="dim", justify="center")
+
+        return Panel(
+            Align.center(content, vertical="middle"),
+            title="[cyan]📱 Device Info[/]",
+            border_style="cyan",
+            box=box.ROUNDED,
+            height=7
+        )
+
+
 class ConsoleWidget(TextArea):
     """Console per log con TextArea - testo completamente selezionabile e copiabile
 
@@ -756,11 +810,16 @@ class SaberDashboard(App):
 
     #motion_summary {
         layout: grid;
-        grid-size: 3;
-        grid-columns: 1fr 1fr 1fr;
+        grid-size: 4;
+        grid-columns: 1fr 1fr 1fr 1fr;
         padding-left: 1;
         height: auto;
         margin: 0 0 1 0;
+    }
+
+    #motion_summary.cols-2 {
+        grid-size: 2;
+        grid-columns: 1fr 1fr;
     }
 
     #motion_summary.cols-1 {
@@ -845,12 +904,14 @@ class SaberDashboard(App):
 
     #motion_status_card,
     #motion_intensity_card,
-    #motion_direction_card {
+    #motion_direction_card,
+    #device_info_card {
         margin: 0;
     }
 
     #motion_status_card,
-    #motion_intensity_card {
+    #motion_intensity_card,
+    #motion_direction_card {
         margin-right: 1;
     }
 
@@ -881,6 +942,7 @@ class SaberDashboard(App):
         self.rssi_card: Optional[BLERSSICard] = None
         self.fx_card: Optional[ActiveFXCard] = None
         self.camera_frames_card: Optional[CameraFramesCard] = None
+        self.device_info_card: Optional[DeviceInfoCard] = None
         self.device_rssi_map: Dict[str, Optional[int]] = {}
         self.stats_grid: Optional[Container] = None
         self.kpi_row: Optional[Container] = None
@@ -921,6 +983,7 @@ class SaberDashboard(App):
         self.rssi_card = self.query_one("#ble_rssi_card", BLERSSICard)
         self.fx_card = self.query_one("#active_fx_card", ActiveFXCard)
         self.camera_frames_card = self.query_one("#camera_frames_card", CameraFramesCard)
+        self.device_info_card = self.query_one("#device_info_card", DeviceInfoCard)
         self.kpi_row = self.query_one("#kpi_row", Container)
         self.main_scroll = self.query_one("#main_body", VerticalScroll)
 
@@ -955,13 +1018,16 @@ class SaberDashboard(App):
                 # Terminale largo: 3 colonne (default)
                 self.stats_grid.add_class("cols-3")
 
-        # Motion summary: adatta il numero di colonne
+        # Motion summary: adatta il numero di colonne (ora 4 card)
         if self.motion_section:
-            self.motion_section.remove_class("cols-1")
+            self.motion_section.remove_class("cols-1", "cols-2")
             if width < 140:
                 # Terminale stretto: 1 colonna (motion cards impilate)
                 self.motion_section.add_class("cols-1")
-            # else: 3 colonne (default dal CSS)
+            elif width < 180:
+                # Terminale medio: 2 colonne
+                self.motion_section.add_class("cols-2")
+            # else: 4 colonne (default dal CSS)
 
         # KPI row (RSSI + FX cards): adatta il numero di colonne
         if self.kpi_row:
@@ -1164,12 +1230,39 @@ class SaberDashboard(App):
             self.header_widget.device_address = address
             self.header_widget.device_name = name
             self._log(f"Connected to {name}", "green")
+
+            # Aggiorna Device Info Card
+            if self.device_info_card:
+                self.device_info_card.connected = True
+                self.device_info_card.device_address = address
+
+            # Aggiorna RSSI card
             if self.rssi_card:
                 self.rssi_card.connected = True
                 if rssi is None:
                     rssi = self.device_rssi_map.get(address)
                 if rssi is not None:
                     self.rssi_card.rssi = rssi
+
+            # Leggi versione firmware
+            try:
+                fw_version = await self.client.read_firmware_version()
+                if fw_version:
+                    self.header_widget.firmware_version = fw_version
+                    if self.device_info_card:
+                        self.device_info_card.firmware_version = fw_version
+                    self._log(f"Firmware version: {fw_version}", "cyan")
+            except Exception as e:
+                self._log(f"Could not read firmware version: {e}", "yellow")
+
+            # Prova a leggere MTU
+            try:
+                if hasattr(self.client.client, 'mtu_size'):
+                    mtu = self.client.client.mtu_size
+                    if self.device_info_card and mtu > 0:
+                        self.device_info_card.mtu = mtu
+            except Exception:
+                pass
 
             # Leggi stato iniziale
             state = await self.client.get_state()
