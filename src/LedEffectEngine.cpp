@@ -441,7 +441,7 @@ void LedEffectEngine::renderPulse(const LedState& state, const uint8_t perturbat
         // Boost aggressivo e lineare:
         // - Min (5): +50% velocità base
         // - Max (255): +400% velocità base (5x totale)
-        uint16_t maxBoost = state.speed * 9;  // Fino a 5x velocità totale (speed + 4*speed)
+        uint16_t maxBoost = state.speed * 3;  // Fino a 5x velocità totale (speed + 4*speed)
         uint16_t perturbBoost = scale8(normalizedPerturb, min(maxBoost, (uint16_t)255));
 
         // Boost minimo garantito per risposta immediata (almeno +50% anche a movimento basso)
@@ -454,7 +454,7 @@ void LedEffectEngine::renderPulse(const LedState& state, const uint8_t perturbat
 
     // PULSE WIDTH inversely proportional to speed: faster = narrower pulse
     // Speed 1 (slow) = wide pulse (20 pixels), Speed 255 (fast) = narrow pulse (3 pixels)
-    uint8_t targetPulseWidth = map(effectiveSpeed, 1, 255, 60, 5);
+    uint8_t targetPulseWidth = map(effectiveSpeed, 1, 255, 50, 3);
 
     // Update main pulse width ONLY at start of cycle to prevent flickering
     if (_pulsePosition == 0) {
@@ -480,13 +480,15 @@ void LedEffectEngine::renderPulse(const LedState& state, const uint8_t perturbat
     }
 
     // CONTINUOUS PULSE FLOW: always moving, no charging phase
-    if (now - _lastPulseUpdate > travelSpeed) {
-        _pulsePosition++;
-        if (_pulsePosition >= totalDistance) {
-            // Pulse exited, restart seamlessly from base
-            _pulsePosition = 0;
+    if (now - _lastPulseUpdate >= travelSpeed) {
+        // Calculate steps based on elapsed time to ensure speed is independent of frame rate
+        uint16_t steps = (now - _lastPulseUpdate) / travelSpeed;
+        _pulsePosition += steps;
+        while (_pulsePosition >= totalDistance) {
+            _pulsePosition -= totalDistance;
         }
-        _lastPulseUpdate = now;
+        // Keep phase alignment
+        _lastPulseUpdate = now - ((now - _lastPulseUpdate) % travelSpeed);
     }
 
     // SPAWN SECONDARY PULSES (plasma discharge effect) - SOLO CON MOVIMENTO
@@ -494,7 +496,7 @@ void LedEffectEngine::renderPulse(const LedState& state, const uint8_t perturbat
     uint8_t spawnChance = 0;
 
     // Spawn DIPENDE COMPLETAMENTE dal movimento
-    if (globalPerturbation > 15) {  // Soglia minima: DEVE esserci movimento
+    if (globalPerturbation > 20) {  // Soglia minima: DEVE esserci movimento
         // Spawn chance parte da 0 e scala con il movimento
         spawnChance = map(globalPerturbation, 15, 255, 10, 100);  // Da 10% a 100% in base al movimento
 
@@ -538,13 +540,15 @@ void LedEffectEngine::renderPulse(const LedState& state, const uint8_t perturbat
         if (_secondaryPulses[i].active) {
             // Secondary pulses use SAME speed as main pulse (synchronized movement)
             // Questo garantisce che tutti i pulse si muovano insieme in modo coerente
-            uint16_t secondaryTravelSpeed = travelSpeed;
-
-            // Move the pulse
-            uint16_t timeSinceBirth = (now & 0xFFFF) - _secondaryPulses[i].birthTime;
-            if (timeSinceBirth > secondaryTravelSpeed) {
-                _secondaryPulses[i].position++;
-                _secondaryPulses[i].birthTime = now & 0xFFFF;
+            // Use individual timing to handle spawn time offsets
+            uint16_t timeSinceLast = (uint16_t)((now & 0xFFFF) - _secondaryPulses[i].birthTime);
+            
+            if (timeSinceLast >= travelSpeed) {
+                uint16_t secSteps = timeSinceLast / travelSpeed;
+                _secondaryPulses[i].position += secSteps;
+                
+                // Update last update time (birthTime is reused as lastUpdate)
+                _secondaryPulses[i].birthTime = (uint16_t)(now & 0xFFFF) - (timeSinceLast % travelSpeed);
 
                 // Kill pulse if it exits the blade
                 if (_secondaryPulses[i].position >= state.foldPoint + _secondaryPulses[i].width) {
@@ -588,7 +592,7 @@ void LedEffectEngine::renderPulse(const LedState& state, const uint8_t perturbat
 
     for (uint16_t i = 0; i < state.foldPoint; i++) {
         // SIMPLIFIED SHADOWS: dark base, bright pulse
-        uint8_t brightness = 40;  // Dark base for better contrast
+        uint8_t brightness = 50;  // Dark base for better contrast
 
         // TRAVELING MAIN PULSE: simple gradient
         int16_t effectiveCenter = (int16_t)_pulsePosition - _mainPulseWidth;
@@ -596,7 +600,7 @@ void LedEffectEngine::renderPulse(const LedState& state, const uint8_t perturbat
 
         if (distance < _mainPulseWidth) {
             // Main pulse body: bright core with smooth falloff
-            brightness = map(distance, 0, _mainPulseWidth, 255, 60);
+            brightness = map(distance, 0, _mainPulseWidth, 255, 70);// scala anche questo ,dopo test crea relazione/ Dark base for better contrast
         }
 
         // SECONDARY PULSES: add their contribution with FUSION SUPPORT
