@@ -699,7 +699,7 @@ void LedEffectEngine::renderDualPulse(const LedState& state, const uint8_t pertu
     static unsigned long ball2_edgeStuckSince = 0;
 
     // FIXED BASE SPEED (independent of state.speed parameter)
-    const float FIXED_BASE_SPEED = 0.10f;  // pixel/ms (rallentata per più controllo)
+    const float FIXED_BASE_SPEED = 0.14f;  // pixel/ms (Aumentata per dinamicità)
 
     // First run initialization
     if (!initialized || now < 500) {
@@ -805,7 +805,7 @@ void LedEffectEngine::renderDualPulse(const LedState& state, const uint8_t pertu
 
             // Ball 1 Release - BONUS BASSO (era 0.08, ora 0.015)
             if (ball1_tempMass > 0.5f) {
-                float bonus = ball1_tempMass * 0.015f;
+                float bonus = ball1_tempMass * 0.04f; // Aumentato per premiare il colpo
                 float targetSpeed = FIXED_BASE_SPEED + bonus;
                 float dir = 1.0f; // Sempre verso l'avversario (Destra)
 
@@ -816,7 +816,7 @@ void LedEffectEngine::renderDualPulse(const LedState& state, const uint8_t pertu
 
             // Ball 2 Release - BONUS BASSO
             if (ball2_tempMass > 0.5f) {
-                float bonus = ball2_tempMass * 0.015f;
+                float bonus = ball2_tempMass * 0.04f; // Aumentato per premiare il colpo
                 float targetSpeed = FIXED_BASE_SPEED + bonus;
                 float dir = -1.0f; // Sempre verso l'avversario (Sinistra)
 
@@ -1027,10 +1027,10 @@ void LedEffectEngine::renderDualPulse(const LedState& state, const uint8_t pertu
     // ═══════════════════════════════════════════════════════════
 
     // GRACE PERIOD: 1500ms (1.5 secondi) per recuperare velocità
-    const unsigned long GRACE_PERIOD = 1500;
+    const unsigned long GRACE_PERIOD = 700; // Ridotto a 1s per rendere la sconfitta più probabile
 
     // COLLASSO quando una palla diventa troppo lenta E il grace period scade
-    const float minVelocity = 0.02f;  // pixel/ms (quasi ferma)
+    const float minVelocity = 0.05f;  // pixel/ms (Soglia alzata: muore prima)
 
     // Reset grace period se la palla recupera velocità
     if (ball1_invulnTime > 0 && abs(ball1_vel) >= 0.06f) {
@@ -1051,12 +1051,12 @@ void LedEffectEngine::renderDualPulse(const LedState& state, const uint8_t pertu
     const float HOLD_TRIGGER_MASS = 0.9f;
     const float EDGE_SAVE_DISTANCE = 1.0f;  // pixel dalla base/punta
     const uint8_t EDGE_SAVE_CRACKLE = 120;   // lampeggio "molto"
-    const unsigned long EDGE_SAVE_COOLDOWN = 1200;
+    const unsigned long EDGE_SAVE_COOLDOWN = 30000;
     // Edge-save SOLO se la palla è davvero "bloccata" sugli ultimi 2 pixel:
     // - molto lenta
     // - ferma lì per un minimo di tempo
     const float EDGE_SAVE_MAX_VELOCITY = 0.010f;       // pixel/ms
-    const unsigned long EDGE_SAVE_STUCK_TIME = 200;    // ms
+    const unsigned long EDGE_SAVE_STUCK_TIME = 2000;    // ms
 
     auto reviveFromHold = [&](bool active,
                               float& pos,
@@ -1069,7 +1069,7 @@ void LedEffectEngine::renderDualPulse(const LedState& state, const uint8_t pertu
         // Aiuto extra: se l'utente "ritocca e tiene" poco prima che la palla sparisca,
         // abbassiamo dinamicamente la soglia richiesta (late-save).
         float t = min(1.0f, (float)(now - invulnTime) / (float)GRACE_PERIOD); // 0..1
-        float requiredHoldMass = max(0.35f, HOLD_TRIGGER_MASS - t * 0.55f);   // 0.90 -> ~0.35
+        float requiredHoldMass = max(0.50f, HOLD_TRIGGER_MASS - t * 0.40f);   // 0.90 -> ~0.50 (Più difficile salvare)
         if (tempMass < requiredHoldMass) return;
 
         float sign = (abs(vel) > 0.005f) ? ((vel > 0.0f) ? 1.0f : -1.0f)
