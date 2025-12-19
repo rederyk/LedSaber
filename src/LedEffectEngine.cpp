@@ -28,9 +28,17 @@ LedEffectEngine::LedEffectEngine(CRGB* leds, uint16_t numLeds) :
     _clashActive(false),
     _rainbowHue(0),
     _breathOverride(255),
-    _lastUpdate(0)
+    _lastUpdate(0),
+    _lastSecondarySpawn(0)
 {
     memset(_unstableHeat, 0, sizeof(_unstableHeat));
+    // Initialize secondary pulses
+    for (uint8_t i = 0; i < 5; i++) {
+        _secondaryPulses[i].active = false;
+        _secondaryPulses[i].position = 0;
+        _secondaryPulses[i].birthTime = 0;
+        _secondaryPulses[i].velocityPhase = 0;
+    }
 }
 
 void LedEffectEngine::render(const LedState& state, const MotionProcessor::ProcessedMotion* motion) {
@@ -439,10 +447,23 @@ void LedEffectEngine::renderPulse(const LedState& state, const uint8_t perturbat
     // Travel distance for pulse to completely exit from tip
     uint16_t totalDistance = state.foldPoint + pulseWidth;
 
-    // Movement speed based on effective speed
-    // HARDWARE LIMIT: min 1ms delay (maximum refresh rate reasonable for LED visibility)
-    // This is the REAL limit - even at 3x speed, we hit 1ms minimum, keeping it visible
-    uint16_t travelSpeed = map(effectiveSpeed, 1, 255, 25, 1);  // 1ms minimum = hard cap
+    // PLASMA DISCHARGE VELOCITY CURVE for main pulse
+    // Phase 0-85: Fast start (1-3ms per pixel)
+    // Phase 86-170: Slow down (3-12ms per pixel)
+    // Phase 171-255: Maximum speed burst (1ms per pixel)
+    uint8_t mainPulsePhase = map(_pulsePosition, 0, totalDistance - 1, 0, 255);
+    uint16_t travelSpeed;
+
+    if (mainPulsePhase < 85) {
+        // Fast start: 1-3ms
+        travelSpeed = map(mainPulsePhase, 0, 85, 1, 3);
+    } else if (mainPulsePhase < 171) {
+        // Slow middle: 3-12ms
+        travelSpeed = map(mainPulsePhase, 85, 171, 3, 12);
+    } else {
+        // Maximum speed burst: 1ms
+        travelSpeed = 1;
+    }
 
     // CONTINUOUS PULSE FLOW: always moving, no charging phase
     if (now - _lastPulseUpdate > travelSpeed) {
@@ -454,6 +475,62 @@ void LedEffectEngine::renderPulse(const LedState& state, const uint8_t perturbat
         _lastPulseUpdate = now;
     }
 
+    // SPAWN SECONDARY PULSES (plasma discharge effect)
+    // Spawn chance increases with motion
+    uint8_t spawnChance = map(effectiveSpeed, 1, 255, 5, 40);
+    if (globalPerturbation > 20) {
+        spawnChance = qadd8(spawnChance, scale8(globalPerturbation, 60));
+    }
+
+    // Try to spawn a secondary pulse near the main pulse
+    if (now - _lastSecondarySpawn > 150 && random8() < spawnChance) {
+        // Find an inactive slot
+        for (uint8_t i = 0; i < 5; i++) {
+            if (!_secondaryPulses[i].active) {
+                // Spawn at a random position (independent, like unstable effect)
+                _secondaryPulses[i].position = random16(state.foldPoint);
+                _secondaryPulses[i].birthTime = now & 0xFFFF;
+                _secondaryPulses[i].velocityPhase = random8();  // Random starting phase
+                _secondaryPulses[i].active = true;
+                _lastSecondarySpawn = now;
+                break;
+            }
+        }
+    }
+
+    // UPDATE SECONDARY PULSES with plasma discharge velocity curve
+    for (uint8_t i = 0; i < 5; i++) {
+        if (_secondaryPulses[i].active) {
+            // Calculate travel speed using plasma discharge curve
+            uint8_t phase = _secondaryPulses[i].velocityPhase;
+            uint16_t secondaryTravelSpeed;
+
+            if (phase < 85) {
+                // Fast start: 2-4ms
+                secondaryTravelSpeed = map(phase, 0, 85, 2, 4);
+            } else if (phase < 171) {
+                // Slow middle: 4-15ms
+                secondaryTravelSpeed = map(phase, 85, 171, 4, 15);
+            } else {
+                // Maximum speed burst: 2ms
+                secondaryTravelSpeed = 2;
+            }
+
+            // Move the pulse
+            uint16_t timeSinceBirth = (now & 0xFFFF) - _secondaryPulses[i].birthTime;
+            if (timeSinceBirth > secondaryTravelSpeed) {
+                _secondaryPulses[i].position++;
+                _secondaryPulses[i].velocityPhase++;  // Advance through velocity curve
+                _secondaryPulses[i].birthTime = now & 0xFFFF;
+
+                // Kill pulse if it exits the blade
+                if (_secondaryPulses[i].position >= state.foldPoint + pulseWidth) {
+                    _secondaryPulses[i].active = false;
+                }
+            }
+        }
+    }
+
     CRGB baseColor = CRGB(state.r, state.g, state.b);
     uint8_t safeBrightness = min(state.brightness, MAX_SAFE_BRIGHTNESS);
 
@@ -461,12 +538,26 @@ void LedEffectEngine::renderPulse(const LedState& state, const uint8_t perturbat
         // SIMPLIFIED SHADOWS: dark base, bright pulse
         uint8_t brightness = 40;  // Dark base for better contrast
 
-        // TRAVELING PULSE: simple gradient
+        // TRAVELING MAIN PULSE: simple gradient
         int16_t distance = abs((int16_t)i - (int16_t)_pulsePosition);
 
         if (distance < pulseWidth) {
             // Main pulse body: bright core with smooth falloff
             brightness = map(distance, 0, pulseWidth, 255, 60);
+        }
+
+        // SECONDARY PULSES: add their contribution
+        for (uint8_t p = 0; p < 5; p++) {
+            if (_secondaryPulses[p].active) {
+                int16_t secDistance = abs((int16_t)i - (int16_t)_secondaryPulses[p].position);
+                uint8_t secPulseWidth = pulseWidth / 2;  // Smaller secondary pulses
+
+                if (secDistance < secPulseWidth) {
+                    // Secondary pulse: slightly dimmer, with smooth falloff
+                    uint8_t secBrightness = map(secDistance, 0, secPulseWidth, 200, 60);
+                    brightness = max(brightness, secBrightness);
+                }
+            }
         }
 
         CRGB pulseColor = baseColor;

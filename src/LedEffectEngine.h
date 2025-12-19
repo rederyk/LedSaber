@@ -83,6 +83,16 @@ private:
     uint16_t _pulse1Pos;
     uint16_t _pulse2Pos;
     unsigned long _lastDualPulseUpdate;
+
+    // Secondary pulses spawned from main pulse (plasma discharge effect)
+    struct SecondaryPulse {
+        uint16_t position;         // Current position on the blade
+        uint16_t birthTime;        // When this pulse was spawned (millis() & 0xFFFF for overflow handling)
+        uint8_t velocityPhase;     // 0-255: tracks position in velocity curve
+        bool active;               // Is this pulse alive?
+    };
+    SecondaryPulse _secondaryPulses[5];  // Up to 5 secondary pulses
+    unsigned long _lastSecondarySpawn;
     uint8_t _clashBrightness;
     unsigned long _lastClashTrigger;
     bool _clashActive;

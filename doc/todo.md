@@ -53,13 +53,22 @@
   - Risultato: animazione completa sia all'accensione che durante gesture
 
 
-## 🔨 TODO (Gruppo 4 - Pulse Refinement)
+## ✅ COMPLETATI (Gruppo 4 - Pulse Refinement)
 
-- ⏳ pulse: riduzione sfarfallio e miglioramento definizione
-  - **Obiettivo**: Pulse più stabile, vivace e definito
-  - **Modifiche richieste**:
-    1. Diminuire molto l'ombra (dark base brightness)
-    2. Ridurre leggermente la lunghezza del pulse (numero di LED)
-    3. Aumentare l'intensità per renderlo più vivace e definito
-  - **File da modificare**: `LedEffectEngine.cpp` - funzione `renderPulse()`
-  - **Linee di riferimento**: `LedEffectEngine.cpp:400-517`  
+- ✅ pulse: riduzione sfarfallio e miglioramento definizione
+  - Implementato in `LedEffectEngine.cpp:408-570`
+  - Lunghezza impulso inversamente proporzionale a velocità (20→3 pixel)
+  - Dark base brightness: 40 (ottimizzato per contrasto)
+  - Perturbazione aumenta velocità fino a 3x con curva logaritmica
+  - Flusso continuo senza interruzioni
+
+- ✅ pulse: spawn secondari indipendenti con curva di velocità plasma
+  - Implementato in `LedEffectEngine.h:87-95`, `LedEffectEngine.cpp:478-532`
+  - **Secondary pulses**: fino a 5 pulse secondari attivi contemporaneamente
+  - **Spawn indipendente**: appaiono in posizioni casuali (logica tipo unstable)
+  - **Curva velocità plasma**:
+    - Fase 0-85: partenza veloce (1-3ms per pixel)
+    - Fase 86-170: rallentamento (3-12ms per pixel)
+    - Fase 171-255: esplosione massima velocità (1ms per pixel)
+  - **Spawn dinamico**: probabilità aumenta con velocità e movimento
+  - Pulse secondari più piccoli (metà larghezza) e leggermente meno luminosi (200 vs 255)
