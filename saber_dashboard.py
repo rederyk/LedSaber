@@ -631,14 +631,14 @@ class ConsoleWidget(TextArea):
         }.get(style, "•")
 
         line = f"{timestamp} {style_prefix} {message}"
-        self.log_lines.append(line)
+        self.log_lines.appendleft(line)
 
         # Aggiorna il contenuto completo
         full_text = "\n".join(self.log_lines)
         self.load_text(full_text)
 
         # Scroll alla fine
-        self.scroll_end(animate=False)
+        self.scroll_home(animate=False)
 
     def action_copy_selection(self) -> None:
         """Copia il testo selezionato nella clipboard di sistema"""
