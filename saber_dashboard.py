@@ -605,12 +605,14 @@ class CameraFramesCard(Static):
 
 
 class DeviceInfoCard(Static):
-    """Card con informazioni sul device: FW version, MAC, uptime, etc."""
+    """Card con informazioni sul device: FW version, MAC, uptime, tempo sincronizzato, etc."""
 
     firmware_version: reactive[str] = reactive("")
     device_address: reactive[str] = reactive("")
     connected: reactive[bool] = reactive(False)
     mtu: reactive[int] = reactive(0)
+    time_synced: reactive[bool] = reactive(False)
+    sync_time_str: reactive[str] = reactive("")
 
     def render(self):
         if not self.connected:
@@ -632,6 +634,20 @@ class DeviceInfoCard(Static):
             if self.mtu > 0:
                 content.append("MTU: ", style="green")
                 content.append(f"{self.mtu}", style="dim white")
+                content.append("\n")
+
+            # Time sync status
+            if self.time_synced:
+                content.append("Time: ", style="magenta")
+                content.append("✓ ", style="green")
+                if self.sync_time_str:
+                    content.append(f"{self.sync_time_str}", style="dim white")
+                else:
+                    content.append("synced", style="dim white")
+            else:
+                content.append("Time: ", style="magenta")
+                content.append("✗ ", style="red dim")
+                content.append("not synced", style="red dim")
 
             if not content.plain:
                 content = Text("Loading...", style="dim", justify="center")
@@ -1263,6 +1279,20 @@ class SaberDashboard(App):
                         self.device_info_card.mtu = mtu
             except Exception:
                 pass
+
+            # Sincronizza tempo (ChronoSaber)
+            try:
+                await self.client.sync_time()
+                if self.device_info_card:
+                    self.device_info_card.time_synced = True
+                    from datetime import datetime
+                    import time
+                    self.device_info_card.sync_time_str = datetime.fromtimestamp(int(time.time())).strftime('%H:%M:%S')
+                self._log("Time synchronized", "green")
+            except Exception as e:
+                self._log(f"Time sync failed: {e}", "yellow")
+                if self.device_info_card:
+                    self.device_info_card.time_synced = False
 
             # Leggi stato iniziale
             state = await self.client.get_state()

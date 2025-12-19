@@ -19,6 +19,7 @@ CHAR_LED_EFFECT_UUID = "e2f6b5d4-fc21-5b4f-9b5d-2345678901bc"
 CHAR_LED_BRIGHTNESS_UUID = "f3e7c6e5-0d32-4c5a-ac6e-3456789012cd"
 CHAR_STATUS_LED_UUID = "a4b8d7f9-1e43-6c7d-ad8f-456789abcdef"
 CHAR_FOLD_POINT_UUID = "h5i0f9h7-3g65-8e9f-cf0g-6789abcdef01"
+CHAR_TIME_SYNC_UUID = "j6k1h0i8-4h76-9f0g-dg1h-789abcdef012"
 CHAR_FW_VERSION_UUID = "a4b8d7fa-1e43-6c7d-ad8f-456789abcdef"
 
 # Camera Service UUIDs
@@ -529,6 +530,28 @@ class LedSaberClient:
         except Exception as e:
             print(f"{Colors.RED}✗ Errore lettura fold point: {e}{Colors.RESET}")
             return {}
+
+    async def sync_time(self):
+        """Sincronizza l'orologio ESP32 con il timestamp del PC"""
+        if not self.client or not self.client.is_connected:
+            print(f"{Colors.RED}✗ Non connesso{Colors.RESET}")
+            return
+
+        import time
+        from datetime import datetime
+
+        epoch = int(time.time())
+        time_data = json.dumps({"epoch": epoch})
+
+        try:
+            await self.client.write_gatt_char(
+                CHAR_TIME_SYNC_UUID,
+                time_data.encode('utf-8')
+            )
+            dt = datetime.fromtimestamp(epoch)
+            print(f"{Colors.GREEN}✓ Tempo sincronizzato: {dt.strftime('%Y-%m-%d %H:%M:%S')}{Colors.RESET}")
+        except Exception as e:
+            print(f"{Colors.RED}✗ Errore sincronizzazione tempo: {e}{Colors.RESET}")
 
     async def camera_send_command(self, command: str):
         """Invia comando alla camera (init, capture, start, stop, reset_metrics)"""

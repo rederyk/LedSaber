@@ -170,6 +170,31 @@ public:
     }
 };
 
+// Callback sincronizzazione tempo
+class TimeSyncCallbacks: public BLECharacteristicCallbacks {
+    BLELedController* controller;
+public:
+    explicit TimeSyncCallbacks(BLELedController* ctrl) : controller(ctrl) {}
+
+    void onWrite(BLECharacteristic *pChar) override {
+        String value = pChar->getValue().c_str();
+
+        JsonDocument doc;
+        DeserializationError error = deserializeJson(doc, value);
+
+        if (!error) {
+            controller->ledState->epochBase = doc["epoch"] | 0;
+            controller->ledState->millisAtSync = millis();
+
+            Serial.printf("[BLE] Time synced: epoch=%lu at millis=%lu\n",
+                controller->ledState->epochBase,
+                controller->ledState->millisAtSync);
+        } else {
+            Serial.println("[BLE ERROR] Invalid JSON for time sync");
+        }
+    }
+};
+
 // Costruttore
 BLELedController::BLELedController(LedState* state) {
     ledState = state;
@@ -182,6 +207,7 @@ BLELedController::BLELedController(LedState* state) {
     pCharBrightness = nullptr;
     pCharStatusLed = nullptr;
     pCharFoldPoint = nullptr;
+    pCharTimeSync = nullptr;
 }
 
 // Inizializzazione BLE
@@ -253,6 +279,16 @@ void BLELedController::begin(BLEServer* server) {
     BLEDescriptor* descFoldPoint = new BLEDescriptor(BLEUUID((uint16_t)0x2901));
     descFoldPoint->setValue("LED Strip Fold Point");
     pCharFoldPoint->addDescriptor(descFoldPoint);
+
+    // Characteristic 7: Time Sync (WRITE)
+    pCharTimeSync = pService->createCharacteristic(
+        CHAR_TIME_SYNC_UUID,
+        BLECharacteristic::PROPERTY_WRITE
+    );
+    pCharTimeSync->setCallbacks(new TimeSyncCallbacks(this));
+    BLEDescriptor* descTimeSync = new BLEDescriptor(BLEUUID((uint16_t)0x2901));
+    descTimeSync->setValue("Time Sync");
+    pCharTimeSync->addDescriptor(descTimeSync);
 
     // Avvia service
     pService->start();
