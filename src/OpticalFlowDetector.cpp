@@ -2,14 +2,6 @@
 #include <esp_heap_caps.h>
 #include <math.h>
 
-static float mapf(float x, float inMin, float inMax, float outMin, float outMax) {
-    if (inMax == inMin) return outMin;
-    float t = (x - inMin) / (inMax - inMin);
-    if (t < 0.0f) t = 0.0f;
-    if (t > 1.0f) t = 1.0f;
-    return outMin + t * (outMax - outMin);
-}
-
 OpticalFlowDetector::OpticalFlowDetector()
     : _initialized(false)
     , _frameWidth(0)
@@ -20,11 +12,8 @@ OpticalFlowDetector::OpticalFlowDetector()
     , _searchStep(5)         // Step largo: 5×5=25 posizioni (uguale a prima, ma range maggiore)
     , _minConfidence(25)     // Abbassato da 35 a 25 per bassa velocità (5fps)
     , _minActiveBlocks(2)    // Ridotto da 3 a 2 per maggiore sensibilità a 5fps
-    , _sensitivity(220)      // Default: molto sensibile
-    , _minMotionIntensity(8)
-    , _minMotionSpeed(0.8f)
+    , _sensitivity(160)      // Default: bilanciato (meno rumore)
     , _directionMagnitudeThreshold(2.0f)
-    , _minFrameDiff(12)
     , _minCentroidWeight(100.0f)
     , _hasPreviousFrame(false)
     , _motionActive(false)
@@ -313,20 +302,6 @@ void OpticalFlowDetector::_calculateGlobalMotion() {
 
     // Verifica movimento
     if (validBlocks < _minActiveBlocks || sumConfidence == 0) {
-        // Fallback: se il frame diff è alto, considera motion anche senza vettori affidabili
-        if (_frameDiffAvg >= _minFrameDiff) {
-            float diffNorm = (float)(_frameDiffAvg - _minFrameDiff) / (float)(255 - _minFrameDiff);
-            if (diffNorm < 0.0f) diffNorm = 0.0f;
-            if (diffNorm > 1.0f) diffNorm = 1.0f;
-
-            _motionActive = true;
-            _motionDirection = Direction::NONE;
-            _motionSpeed = 0.0f;
-            _motionConfidence = 0.0f;
-            _motionIntensity = (uint8_t)max((int)_minMotionIntensity, (int)roundf(diffNorm * 255.0f));
-            return;
-        }
-
         _motionActive = false;
         _motionIntensity = 0;
         _motionDirection = Direction::NONE;
@@ -353,8 +328,8 @@ void OpticalFlowDetector::_calculateGlobalMotion() {
     float normalizedSpeed = min(_motionSpeed / 20.0f, 1.0f);  // 20px/frame = max
     _motionIntensity = (uint8_t)(normalizedSpeed * _motionConfidence * 255.0f);
 
-    // Verifica soglie (dipendono da sensitivity)
-    _motionActive = (_motionIntensity >= _minMotionIntensity && _motionSpeed >= _minMotionSpeed);
+    // Soglie globali (stabili, poco rumore)
+    _motionActive = (_motionIntensity > 8 && _motionSpeed > 0.8f);
 }
 
 void OpticalFlowDetector::_calculateCentroid() {
@@ -515,17 +490,13 @@ void OpticalFlowDetector::_updateFlashIntensity() {
 void OpticalFlowDetector::setSensitivity(uint8_t sensitivity) {
     _sensitivity = sensitivity;
 
-    // Sensitivity alta -> thresholds più bassi (più sensibile)
-    _minConfidence = (uint8_t)map(sensitivity, 0, 255, 90, 10);
-    _minActiveBlocks = (uint8_t)map(sensitivity, 0, 255, 12, 1);
-    _minMotionIntensity = (uint8_t)map(sensitivity, 0, 255, 30, 2);
-    _minMotionSpeed = mapf((float)sensitivity, 0.0f, 255.0f, 2.2f, 0.15f);
-    _directionMagnitudeThreshold = mapf((float)sensitivity, 0.0f, 255.0f, 3.0f, 0.6f);
-    _minFrameDiff = (uint8_t)map(sensitivity, 0, 255, 30, 5);
-    _minCentroidWeight = mapf((float)sensitivity, 0.0f, 255.0f, 200.0f, 40.0f);
+    // Sensitivity alta -> confidence threshold più basso e meno blocchi richiesti.
+    // Manteniamo soglie globali di motion stabili per non introdurre rumore.
+    _minConfidence = (uint8_t)map(sensitivity, 0, 255, 80, 25);
+    _minActiveBlocks = (uint8_t)map(sensitivity, 0, 255, 8, 2);
 
-    Serial.printf("[OPTICAL FLOW] Sensitivity updated: %u (minConf: %u, minBlocks: %u, minInt: %u, minSpeed: %.2f, minDiff: %u)\n",
-                  _sensitivity, _minConfidence, _minActiveBlocks, _minMotionIntensity, _minMotionSpeed, _minFrameDiff);
+    Serial.printf("[OPTICAL FLOW] Sensitivity updated: %u (minConf: %u, minBlocks: %u)\n",
+                  _sensitivity, _minConfidence, _minActiveBlocks);
 }
 
 void OpticalFlowDetector::reset() {

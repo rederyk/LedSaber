@@ -218,12 +218,9 @@ private:
     uint8_t _minConfidence;     // Threshold (default: 50)
     uint8_t _minActiveBlocks;   // Min blocks (default: 6)
 
-    // Sensitivity and gating thresholds
+    // Sensitivity and thresholds
     uint8_t _sensitivity;
-    uint8_t _minMotionIntensity;
-    float _minMotionSpeed;
     float _directionMagnitudeThreshold;
-    uint8_t _minFrameDiff;
     float _minCentroidWeight;
 
     // ═══════════════════════════════════════════════════════════

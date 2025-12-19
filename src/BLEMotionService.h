@@ -45,7 +45,7 @@ public:
      * @brief Notifica evento motion ai client connessi
      * @param eventType Tipo evento (shake_detected, motion_started, motion_ended, still_detected)
      */
-    void notifyEvent(const String& eventType);
+    void notifyEvent(const String& eventType, bool includeGesture = false);
 
     /**
      * @brief Verifica se motion detection è abilitato
@@ -85,6 +85,10 @@ private:
     MotionProcessor::GestureType _lastGesture;
     uint8_t _lastGestureConfidence;
     unsigned long _lastGestureTime;
+
+    // Motion event hysteresis (reduce chatter)
+    unsigned long _motionCandidateSince;
+    unsigned long _stillCandidateSince;
 
     /**
      * @brief Callback per ricezione comandi
