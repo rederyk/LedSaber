@@ -917,7 +917,11 @@ void LedEffectEngine::renderDualPulse(const LedState& state, const uint8_t pertu
     // Dopo ~π collisioni, la palla leggera si ferma
     const float minVelocity = 0.02f;  // pixel/ms (quasi ferma)
 
-    if (!singleBallMode && (now - lastCollapseTime) > 2000) {
+    // Check trigger status (massa temporanea attiva)
+    // Impedisce il collasso se c'è stata perturbazione recente (assorbimento bloccato)
+    bool isTriggered = (ball1_tempMass > 0.8f || ball2_tempMass > 0.8f);
+
+    if (!singleBallMode && (now - lastCollapseTime) > 2000 && !isTriggered) {
         // Check se una palla è quasi ferma (dominata dall'altra)
         bool ball1_stopped = ball1_active && (abs(ball1_vel) < minVelocity);
         bool ball2_stopped = ball2_active && (abs(ball2_vel) < minVelocity);
@@ -957,16 +961,16 @@ void LedEffectEngine::renderDualPulse(const LedState& state, const uint8_t pertu
 
             if (ball1_wins) {
                 ball2_active = false;
-                ball1_hue = ball1_hue + random8(80, 160);
+                // Vincitore mantiene il colore
                 ball1_vel = (ball1_vel > 0) ? FIXED_BASE_SPEED : -FIXED_BASE_SPEED;
                 ball1_mass = 1.0f;  // Reset massa
-                nextBallHue = ball1_hue + 128;
+                nextBallHue = ball2_hue + random8(80, 160); // Il perdente cambia colore al respawn
             } else {
                 ball1_active = false;
-                ball2_hue = ball2_hue + random8(80, 160);
+                // Vincitore mantiene il colore
                 ball2_vel = (ball2_vel > 0) ? FIXED_BASE_SPEED : -FIXED_BASE_SPEED;
                 ball2_mass = 1.0f;  // Reset massa
-                nextBallHue = ball2_hue + 128;
+                nextBallHue = ball1_hue + random8(80, 160); // Il perdente cambia colore al respawn
             }
 
             // Reset sistema
