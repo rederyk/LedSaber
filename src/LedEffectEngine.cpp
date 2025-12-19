@@ -426,31 +426,16 @@ void LedEffectEngine::renderPulse(const LedState& state, const uint8_t perturbat
         globalPerturbation = totalPerturb / samples;
     }
 
-    // INSTANT RESPONSE ACCELERATION: immediate reaction + progressive boost
-    // Anche con poco movimento, risposta istantanea!
+    // LOGICA SEMPLIFICATA (Additive Boost):
+    // La velocità base è quella configurata. Il movimento aggiunge velocità.
     uint16_t effectiveSpeed = state.speed;
-    if (globalPerturbation > 5) {  // Soglia MOLTO bassa = risposta immediata
-        // LINEAR BOOST con risposta istantanea:
-        // - Anche a movimento minimo (5-20) => +50% velocità immediata
-        // - Movimento medio (20-80) => fino a +150% velocità
-        // - Movimento massimo (80-255) => fino a +300% velocità (5x totale!)
-
-        // Map lineare: da 5 a 255 movimento => da 0 a 255 boost
-        uint8_t normalizedPerturb = map(globalPerturbation, 15, 255, 0, 255);
-
-        // Boost aggressivo e lineare:
-        // - Min (5): +50% velocità base
-        // - Max (255): +400% velocità base (5x totale)
-        uint16_t maxBoost = state.speed * 3;  // Fino a 5x velocità totale (speed + 4*speed)
-        uint16_t perturbBoost = scale8(normalizedPerturb, min(maxBoost, (uint16_t)255));
-
-        // Boost minimo garantito per risposta immediata (almeno +50% anche a movimento basso)
-        if (perturbBoost < state.speed / 2) {
-            perturbBoost = state.speed / 2;
-        }
-
-        effectiveSpeed = min((uint16_t)255, (uint16_t)(state.speed + perturbBoost));
+    
+    if (globalPerturbation > 10) {
+        // Additive boost: il movimento aumenta direttamente la velocità
+        effectiveSpeed += globalPerturbation;
     }
+    
+    if (effectiveSpeed > 255) effectiveSpeed = 255;
 
     // PULSE WIDTH inversely proportional to speed: faster = narrower pulse
     // Speed 1 (slow) = wide pulse (20 pixels), Speed 255 (fast) = narrow pulse (3 pixels)
@@ -466,17 +451,16 @@ void LedEffectEngine::renderPulse(const LedState& state, const uint8_t perturbat
     uint16_t totalDistance = state.foldPoint + 2 * _mainPulseWidth;
 
     // SIMPLIFIED VELOCITY: velocità costante basata su effectiveSpeed
-    // La velocità è direttamente proporzionale a effectiveSpeed (che include il boost da movimento)
-    // effectiveSpeed 1-50: slow (10-7ms)
-    // effectiveSpeed 51-150: medium (7-3ms)
-    // effectiveSpeed 151-255: fast (3-1ms)
     uint16_t travelSpeed;
-    if (effectiveSpeed < 50) {
-        travelSpeed = map(effectiveSpeed, 1, 50, 10, 7);
-    } else if (effectiveSpeed < 150) {
-        travelSpeed = map(effectiveSpeed, 50, 200, 7, 3);
+    if (effectiveSpeed < 20) {
+        // Range molto lento: 120ms -> 60ms (per speed < 20)
+        travelSpeed = map(effectiveSpeed, 1, 20, 120, 60);
+    } else if (effectiveSpeed < 100) {
+        // Range medio: 60ms -> 15ms
+        travelSpeed = map(effectiveSpeed, 20, 100, 60, 15);
     } else {
-        travelSpeed = map(effectiveSpeed, 200, 255, 3, 1);
+        // Range veloce: 15ms -> 2ms
+        travelSpeed = map(effectiveSpeed, 100, 255, 15, 2);
     }
 
     // CONTINUOUS PULSE FLOW: always moving, no charging phase
