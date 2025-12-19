@@ -686,6 +686,10 @@ void LedEffectEngine::renderDualPulse(const LedState& state, const uint8_t pertu
     static unsigned long ball2_invulnTime = 0;  // Tempo di invulnerabilità (grace period)
     static float collisionFlashPos = 0.0f;      // Centro flash collisione (pixel)
     static uint8_t collisionFlash = 0;          // Intensità flash collisione (0-255)
+    static unsigned long ball1_crackleLast = 0;
+    static unsigned long ball2_crackleLast = 0;
+    static uint8_t ball1_crackle = 0;
+    static uint8_t ball2_crackle = 0;
 
     // FIXED BASE SPEED (independent of state.speed parameter)
     const float FIXED_BASE_SPEED = 0.10f;  // pixel/ms (rallentata per più controllo)
@@ -715,6 +719,11 @@ void LedEffectEngine::renderDualPulse(const LedState& state, const uint8_t pertu
         collisionCount = 0;
         ball1_invulnTime = 0;
         ball2_invulnTime = 0;
+        ball1_crackleLast = 0;
+        ball2_crackleLast = 0;
+        ball1_crackle = 0;
+        ball2_crackle = 0;
+        collisionFlash = 0;
         initialized = true;
 
         Serial.println("[DUAL_PONG] Initialized with MASS-based physics (EASY MODE)");
@@ -855,6 +864,8 @@ void LedEffectEngine::renderDualPulse(const LedState& state, const uint8_t pertu
             // INVULNERABILITÀ: Se la palla è quasi ferma, attiva grace period
             if (abs(ball1_vel) < 0.03f && ball1_invulnTime == 0) {
                 ball1_invulnTime = now;
+                ball1_crackleLast = now;
+                ball1_crackle = 0;
                 Serial.println("[DUAL_PONG] Ball 1 SLOW - Grace period activated!");
             }
         }
@@ -870,6 +881,8 @@ void LedEffectEngine::renderDualPulse(const LedState& state, const uint8_t pertu
             // INVULNERABILITÀ: Se la palla è quasi ferma, attiva grace period
             if (abs(ball2_vel) < 0.03f && ball2_invulnTime == 0) {
                 ball2_invulnTime = now;
+                ball2_crackleLast = now;
+                ball2_crackle = 0;
                 Serial.println("[DUAL_PONG] Ball 2 SLOW - Grace period activated!");
             }
         }
@@ -1003,10 +1016,12 @@ void LedEffectEngine::renderDualPulse(const LedState& state, const uint8_t pertu
     // Reset grace period se la palla recupera velocità
     if (ball1_invulnTime > 0 && abs(ball1_vel) >= 0.06f) {
         ball1_invulnTime = 0;  // Recuperata! Resetta grace period
+        ball1_crackle = 0;
         Serial.println("[DUAL_PONG] Ball 1 RECOVERED - Grace period cancelled");
     }
     if (ball2_invulnTime > 0 && abs(ball2_vel) >= 0.06f) {
         ball2_invulnTime = 0;
+        ball2_crackle = 0;
         Serial.println("[DUAL_PONG] Ball 2 RECOVERED - Grace period cancelled");
     }
 
@@ -1034,6 +1049,8 @@ void LedEffectEngine::renderDualPulse(const LedState& state, const uint8_t pertu
             // Reset grace periods
             ball1_invulnTime = 0;
             ball2_invulnTime = 0;
+            ball1_crackle = 0;
+            ball2_crackle = 0;
 
             // Determina quale palla vince (la più veloce o quella in movimento)
             bool ball1_wins = false;
@@ -1139,6 +1156,33 @@ void LedEffectEngine::renderDualPulse(const LedState& state, const uint8_t pertu
     if (collisionFlash > 0) {
         collisionFlash = qsub8(collisionFlash, 35);
     }
+
+    // "Plasma held": crackle/clash ripetuti quando una palla è quasi ferma.
+    // Aumentano intensità e velocità man mano che ci si avvicina alla fine del GRACE_PERIOD.
+    if (ball1_invulnTime > 0) {
+        float t = min(1.0f, (float)(now - ball1_invulnTime) / (float)GRACE_PERIOD); // 0..1
+        uint16_t periodMs = (uint16_t)(420.0f - t * 330.0f); // 420ms -> 90ms
+        if (now - ball1_crackleLast >= periodMs) {
+            ball1_crackleLast = now;
+            uint8_t base = (uint8_t)(30.0f + t * 140.0f); // 30..170
+            base = qadd8(base, random8((uint8_t)(20.0f + t * 60.0f)));
+            ball1_crackle = qadd8(ball1_crackle, base);
+        }
+    }
+    if (ball2_invulnTime > 0) {
+        float t = min(1.0f, (float)(now - ball2_invulnTime) / (float)GRACE_PERIOD);
+        uint16_t periodMs = (uint16_t)(420.0f - t * 330.0f);
+        if (now - ball2_crackleLast >= periodMs) {
+            ball2_crackleLast = now;
+            uint8_t base = (uint8_t)(30.0f + t * 140.0f);
+            base = qadd8(base, random8((uint8_t)(20.0f + t * 60.0f)));
+            ball2_crackle = qadd8(ball2_crackle, base);
+        }
+    }
+
+    // Decay crackle (molto breve, tipo "clash ripetuti")
+    if (ball1_crackle > 0) ball1_crackle = qsub8(ball1_crackle, 28);
+    if (ball2_crackle > 0) ball2_crackle = qsub8(ball2_crackle, 28);
 
     _lastDualPulseUpdate = now;
 
@@ -1297,6 +1341,32 @@ void LedEffectEngine::renderDualPulse(const LedState& state, const uint8_t pertu
             if (dist < radius) {
                 float t = 1.0f - (dist / radius);
                 uint8_t boost = (uint8_t)(collisionFlash * t * t);
+                color.r = qadd8(color.r, boost);
+                color.g = qadd8(color.g, boost);
+                color.b = qadd8(color.b, boost);
+            }
+        }
+
+        // Crackle localizzato sulle palle lente (grace period): più vicino al limite = più forte e più largo
+        if (ball1_active && ball1_crackle > 0 && ball1_invulnTime > 0) {
+            float t = min(1.0f, (float)(now - ball1_invulnTime) / (float)GRACE_PERIOD);
+            float dist = abs((float)i - ball1_pos);
+            float radius = 5.0f + t * 7.0f; // 5..12
+            if (dist < radius) {
+                float k = 1.0f - (dist / radius);
+                uint8_t boost = (uint8_t)(ball1_crackle * k * k);
+                color.r = qadd8(color.r, boost);
+                color.g = qadd8(color.g, boost);
+                color.b = qadd8(color.b, boost);
+            }
+        }
+        if (ball2_active && ball2_crackle > 0 && ball2_invulnTime > 0) {
+            float t = min(1.0f, (float)(now - ball2_invulnTime) / (float)GRACE_PERIOD);
+            float dist = abs((float)i - ball2_pos);
+            float radius = 5.0f + t * 7.0f; // 5..12
+            if (dist < radius) {
+                float k = 1.0f - (dist / radius);
+                uint8_t boost = (uint8_t)(ball2_crackle * k * k);
                 color.r = qadd8(color.r, boost);
                 color.g = qadd8(color.g, boost);
                 color.b = qadd8(color.b, boost);
