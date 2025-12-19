@@ -10,6 +10,8 @@ import os
 import struct
 import subprocess
 import time
+import tempfile
+import shutil
 from pathlib import Path
 from typing import Optional
 from bleak import BleakClient, BleakScanner
@@ -36,6 +38,30 @@ def detect_local_firmware_version() -> Optional[str]:
         return output.decode().strip()
     except Exception:
         return None
+
+
+def stage_firmware_and_version_to_temp(
+    firmware_path: Path, fw_version: Optional[str]
+) -> tuple[tempfile.TemporaryDirectory, Path]:
+    """
+    Copia il firmware bin e la versione in una cartella temporanea.
+    Questo evita effetti strani se il file originale viene rigenerato/cancellato
+    durante l'upload (es. rebuild/clean PlatformIO).
+    """
+    source_path = firmware_path.expanduser().resolve()
+    if not source_path.exists():
+        raise FileNotFoundError(f"File firmware non trovato: {source_path}")
+
+    tmp = tempfile.TemporaryDirectory(prefix="ledsaber_ota_")
+    tmp_dir = Path(tmp.name)
+
+    staged_fw = tmp_dir / source_path.name
+    shutil.copy2(source_path, staged_fw)
+
+    version_text = (fw_version or "UNKNOWN").strip()
+    (tmp_dir / "firmware_version.txt").write_text(version_text + "\n", encoding="utf-8")
+
+    return tmp, staged_fw
 
 # Comandi OTA
 OTA_CMD_START = 0x01
@@ -454,74 +480,92 @@ async def main():
         print(f"{Colors.YELLOW}⚠ Impossibile determinare la versione locale (git describe non disponibile){Colors.RESET}")
     updater.expected_fw_version = local_fw_version
 
+    # Stage firmware in temp per evitare problemi se PlatformIO pulisce/rigenera .pio durante l'OTA
+    staged_tmp: Optional[tempfile.TemporaryDirectory] = None
+    try:
+        staged_tmp, firmware_path = stage_firmware_and_version_to_temp(firmware_path, local_fw_version)
+        print(f"{Colors.CYAN}🗂 Firmware copiato in temp: {firmware_path}{Colors.RESET}")
+        print(f"{Colors.CYAN}📝 Versione salvata in: {Path(staged_tmp.name) / 'firmware_version.txt'}{Colors.RESET}")
+    except Exception as e:
+        print(f"{Colors.RED}✗ Impossibile preparare il firmware in temp: {e}{Colors.RESET}")
+        sys.exit(1)
+
     # Scansione o connessione diretta
-    if target_address:
-        print(f"{Colors.CYAN}📡 Connessione diretta a {target_address}...{Colors.RESET}")
-        if not await updater.connect(target_address):
-            sys.exit(1)
-    else:
-        devices = await updater.scan()
-        if not devices:
-            print(f"{Colors.RED}✗ Nessun dispositivo LedSaber trovato{Colors.RESET}")
-            sys.exit(1)
-
-        if len(devices) == 1:
-            target = devices[0]
-            print(f"{Colors.CYAN}🔁 Connessione automatica a {target.name} ({target.address}){Colors.RESET}")
+    try:
+        if target_address:
+            print(f"{Colors.CYAN}📡 Connessione diretta a {target_address}...{Colors.RESET}")
+            if not await updater.connect(target_address):
+                sys.exit(1)
         else:
-            print(f"\n{Colors.BOLD}Dispositivi trovati:{Colors.RESET}")
-            for idx, dev in enumerate(devices, 1):
-                print(f"  {idx}. {dev.name} ({dev.address})")
+            devices = await updater.scan()
+            if not devices:
+                print(f"{Colors.RED}✗ Nessun dispositivo LedSaber trovato{Colors.RESET}")
+                sys.exit(1)
 
-            while True:
-                selection = input(f"\n{Colors.BOLD}Seleziona dispositivo (1-{len(devices)}, Enter per uscire): {Colors.RESET}").strip()
-                if not selection:
-                    print(f"{Colors.YELLOW}↩ Selezione annullata{Colors.RESET}")
-                    sys.exit(0)
-                if selection.isdigit():
-                    idx = int(selection) - 1
-                    if 0 <= idx < len(devices):
-                        target = devices[idx]
-                        break
-                print(f"{Colors.RED}✗ Selezione non valida. Inserisci un numero tra 1 e {len(devices)}{Colors.RESET}")
+            if len(devices) == 1:
+                target = devices[0]
+                print(f"{Colors.CYAN}🔁 Connessione automatica a {target.name} ({target.address}){Colors.RESET}")
+            else:
+                print(f"\n{Colors.BOLD}Dispositivi trovati:{Colors.RESET}")
+                for idx, dev in enumerate(devices, 1):
+                    print(f"  {idx}. {dev.name} ({dev.address})")
 
-        if not await updater.connect(target.address):
-            sys.exit(1)
+                while True:
+                    selection = input(f"\n{Colors.BOLD}Seleziona dispositivo (1-{len(devices)}, Enter per uscire): {Colors.RESET}").strip()
+                    if not selection:
+                        print(f"{Colors.YELLOW}↩ Selezione annullata{Colors.RESET}")
+                        sys.exit(0)
+                    if selection.isdigit():
+                        idx = int(selection) - 1
+                        if 0 <= idx < len(devices):
+                            target = devices[idx]
+                            break
+                    print(f"{Colors.RED}✗ Selezione non valida. Inserisci un numero tra 1 e {len(devices)}{Colors.RESET}")
 
-    # Conferma upload
-    print(f"\n{Colors.YELLOW}⚠ ATTENZIONE: Durante l'aggiornamento NON spegnere il dispositivo!{Colors.RESET}")
-    if auto_confirm:
-        print(f"{Colors.GREEN}✓ Flag -YY attivo: procedo automaticamente con l'aggiornamento{Colors.RESET}")
-        confirm = 's'
-    else:
-        confirm = input(f"{Colors.BOLD}Procedere con l'aggiornamento? (s/N): {Colors.RESET}")
+            if not await updater.connect(target.address):
+                sys.exit(1)
 
-    if confirm.lower() != 's':
-        print(f"{Colors.YELLOW}↩ Aggiornamento annullato{Colors.RESET}")
-        await updater.disconnect()
-        sys.exit(0)
-
-    # Upload firmware
-    success = await updater.upload_firmware(firmware_path)
-
-    if success:
-        # Chiedi se riavviare
+        # Conferma upload
+        print(f"\n{Colors.YELLOW}⚠ ATTENZIONE: Durante l'aggiornamento NON spegnere il dispositivo!{Colors.RESET}")
         if auto_confirm:
-            print(f"{Colors.GREEN}✓ Flag -YY attivo: riavvio automatico abilitato{Colors.RESET}")
-            reboot = 's'
+            print(f"{Colors.GREEN}✓ Flag -YY attivo: procedo automaticamente con l'aggiornamento{Colors.RESET}")
+            confirm = 's'
         else:
-            reboot = input(f"\n{Colors.BOLD}Riavviare il dispositivo ora? (S/n): {Colors.RESET}")
+            confirm = input(f"{Colors.BOLD}Procedere con l'aggiornamento? (s/N): {Colors.RESET}")
 
-        if reboot.lower() != 'n':
-            await updater.reboot_device()
-            await updater.verify_new_firmware_version()
+        if confirm.lower() != 's':
+            print(f"{Colors.YELLOW}↩ Aggiornamento annullato{Colors.RESET}")
+            await updater.disconnect()
+            sys.exit(0)
+
+        # Upload firmware
+        success = await updater.upload_firmware(firmware_path)
+
+        if success:
+            # Chiedi se riavviare
+            if auto_confirm:
+                print(f"{Colors.GREEN}✓ Flag -YY attivo: riavvio automatico abilitato{Colors.RESET}")
+                reboot = 's'
+            else:
+                reboot = input(f"\n{Colors.BOLD}Riavviare il dispositivo ora? (S/n): {Colors.RESET}")
+
+            if reboot.lower() != 'n':
+                await updater.reboot_device()
+                await updater.verify_new_firmware_version()
+            else:
+                print(f"{Colors.CYAN}💡 Ricorda di riavviare il dispositivo manualmente per applicare l'aggiornamento{Colors.RESET}")
         else:
-            print(f"{Colors.CYAN}💡 Ricorda di riavviare il dispositivo manualmente per applicare l'aggiornamento{Colors.RESET}")
-    else:
-        print(f"\n{Colors.RED}✗ Aggiornamento fallito{Colors.RESET}")
+            print(f"\n{Colors.RED}✗ Aggiornamento fallito{Colors.RESET}")
 
-    await updater.disconnect()
-    print(f"\n{Colors.CYAN}👋 Completato!{Colors.RESET}\n")
+        await updater.disconnect()
+        print(f"\n{Colors.CYAN}👋 Completato!{Colors.RESET}\n")
+    finally:
+        # Cleanup temp staging (best-effort)
+        if staged_tmp is not None:
+            try:
+                staged_tmp.cleanup()
+            except Exception:
+                pass
 
 
 if __name__ == "__main__":

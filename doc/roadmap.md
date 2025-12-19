@@ -187,17 +187,19 @@ void shutdownDevice() {
 
 ---
 
-## 🔮 GRUPPO 3: RAINBOW REFACTOR (FUTURO)
+## ✅ GRUPPO 3: RAINBOW REFACTOR (COMPLETATO)
 
-### Task 3.1: Rainbow Effect - Lama bianca con perturbazioni colorate
+### Status: 100% Completato - Build SUCCESS ✓
 
-**Obiettivo:**
-Deprecare il vecchio `rainbow` senza blade. Creare nuovo effetto `rainbow_effect`:
-- Base: lama bianca (RGB 255,255,255)
-- Perturbazioni: tutti i colori in base alla direzione del movimento
-- Colori risultanti più luminosi grazie alla base bianca
+### Task 3.1: Rainbow Effect - Lama bianca con perturbazioni colorate ✅
 
-**Modifiche necessarie:**
+**Obiettivo:** ✅ COMPLETATO
+Creare nuovo effetto `rainbow_effect`:
+- Base: lama bianca (RGB 255,255,255) ✓
+- Perturbazioni: tutti i colori in base alla direzione del movimento ✓
+- Colori risultanti più luminosi grazie alla base bianca ✓
+
+**Modifiche implementate:**
 
 #### File 1: `src/LedEffectEngine.cpp`
 ```cpp
@@ -284,14 +286,34 @@ uint8_t getHueFromDirection(MotionDirection dir);
 }
 ```
 
-**File da modificare:**
-- ✏️ `src/LedEffectEngine.h` - Aggiungere metodi
-- ✏️ `src/LedEffectEngine.cpp` - Implementare `renderRainbowEffect()` e helper
-- ✏️ `src/BLELedController.cpp` - Supportare nuovo effect name
-- ✏️ `src/MotionProcessor.h` - Verificare enum `MotionDirection` disponibile
+**Implementazione:** ✅ COMPLETATO
+- File modificati: `LedEffectEngine.h`, `LedEffectEngine.cpp`
+- Nuova funzione: `renderRainbowEffect(state, perturbationGrid, motion)`
+- Helper function: `getHueFromDirection()` - mappa 8 direzioni a hue
+- Mapping colori:
+  - UP = Rosso (0), DOWN = Blu (160)
+  - LEFT = Verde (96), RIGHT = Giallo (64)
+  - Diagonali = Arancione, Ciano, Viola
+- Luminosity boost: +80 white per colori più brillanti
+- Supporto nell'effect switch in `render()`
 
-**Stima complessità:** MEDIA-ALTA
-**Dipendenze:** Richiede accesso a `motion->direction` (verificare disponibilità)
+### Task 3.2: Pulse Fix - Accelerazione con perturbazioni ✅
+
+**Obiettivo:** ✅ COMPLETATO
+Correggere comportamento pulse con perturbazioni:
+- Non deve spegnersi ✓
+- Deve accelerare il flusso ✓
+- Non deve saltare impulsi ✓
+
+**Implementazione:** ✅ COMPLETATO
+- File modificato: `LedEffectEngine.cpp:383-500`
+- Global perturbation averaging per accelerazione uniforme
+- Speed boost fino a 50% più veloce (max)
+- Charge increment aumentato con motion
+- Brightness minima: 80→100 (dark base)
+- Pulse body minima: 150→180
+- Intensification boost: +120 brightness
+- Nessuna interruzione del flusso
 
 ---
 

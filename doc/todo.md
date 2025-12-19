@@ -31,12 +31,17 @@
   - Pronto per trigger su disconnect/shutdown
 
 
-## 🔮 FUTURO (Gruppo 3 - Rainbow Refactor)
+## ✅ COMPLETATI (Gruppo 3 - Rainbow Refactor)
 
-- ⏳ rainbow_effect: deprecare rainbow base, creare nuovo effetto
-  - File da modificare: `LedEffectEngine.cpp`, `BLELedController.cpp`
-  - Lama bianca perturbata con tutti i colori in base alla direzione
-  - Colori più luminosi con base bianca
+- ✅ rainbow_effect: lama bianca perturbata con colori per direzione
+  - Implementato in `LedEffectEngine.h/cpp`
+  - Funzione: `renderRainbowEffect()`, `getHueFromDirection()`
+  - Lama bianca base + blend con colori basati su direzione movimento
+  - Luminosity boost per colori più brillanti
 
-
-- pulse sembra spegnersi  e rompere il ritmo quando perturbato invece dovrebbe accendersi di piu e velocizzare il flusso senza saltare impulsi 
+- ✅ pulse fix: accelerazione con perturbazioni senza spegnimento
+  - Modificato `renderPulse()` in `LedEffectEngine.cpp:383-500`
+  - Calcolo global perturbation per accelerare movimento
+  - Brightness minima aumentata (100 invece di 80)
+  - Intensification boost fino a +120 brightness
+  - Nessun salto di impulsi, flusso continuo 

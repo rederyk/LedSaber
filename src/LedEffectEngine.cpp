@@ -96,6 +96,8 @@ void LedEffectEngine::render(const LedState& state, const MotionProcessor::Proce
                 renderDualPulse(state, motion ? motion->perturbationGrid : nullptr);
             } else if (state.effect == "rainbow_blade") {
                 renderRainbowBlade(state, motion ? motion->perturbationGrid : nullptr);
+            } else if (state.effect == "rainbow_effect") {
+                renderRainbowEffect(state, motion ? motion->perturbationGrid : nullptr, motion);
             } else if (state.effect == "ignition") {
                 // Manual ignition effect (user triggered)
                 renderIgnition(state);
@@ -133,6 +135,21 @@ inline CRGB LedEffectEngine::scaleColorByBrightness(CRGB color, uint8_t brightne
         scale8(color.g, brightness),
         scale8(color.b, brightness)
     );
+}
+
+uint8_t LedEffectEngine::getHueFromDirection(OpticalFlowDetector::Direction dir) {
+    switch(dir) {
+        case OpticalFlowDetector::Direction::UP:         return 0;    // Rosso
+        case OpticalFlowDetector::Direction::DOWN:       return 160;  // Blu
+        case OpticalFlowDetector::Direction::LEFT:       return 96;   // Verde
+        case OpticalFlowDetector::Direction::RIGHT:      return 64;   // Giallo
+        case OpticalFlowDetector::Direction::UP_LEFT:    return 48;   // Arancione
+        case OpticalFlowDetector::Direction::UP_RIGHT:   return 32;   // Giallo-rosso
+        case OpticalFlowDetector::Direction::DOWN_LEFT:  return 128;  // Ciano
+        case OpticalFlowDetector::Direction::DOWN_RIGHT: return 192;  // Viola
+        case OpticalFlowDetector::Direction::NONE:
+        default:                                          return 0;    // Default rosso
+    }
 }
 
 void LedEffectEngine::setLedPair(uint16_t logicalIndex, uint16_t foldPoint, CRGB color) {
@@ -388,14 +405,43 @@ void LedEffectEngine::renderPulse(const LedState& state, const uint8_t perturbat
     const uint8_t pulseWidth = 15;
     uint16_t totalDistance = state.foldPoint + pulseWidth;
 
-    // Calculate timing for seamless cycle: charge + travel time
+    // Calculate base timing for seamless cycle: charge + travel time
     uint16_t chargeSpeed = map(state.speed, 1, 255, 30, 3);   // Slower charge (piano)
     uint16_t travelSpeed = map(state.speed, 1, 255, 20, 1);   // Travel speed
 
-    if (now - _lastPulseUpdate > (_pulseCharging ? chargeSpeed : travelSpeed)) {
+    // PERTURBATION ACCELERATION: calculate average motion to speed up pulse
+    uint8_t globalPerturbation = 0;
+    if (perturbationGrid != nullptr) {
+        uint16_t totalPerturb = 0;
+        uint8_t samples = 0;
+        for (uint8_t row = 1; row <= 4; row++) {
+            for (uint8_t col = 0; col < 8; col++) {
+                totalPerturb += perturbationGrid[row][col];
+                samples++;
+            }
+        }
+        globalPerturbation = totalPerturb / samples;
+    }
+
+    // Accelerate based on motion (higher motion = faster pulse, no impulse skipping)
+    uint16_t currentSpeed = _pulseCharging ? chargeSpeed : travelSpeed;
+    if (globalPerturbation > 15) {
+        // Speed up: reduce delay = faster movement (max 50% faster)
+        uint8_t speedBoost = scale8(globalPerturbation, 128);  // 0-128 reduction
+        currentSpeed = qsub8(currentSpeed, speedBoost);
+        if (currentSpeed < 1) currentSpeed = 1;  // Min speed cap
+    }
+
+    if (now - _lastPulseUpdate > currentSpeed) {
         if (_pulseCharging) {
             // CHARGING PHASE: accumulate plasma at base
-            _pulseCharge += 15;  // Gradual charge increase
+            // Motion makes charging faster
+            uint8_t chargeIncrement = 15;
+            if (globalPerturbation > 20) {
+                chargeIncrement = qadd8(chargeIncrement, scale8(globalPerturbation, 20));
+            }
+            _pulseCharge = qadd8(_pulseCharge, chargeIncrement);
+
             if (_pulseCharge >= 255) {
                 // Charge complete, launch pulse
                 _pulseCharging = false;
@@ -419,14 +465,14 @@ void LedEffectEngine::renderPulse(const LedState& state, const uint8_t perturbat
     uint8_t safeBrightness = min(state.brightness, MAX_SAFE_BRIGHTNESS);
 
     for (uint16_t i = 0; i < state.foldPoint; i++) {
-        uint8_t brightness = 80;  // Dark base
+        uint8_t brightness = 100;  // Higher dark base (100 instead of 80) - never too dark
 
         if (_pulseCharging) {
             // CHARGING: show growing plasma ball at base
             if (i < 10) {  // Charge zone at base (first 10 LEDs)
                 uint8_t chargeDistance = i;
                 // Brighter at base, fades toward position 10
-                uint8_t chargeBrightness = map(chargeDistance, 0, 10, 255, 100);
+                uint8_t chargeBrightness = map(chargeDistance, 0, 10, 255, 120);
                 // Scale by charge level (0-255)
                 chargeBrightness = scale8(chargeBrightness, _pulseCharge);
                 brightness = max(brightness, chargeBrightness);
@@ -436,15 +482,15 @@ void LedEffectEngine::renderPulse(const LedState& state, const uint8_t perturbat
             int16_t distance = abs((int16_t)i - (int16_t)_pulsePosition);
 
             if (distance < pulseWidth) {
-                // Main pulse body
-                brightness = map(distance, 0, pulseWidth, 255, 150);
+                // Main pulse body - always bright
+                brightness = map(distance, 0, pulseWidth, 255, 180);  // Higher minimum (180)
             } else if (distance < pulseWidth + 5) {
-                // Trailing halo
-                brightness = map(distance, pulseWidth, pulseWidth + 5, 150, 80);
+                // Trailing halo - brighter minimum
+                brightness = map(distance, pulseWidth, pulseWidth + 5, 180, 100);
             }
         }
 
-        // MOTION RIPPLES: movement creates brightness waves
+        // MOTION INTENSIFICATION: perturbations BOOST brightness (never darken)
         if (perturbationGrid != nullptr) {
             uint8_t col = map(i, 0, state.foldPoint - 1, 0, 7);
 
@@ -454,9 +500,10 @@ void LedEffectEngine::renderPulse(const LedState& state, const uint8_t perturbat
             }
             uint8_t avgPerturbation = perturbSum / 4;
 
-            if (avgPerturbation > 20) {
-                uint8_t rippleBoost = scale8(avgPerturbation, 100);
-                brightness = qadd8(brightness, rippleBoost);
+            if (avgPerturbation > 15) {
+                // Stronger boost: motion makes pulse MORE visible
+                uint8_t intensifyBoost = scale8(avgPerturbation, 120);  // Up to +120 brightness
+                brightness = qadd8(brightness, intensifyBoost);
             }
         }
 
@@ -576,6 +623,51 @@ void LedEffectEngine::renderRainbowBlade(const LedState& state, const uint8_t pe
     }
 
     _rainbowHue += hueStep;
+}
+
+void LedEffectEngine::renderRainbowEffect(const LedState& state, const uint8_t perturbationGrid[6][8], const MotionProcessor::ProcessedMotion* motion) {
+    CRGB whiteBase = CRGB(255, 255, 255);  // Lama bianca come base
+    uint8_t safeBrightness = min(state.brightness, MAX_SAFE_BRIGHTNESS);
+
+    for (uint16_t i = 0; i < state.foldPoint; i++) {
+        CRGB ledColor = whiteBase;  // Start with white
+
+        // RAINBOW PERTURBATIONS: motion adds colors based on direction
+        if (perturbationGrid != nullptr && motion != nullptr) {
+            uint8_t col = map(i, 0, state.foldPoint - 1, 0, 7);
+
+            // Sample perturbation in this column
+            uint16_t perturbSum = 0;
+            for (uint8_t row = 2; row <= 4; row++) {
+                perturbSum += perturbationGrid[row][col];
+            }
+            uint8_t avgPerturbation = perturbSum / 3;
+
+            if (avgPerturbation > 12) {  // Sensitive threshold for color appearance
+                // Get color based on motion direction
+                uint8_t hue = getHueFromDirection(motion->direction);
+
+                // Create saturated color from direction
+                CRGB perturbColor = CHSV(hue, 255, 255);
+
+                // Blend white base with perturbation color
+                // Higher perturbation = more color visible
+                // Scale to 200 max (not 255) to keep some white for luminosity
+                uint8_t blendAmount = scale8(avgPerturbation, 200);
+                ledColor = blend(whiteBase, perturbColor, blendAmount);
+
+                // LUMINOSITY BOOST: colors on white base should be brighter
+                // Add back some white to increase perceived brightness
+                uint8_t whiteBoost = scale8(avgPerturbation, 80);  // Add white glow
+                ledColor.r = qadd8(ledColor.r, whiteBoost);
+                ledColor.g = qadd8(ledColor.g, whiteBoost);
+                ledColor.b = qadd8(ledColor.b, whiteBoost);
+            }
+        }
+
+        ledColor = scaleColorByBrightness(ledColor, safeBrightness);
+        setLedPair(i, state.foldPoint, ledColor);
+    }
 }
 
 // ═══════════════════════════════════════════════════════════

@@ -106,6 +106,11 @@ private:
      */
     void setLedPair(uint16_t logicalIndex, uint16_t foldPoint, CRGB color);
 
+    /**
+     * @brief Get hue from motion direction (for rainbow_effect)
+     */
+    static uint8_t getHueFromDirection(OpticalFlowDetector::Direction dir);
+
     // ═══════════════════════════════════════════════════════════
     // BASE EFFECT RENDERERS
     // ═══════════════════════════════════════════════════════════
@@ -118,6 +123,7 @@ private:
     void renderPulse(const LedState& state, const uint8_t perturbationGrid[6][8]);
     void renderDualPulse(const LedState& state, const uint8_t perturbationGrid[6][8]);
     void renderRainbowBlade(const LedState& state, const uint8_t perturbationGrid[6][8]);
+    void renderRainbowEffect(const LedState& state, const uint8_t perturbationGrid[6][8], const MotionProcessor::ProcessedMotion* motion);
 
     // ═══════════════════════════════════════════════════════════
     // GESTURE-TRIGGERED EFFECTS
