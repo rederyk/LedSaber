@@ -1886,6 +1886,11 @@ void LedEffectEngine::renderChronoHybrid(const LedState& state, const uint8_t pe
     // ═══ STEP 1: CALCOLO TEMPO REALE ═══
     if (state.epochBase == 0) {
         // Nessun sync ancora: mostra pattern "waiting for sync"
+        static unsigned long lastDebugPrint = 0;
+        if (now - lastDebugPrint > 5000) {
+            Serial.println("[CHRONO] Waiting for time sync (epochBase == 0)");
+            lastDebugPrint = now;
+        }
         fill_solid(_leds, _numLeds, CRGB(20, 0, 20));  // Viola dim
         return;
     }
@@ -1893,11 +1898,27 @@ void LedEffectEngine::renderChronoHybrid(const LedState& state, const uint8_t pe
     uint32_t elapsed = (now - state.millisAtSync) / 1000;  // Secondi da sync
     uint32_t currentEpoch = state.epochBase + elapsed;
 
+    // Debug time sync (ogni 10 secondi)
+    static unsigned long lastTimePrint = 0;
+    if (now - lastTimePrint > 10000) {
+        Serial.printf("[CHRONO] epochBase=%lu, millisAtSync=%lu, elapsed=%lu sec\n",
+            state.epochBase, state.millisAtSync, elapsed);
+        lastTimePrint = now;
+    }
+
     // Converti epoch in ore/minuti/secondi locali
     uint32_t timeOfDay = currentEpoch % 86400;  // Secondi dalla mezzanotte UTC
     uint8_t hours = (timeOfDay / 3600) % 12;    // Ore in formato 12h
     uint8_t minutes = (timeOfDay / 60) % 60;
     uint8_t seconds = timeOfDay % 60;
+
+    // Debug (ogni 10 secondi)
+    static unsigned long lastRenderPrint = 0;
+    if (now - lastRenderPrint > 10000) {
+        Serial.printf("[CHRONO] Time: %02d:%02d:%02d, foldPoint=%d, RGB=(%d,%d,%d)\n",
+            hours, minutes, seconds, state.foldPoint, state.r, state.g, state.b);
+        lastRenderPrint = now;
+    }
 
     // ═══ STEP 2: GESTIONE OFFSET MOTION ═══
     float targetOffset = 0.0f;

@@ -178,19 +178,23 @@ public:
 
     void onWrite(BLECharacteristic *pChar) override {
         String value = pChar->getValue().c_str();
+        Serial.printf("[BLE TIME SYNC] Received: %s\n", value.c_str());
 
         JsonDocument doc;
         DeserializationError error = deserializeJson(doc, value);
 
         if (!error) {
-            controller->ledState->epochBase = doc["epoch"] | 0;
+            uint32_t receivedEpoch = doc["epoch"] | 0;
+            Serial.printf("[BLE TIME SYNC] Parsed epoch: %lu\n", receivedEpoch);
+
+            controller->ledState->epochBase = receivedEpoch;
             controller->ledState->millisAtSync = millis();
 
             Serial.printf("[BLE] Time synced: epoch=%lu at millis=%lu\n",
                 controller->ledState->epochBase,
                 controller->ledState->millisAtSync);
         } else {
-            Serial.println("[BLE ERROR] Invalid JSON for time sync");
+            Serial.printf("[BLE ERROR] Invalid JSON for time sync: %s\n", error.c_str());
         }
     }
 };

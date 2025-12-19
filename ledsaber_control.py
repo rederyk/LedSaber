@@ -18,8 +18,8 @@ CHAR_LED_COLOR_UUID = "d1e5a4c3-eb10-4a3e-8a4c-1234567890ab"
 CHAR_LED_EFFECT_UUID = "e2f6b5d4-fc21-5b4f-9b5d-2345678901bc"
 CHAR_LED_BRIGHTNESS_UUID = "f3e7c6e5-0d32-4c5a-ac6e-3456789012cd"
 CHAR_STATUS_LED_UUID = "a4b8d7f9-1e43-6c7d-ad8f-456789abcdef"
-CHAR_FOLD_POINT_UUID = "h5i0f9h7-3g65-8e9f-cf0g-6789abcdef01"
-CHAR_TIME_SYNC_UUID = "j6k1h0i8-4h76-9f0g-dg1h-789abcdef012"
+CHAR_FOLD_POINT_UUID = "a5b0f9a7-3c65-8e9f-cf0c-6789abcdef01"
+CHAR_TIME_SYNC_UUID = "d6e1a0b8-4a76-9f0c-dc1a-789abcdef012"
 CHAR_FW_VERSION_UUID = "a4b8d7fa-1e43-6c7d-ad8f-456789abcdef"
 
 # Camera Service UUIDs
@@ -396,6 +396,7 @@ class LedSaberClient:
             return
 
         color_data = json.dumps({"r": r, "g": g, "b": b})
+        print(f"{Colors.CYAN}[DEBUG] Writing to {CHAR_LED_COLOR_UUID}: {color_data}{Colors.RESET}")
         await self.client.write_gatt_char(
             CHAR_LED_COLOR_UUID,
             color_data.encode('utf-8')
@@ -476,6 +477,7 @@ class LedSaberClient:
             return
 
         status_data = json.dumps(payload)
+        print(f"{Colors.CYAN}[DEBUG] Writing to {CHAR_STATUS_LED_UUID}: {status_data}{Colors.RESET}")
         await self.client.write_gatt_char(
             CHAR_STATUS_LED_UUID,
             status_data.encode('utf-8')
@@ -512,6 +514,7 @@ class LedSaberClient:
         fold_point = max(1, min(143, int(fold_point)))
 
         fold_data = json.dumps({"foldPoint": fold_point})
+        print(f"{Colors.CYAN}[DEBUG] Writing to {CHAR_FOLD_POINT_UUID}: {fold_data}{Colors.RESET}")
         await self.client.write_gatt_char(
             CHAR_FOLD_POINT_UUID,
             fold_data.encode('utf-8')
@@ -542,6 +545,8 @@ class LedSaberClient:
 
         epoch = int(time.time())
         time_data = json.dumps({"epoch": epoch})
+
+        print(f"{Colors.CYAN}[DEBUG] Sending time sync: epoch={epoch}, json={time_data}{Colors.RESET}")
 
         try:
             await self.client.write_gatt_char(
@@ -754,6 +759,7 @@ class InteractiveCLI:
   {Colors.CYAN}statusled on/off{Colors.RESET}  - Accendi o spegni LED integrato (pin 4)
   {Colors.CYAN}statusled <0-255>{Colors.RESET} - Imposta luminosità LED integrato
   {Colors.CYAN}foldpoint <1-143>{Colors.RESET} - Imposta punto di piegatura LED
+  {Colors.CYAN}sync{Colors.RESET}              - Sincronizza orologio ESP32 con PC
 
   {Colors.MAGENTA}presets{Colors.RESET}          - Mostra preset colori
   {Colors.MAGENTA}preset <name>{Colors.RESET}    - Applica preset
@@ -1105,6 +1111,10 @@ class InteractiveCLI:
                 else:
                     print(f"{Colors.RED}✗ Comando camera sconosciuto: {subcmd}{Colors.RESET}")
                     print(f"{Colors.YELLOW}💡 Comandi: init, capture, start, stop, status, metrics, reset, flash{Colors.RESET}")
+
+            elif cmd in ("sync", "time", "timesync"):
+                # Sincronizza orologio ESP32 con PC
+                await self.client.sync_time()
 
             elif cmd == "motion":
                 # Gestione comandi motion detection

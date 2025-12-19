@@ -14,8 +14,11 @@
 #define CHAR_LED_EFFECT_UUID     "e2f6b5d4-fc21-5b4f-9b5d-2345678901bc"  // WRITE
 #define CHAR_LED_BRIGHTNESS_UUID "f3e7c6e5-0d32-4c5a-ac6e-3456789012cd"  // WRITE
 #define CHAR_STATUS_LED_UUID     "a4b8d7f9-1e43-6c7d-ad8f-456789abcdef"  // WRITE + READ
-#define CHAR_FOLD_POINT_UUID     "h5i0f9h7-3g65-8e9f-cf0g-6789abcdef01"  // WRITE + READ
-#define CHAR_TIME_SYNC_UUID      "j6k1h0i8-4h76-9f0g-dg1h-789abcdef012"  // WRITE
+#define CHAR_FOLD_POINT_UUID     "a5b0f9a7-3c65-8e9f-cf0c-6789abcdef01"  // WRITE + READ
+#define CHAR_TIME_SYNC_UUID      "d6e1a0b8-4a76-9f0c-dc1a-789abcdef012"  // WRITE
+
+// NOTA: Il servizio LED richiede ~16 handle (8 char). Il default è 15.
+// In BLELedController.cpp usare: pServer->createService(LED_SERVICE_UUID, 30);
 
 // Stato LED globale
 struct LedState {
