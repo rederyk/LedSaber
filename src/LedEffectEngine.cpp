@@ -779,30 +779,24 @@ void LedEffectEngine::renderDualPulse(const LedState& state, const uint8_t pertu
 
             // Ball 1 Release - BONUS BASSO (era 0.08, ora 0.015)
             if (ball1_tempMass > 0.5f) {
-                float bonus = ball1_tempMass * 0.015f;  // Era 0.08, ridotto a 0.015 (5.3x meno!)
+                float bonus = ball1_tempMass * 0.015f;
                 float targetSpeed = FIXED_BASE_SPEED + bonus;
-                float dir = (ball1_vel >= 0) ? 1.0f : -1.0f;
+                float dir = 1.0f; // Sempre verso l'avversario (Destra)
 
-                // JERK gentile: Se è più lenta del target, accelera dolcemente
-                if (abs(ball1_vel) < targetSpeed) {
-                    // Snap factor ridotto per accelerazione più graduale
-                    float snapFactor = 0.10f + (ball1_tempMass / 30.0f);  // Era 0.25 + /10, ora 0.10 + /30
-                    if (snapFactor > 0.3f) snapFactor = 0.3f;  // Cap ridotto da 0.9 a 0.3
-                    ball1_vel = ball1_vel * (1.0f - snapFactor) + (dir * targetSpeed) * snapFactor;
-                }
+                // Riaccelerazione rapida verso la direzione corretta
+                float snapFactor = 0.2f;
+                ball1_vel = ball1_vel * (1.0f - snapFactor) + (dir * targetSpeed) * snapFactor;
             }
 
             // Ball 2 Release - BONUS BASSO
             if (ball2_tempMass > 0.5f) {
-                float bonus = ball2_tempMass * 0.015f;  // Ridotto drasticamente
+                float bonus = ball2_tempMass * 0.015f;
                 float targetSpeed = FIXED_BASE_SPEED + bonus;
-                float dir = (ball2_vel >= 0) ? 1.0f : -1.0f;
+                float dir = -1.0f; // Sempre verso l'avversario (Sinistra)
 
-                if (abs(ball2_vel) < targetSpeed) {
-                    float snapFactor = 0.10f + (ball2_tempMass / 30.0f);
-                    if (snapFactor > 0.3f) snapFactor = 0.3f;
-                    ball2_vel = ball2_vel * (1.0f - snapFactor) + (dir * targetSpeed) * snapFactor;
-                }
+                // Riaccelerazione rapida verso la direzione corretta
+                float snapFactor = 0.2f;
+                ball2_vel = ball2_vel * (1.0f - snapFactor) + (dir * targetSpeed) * snapFactor;
             }
 
             ball1_tempMass *= 0.85f;  // Decade rapidamente
@@ -904,18 +898,22 @@ void LedEffectEngine::renderDualPulse(const LedState& state, const uint8_t pertu
 
         // BALL-TO-BALL ELASTIC COLLISION (conservazione momento e energia)
         if (ball1_active && ball2_active) {
+            // CHECK: Sospendi collisioni se una palla è triggerata (massa alta)
+            // La palla triggerata diventa un "muro immobile" - nessuno scambio di massa!
+            bool ball1_triggered = (ball1_tempMass > 1.5f);  // Soglia alta = triggerata
+            bool ball2_triggered = (ball2_tempMass > 1.5f);
+
             // Rilevamento collisione robusto (previene tunneling)
             bool was_left = (old_b1 < old_b2);
             bool is_left = (ball1_pos < ball2_pos);
             bool crossed = (was_left != is_left);
-            
+
             float dist = abs(ball1_pos - ball2_pos);
             const float collisionRadius = 8.0f;
             bool overlap = (dist < collisionRadius);
 
             if (crossed || overlap) {
                 // 1. SEPARAZIONE POSIZIONALE (Evita compenetrazione)
-                // Ripristina l'ordine originale e separa
                 float midPoint = (ball1_pos + ball2_pos) / 2.0f;
                 float sepDist = collisionRadius / 2.0f + 0.1f;
 
@@ -927,8 +925,7 @@ void LedEffectEngine::renderDualPulse(const LedState& state, const uint8_t pertu
                     ball2_pos = midPoint - sepDist;
                 }
 
-                // 2. RISOLUZIONE VELOCITÀ (Collisione Elastica)
-                // Controlla se si stanno avvicinando (per evitare sticky collisions)
+                // 2. RISOLUZIONE VELOCITÀ - MODALITÀ SPECIALE SE UNA PALLA È TRIGGERATA
                 bool approaching = false;
                 if (was_left) {
                     approaching = (ball1_vel > ball2_vel);
@@ -937,23 +934,43 @@ void LedEffectEngine::renderDualPulse(const LedState& state, const uint8_t pertu
                 }
 
                 if (approaching) {
-                    float m1 = ball1_mass + ball1_tempMass;
-                    float m2 = ball2_mass + ball2_tempMass;
-                    float totalMass = m1 + m2;
+                    // CASO SPECIALE: Una palla triggerata (carica) = rimbalzo perfetto
+                    if (ball1_triggered || ball2_triggered) {
+                        // Sospendi scambio massa: la palla triggerata è "immobile", l'altra rimbalza
+                        if (ball1_triggered && !ball2_triggered) {
+                            ball2_vel = -ball2_vel; // Ball 2 rimbalza
+                            // Ball 1 continua (immovable)
+                        } else if (ball2_triggered && !ball1_triggered) {
+                            ball1_vel = -ball1_vel; // Ball 1 rimbalza
+                            // Ball 2 continua (immovable)
+                        } else {
+                            // Entrambe triggerate: rimbalzano entrambe
+                            ball1_vel = -ball1_vel;
+                            ball2_vel = -ball2_vel;
+                        }
 
-                    float v1 = ball1_vel;
-                    float v2 = ball2_vel;
+                        Serial.print("[DUAL_PONG] TRIGGERED Collision #");
+                        Serial.print(collisionCount);
+                        Serial.println(" - Immovable object interaction");
+                    } else {
+                        // COLLISIONE NORMALE: scambio massa standard
+                        float m1 = ball1_mass + ball1_tempMass;
+                        float m2 = ball2_mass + ball2_tempMass;
+                        float totalMass = m1 + m2;
 
-                    ball1_vel = ((m1 - m2) * v1 + 2.0f * m2 * v2) / totalMass;
-                    ball2_vel = ((m2 - m1) * v2 + 2.0f * m1 * v1) / totalMass;
+                        float v1 = ball1_vel;
+                        float v2 = ball2_vel;
+
+                        ball1_vel = ((m1 - m2) * v1 + 2.0f * m2 * v2) / totalMass;
+                        ball2_vel = ((m2 - m1) * v2 + 2.0f * m1 * v1) / totalMass;
+
+                        Serial.print("[DUAL_PONG] Normal Collision #");
+                        Serial.print(collisionCount);
+                        Serial.print(" | v1="); Serial.print(ball1_vel);
+                        Serial.print(" v2="); Serial.println(ball2_vel);
+                    }
 
                     collisionCount++;
-                    
-                    // Debug
-                    Serial.print("[DUAL_PONG] Collision #");
-                    Serial.print(collisionCount);
-                    Serial.print(" | v1_new="); Serial.print(ball1_vel);
-                    Serial.print(" v2_new="); Serial.println(ball2_vel);
                 }
             }
         }
