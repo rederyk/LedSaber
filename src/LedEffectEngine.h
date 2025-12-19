@@ -107,6 +107,10 @@ private:
     uint8_t _mainPulseWidth;    // Width of the main pulse (locked per cycle)
     unsigned long _lastUpdate;
 
+    // ChronoHybrid effect state
+    float _visualOffset;          // Offset temporale virtuale (in secondi)
+    uint32_t _lastMotionTime;     // Ultimo rilevamento movimento
+
     // ═══════════════════════════════════════════════════════════
     // UTILITY FUNCTIONS
     // ═══════════════════════════════════════════════════════════
@@ -139,6 +143,7 @@ private:
     void renderDualPulse(const LedState& state, const uint8_t perturbationGrid[6][8]);
     void renderRainbowBlade(const LedState& state, const uint8_t perturbationGrid[6][8]);
     void renderRainbowEffect(const LedState& state, const uint8_t perturbationGrid[6][8], const MotionProcessor::ProcessedMotion* motion);
+    void renderChronoHybrid(const LedState& state, const uint8_t perturbationGrid[6][8], const MotionProcessor::ProcessedMotion* motion);
 
     // ═══════════════════════════════════════════════════════════
     // GESTURE-TRIGGERED EFFECTS

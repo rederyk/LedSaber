@@ -31,7 +31,9 @@ LedEffectEngine::LedEffectEngine(CRGB* leds, uint16_t numLeds) :
     _breathOverride(255),
     _lastUpdate(0),
     _lastSecondarySpawn(0),
-    _mainPulseWidth(20)
+    _mainPulseWidth(20),
+    _visualOffset(0.0f),
+    _lastMotionTime(0)
 {
     memset(_unstableHeat, 0, sizeof(_unstableHeat));
     // Initialize secondary pulses
@@ -115,6 +117,8 @@ void LedEffectEngine::render(const LedState& state, const MotionProcessor::Proce
                 renderRainbowBlade(state, motion ? motion->perturbationGrid : nullptr);
             } else if (state.effect == "rainbow_effect") {
                 renderRainbowEffect(state, motion ? motion->perturbationGrid : nullptr, motion);
+            } else if (state.effect == "chrono_hybrid" ||"chrono_hybrid" || "clock" ) {
+                renderChronoHybrid(state, motion ? motion->perturbationGrid : nullptr, motion);
             } else if (state.effect == "ignition") {
                 // Manual ignition effect (user triggered)
                 renderIgnition(state);
@@ -1870,4 +1874,103 @@ void LedEffectEngine::handleGestureTriggers(MotionProcessor::GestureType gesture
         default:
             break;
     }
+}
+
+// ═══════════════════════════════════════════════════════════
+// CHRONO HYBRID EFFECT - Orologio ibrido con motion reactive
+// ═══════════════════════════════════════════════════════════
+
+void LedEffectEngine::renderChronoHybrid(const LedState& state, const uint8_t perturbationGrid[6][8], const MotionProcessor::ProcessedMotion* motion) {
+    const unsigned long now = millis();
+
+    // ═══ STEP 1: CALCOLO TEMPO REALE ═══
+    if (state.epochBase == 0) {
+        // Nessun sync ancora: mostra pattern "waiting for sync"
+        fill_solid(_leds, _numLeds, CRGB(20, 0, 20));  // Viola dim
+        return;
+    }
+
+    uint32_t elapsed = (now - state.millisAtSync) / 1000;  // Secondi da sync
+    uint32_t currentEpoch = state.epochBase + elapsed;
+
+    // Converti epoch in ore/minuti/secondi locali
+    uint32_t timeOfDay = currentEpoch % 86400;  // Secondi dalla mezzanotte UTC
+    uint8_t hours = (timeOfDay / 3600) % 12;    // Ore in formato 12h
+    uint8_t minutes = (timeOfDay / 60) % 60;
+    uint8_t seconds = timeOfDay % 60;
+
+    // ═══ STEP 2: GESTIONE OFFSET MOTION ═══
+    float targetOffset = 0.0f;
+
+    if (motion != nullptr && motion->gesture != MotionProcessor::GestureType::NONE) {
+        // Motion attivo: applica perturbazione
+        targetOffset = motion->motionIntensity * 30.0f / 255.0f;  // Max ±30 secondi virtuali
+        _lastMotionTime = now;
+    } else if (now - _lastMotionTime < 3000) {
+        // Motion cessato da <3s: decadimento esponenziale
+        float decay = 1.0f - ((now - _lastMotionTime) / 3000.0f);
+        targetOffset = _visualOffset * decay;
+    } else {
+        targetOffset = 0.0f;  // Tornato a riposo
+    }
+
+    // Interpolazione fluida (lerp 10% per frame)
+    _visualOffset = _visualOffset * 0.9f + targetOffset * 0.1f;
+
+    // Applica offset al tempo visuale
+    int visualSeconds = seconds + (int)_visualOffset;
+    while (visualSeconds < 0) visualSeconds += 60;
+    while (visualSeconds >= 60) visualSeconds -= 60;
+
+    // ═══ STEP 3: RENDERING VISUALE ═══
+    fill_solid(_leds, _numLeds, CRGB::Black);
+
+    // A. MARKER ORE (background)
+    for (uint8_t i = 0; i < 12; i++) {
+        uint16_t pos = map(i, 0, 12, 0, state.foldPoint);
+        CRGB markerColor = CRGB(state.r, state.g, state.b);
+        markerColor.nscale8(40);  // 15% brightness
+        setLedPair(pos, state.foldPoint, markerColor);
+    }
+
+    // B. CURSORE MINUTI (position)
+    uint16_t minutePos = map(minutes, 0, 60, 0, state.foldPoint);
+    CRGB minuteColor = CRGB(state.r, state.g, state.b);
+    minuteColor.nscale8(180);  // 70% brightness
+    for (int8_t i = -2; i <= 2; i++) {
+        int16_t pos = minutePos + i;
+        if (pos >= 0 && pos < state.foldPoint) {
+            setLedPair(pos, state.foldPoint, minuteColor);
+        }
+    }
+
+    // C. CURSORE SECONDI (scanner)
+    uint16_t secondPos = map(visualSeconds, 0, 60, 0, state.foldPoint);
+    CRGB secondColor = (abs(_visualOffset) > 1.0f) ? CRGB::Cyan : CRGB::White;  // Glitch ciano
+    for (int8_t i = -1; i <= 1; i++) {
+        int16_t pos = secondPos + i;
+        if (pos >= 0 && pos < state.foldPoint) {
+            setLedPair(pos, state.foldPoint, secondColor);
+        }
+    }
+
+    // D. BATTITO (pulse globale ogni secondo)
+    // Crea un fade-in/fade-out sincronizzato con i secondi
+    uint16_t millisInSecond = (now % 1000);
+    uint8_t pulseBrightness;
+
+    if (millisInSecond < 100) {
+        // Pulse rapido nei primi 100ms
+        pulseBrightness = map(millisInSecond, 0, 100, 255, 180);
+    } else {
+        // Fade lento per il resto del secondo
+        pulseBrightness = map(millisInSecond, 100, 1000, 180, 200);
+    }
+
+    // Applica pulse brightness a tutti i LED
+    for (uint16_t i = 0; i < _numLeds; i++) {
+        _leds[i].nscale8(pulseBrightness);
+    }
+
+    // Note: Brightness scaling already applied, will be set globally in render()
 }
