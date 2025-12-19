@@ -676,9 +676,11 @@ void LedEffectEngine::renderDualPulse(const LedState& state, const uint8_t pertu
     static uint8_t perturbAccumulator = 0;      // Accumula perturbazioni per sensibilità bassa
     static unsigned long lastCollisionTime = 0;  // Timestamp dell'ultima collisione
     static uint16_t collisionCount = 0;         // Conta le collisioni per debug
+    static float ball1_tempMass = 0.0f;         // Massa temporanea aggiunta da motion
+    static float ball2_tempMass = 0.0f;         // Massa temporanea aggiunta da motion
 
     // FIXED BASE SPEED (independent of state.speed parameter)
-    const float FIXED_BASE_SPEED = 0.18f;  // pixel/ms (leggermente più alta per dinamismo)
+    const float FIXED_BASE_SPEED = 0.10f;  // pixel/ms (rallentata per più controllo)
 
     // First run initialization
     if (!initialized || now < 500) {
@@ -725,32 +727,53 @@ void LedEffectEngine::renderDualPulse(const LedState& state, const uint8_t pertu
         }
         globalPerturbation = totalPerturb / samples;
 
-        // PERTURBAZIONE AGGIUNGE MASSA (non velocità!)
-        // Soglia più bassa per reattività
+        // PERTURBAZIONE AGGIUNGE MASSA TEMPORANEA (fisica realistica!)
+        // Il motion aumenta DRASTICAMENTE la massa in modo temporaneo
+        // Alta massa = palla difficile da spostare (si muove poco se colpita)
+        // Bassa massa = palla normale (si muove normalmente)
+
         if (globalPerturbation > 30) {
             perturbAccumulator = min(255, perturbAccumulator + (globalPerturbation / 6));
 
-            // Soglia di attivazione ridotta
+            // Soglia di attivazione
             if (perturbAccumulator > 60) {
-                // Scegli quale palla aumentare di massa
+                // Scegli quale palla aumentare di massa (se non già scelta)
                 if (perturbTarget == 0) {
                     perturbTarget = (random8() < 128) ? -1 : 1;
                     Serial.print("[DUAL_PONG] Mass boost target: Ball ");
                     Serial.println((perturbTarget == -1) ? "1" : "2");
                 }
 
-                // AGGIUNGI MASSA alla palla target (gradualmente)
-                float massIncrement = (globalPerturbation / 255.0f) * 0.002f;  // Incremento molto piccolo ma costante
+                // CALCOLA MASSA TEMPORANEA in base al motion (può diventare MOLTO alta!)
+                // Range: 0 (motion basso) -> 20.0 (motion altissimo!)
+                float tempMassFromMotion = (globalPerturbation / 255.0f) * (globalPerturbation / 255.0f) * 20.0f;
 
                 if (perturbTarget == -1 && ball1_active) {
-                    ball1_mass += massIncrement;
-                    ball1_mass = min(ball1_mass, 5.0f);  // Massa max = 5x
+                    // Aggiorna massa temporanea smoothly
+                    ball1_tempMass = ball1_tempMass * 0.7f + tempMassFromMotion * 0.3f; // Smooth transition
+                    ball1_tempMass = min(ball1_tempMass, 20.0f);  // Cap massimo
+
+                    // AGGIUNGI anche massa permanente (molto più lentamente)
+                    float permMassIncrement = (globalPerturbation / 255.0f) * 0.003f;
+                    ball1_mass += permMassIncrement;
+                    ball1_mass = min(ball1_mass, 5.0f);  // Massa permanente max 5x
                 } else if (perturbTarget == 1 && ball2_active) {
-                    ball2_mass += massIncrement;
+                    ball2_tempMass = ball2_tempMass * 0.7f + tempMassFromMotion * 0.3f;
+                    ball2_tempMass = min(ball2_tempMass, 20.0f);
+
+                    float permMassIncrement = (globalPerturbation / 255.0f) * 0.003f;
+                    ball2_mass += permMassIncrement;
                     ball2_mass = min(ball2_mass, 5.0f);
                 }
             }
         } else {
+            // Decay VELOCE della massa temporanea quando motion cala
+            ball1_tempMass *= 0.85f;  // Decade rapidamente
+            ball2_tempMass *= 0.85f;
+
+            if (ball1_tempMass < 0.1f) ball1_tempMass = 0.0f;
+            if (ball2_tempMass < 0.1f) ball2_tempMass = 0.0f;
+
             // Decay lento dell'accumulatore
             if (perturbAccumulator > 0) {
                 perturbAccumulator = qsub8(perturbAccumulator, 3);
@@ -774,12 +797,27 @@ void LedEffectEngine::renderDualPulse(const LedState& state, const uint8_t pertu
         // NESSUN impulso diretto! La massa influenza solo le collisioni
         // Le velocità rimangono costanti tra una collisione e l'altra (moto inerziale)
 
-        // Update positions (moto uniforme)
+        // Update positions (moto con drag proporzionale alla massa temporanea)
         if (ball1_active) {
             ball1_pos += ball1_vel * dt * 1000.0f;
+
+            // DRAG/ATTRITO proporzionale alla massa temporanea
+            // Più massa temporanea = più rallenta (effetto "frenata")
+            if (ball1_tempMass > 0.5f) {
+                // Calcola drag factor: più massa = più attrito
+                // Range: 0.0 (no drag) -> 0.95 (massimo attrito)
+                float dragFactor = min(ball1_tempMass / 25.0f, 0.95f);
+                ball1_vel *= (1.0f - dragFactor * dt * 2.0f);  // Rallenta gradualmente
+            }
         }
         if (ball2_active) {
             ball2_pos += ball2_vel * dt * 1000.0f;
+
+            // DRAG/ATTRITO proporzionale alla massa temporanea
+            if (ball2_tempMass > 0.5f) {
+                float dragFactor = min(ball2_tempMass / 25.0f, 0.95f);
+                ball2_vel *= (1.0f - dragFactor * dt * 2.0f);  // Rallenta gradualmente
+            }
         }
 
         // ELASTIC BOUNDARY COLLISIONS (coefficiente di restituzione = 1.0, energia conservata)
@@ -839,8 +877,9 @@ void LedEffectEngine::renderDualPulse(const LedState& state, const uint8_t pertu
                     // v1' = ((m1 - m2)*v1 + 2*m2*v2) / (m1 + m2)
                     // v2' = ((m2 - m1)*v2 + 2*m1*v1) / (m1 + m2)
 
-                    float m1 = ball1_mass;
-                    float m2 = ball2_mass;
+                    // USA MASSA TOTALE = massa base + massa temporanea da motion!
+                    float m1 = ball1_mass + ball1_tempMass;
+                    float m2 = ball2_mass + ball2_tempMass;
                     float v1 = ball1_vel;
                     float v2 = ball2_vel;
 
@@ -870,10 +909,18 @@ void LedEffectEngine::renderDualPulse(const LedState& state, const uint8_t pertu
                     Serial.print("[DUAL_PONG] Collision #");
                     Serial.print(collisionCount);
                     Serial.print(" | m1=");
-                    Serial.print(ball1_mass, 2);
-                    Serial.print(" m2=");
-                    Serial.print(ball2_mass, 2);
-                    Serial.print(" | v1=");
+                    Serial.print(m1, 2);  // Stampa massa TOTALE
+                    Serial.print(" (");
+                    Serial.print(ball1_mass, 1);
+                    Serial.print("+");
+                    Serial.print(ball1_tempMass, 1);
+                    Serial.print(") m2=");
+                    Serial.print(m2, 2);
+                    Serial.print(" (");
+                    Serial.print(ball2_mass, 1);
+                    Serial.print("+");
+                    Serial.print(ball2_tempMass, 1);
+                    Serial.print(") | v1=");
                     Serial.print(ball1_vel, 3);
                     Serial.print(" v2=");
                     Serial.println(ball2_vel, 3);
@@ -1025,6 +1072,23 @@ void LedEffectEngine::renderDualPulse(const LedState& state, const uint8_t pertu
                 float gaussian = expf(-(dist1 * dist1) / (2.0f * sigma * sigma));
                 uint8_t ballBrightness = 255 * gaussian;
 
+                // EFFETTO PULSANTE TREMOLANTE proporzionale alla massa temporanea
+                // Più massa temporanea = più pulsa e tremola (effetto "carica di energia")
+                if (ball1_tempMass > 1.0f) {
+                    // Calcola intensità del pulsing in base alla massa temporanea
+                    float massRatio = min(ball1_tempMass / 20.0f, 1.0f);  // 0.0 -> 1.0
+
+                    // Pulsing: usa tempo per oscillazione continua
+                    uint8_t pulsePhase = (now >> 3) & 0xFF;  // Cambia ogni ~8ms
+                    uint8_t pulseBrightness = 128 + scale8(sin8(pulsePhase), 127);  // Range 128-255
+
+                    // Tremore casuale aumenta con la massa
+                    uint8_t jitter = random8(massRatio * 60);  // Tremore fino a 60
+
+                    ballBrightness = scale8(ballBrightness, pulseBrightness);
+                    ballBrightness = qadd8(ballBrightness, jitter);
+                }
+
                 if (ballBrightness > 30) {  // Soglia visibilità
                     CRGB ball1Color = CHSV(ball1_hue, 255, ballBrightness);
 
@@ -1043,6 +1107,23 @@ void LedEffectEngine::renderDualPulse(const LedState& state, const uint8_t pertu
                 const float sigma = ballRadius / 2.5066f;
                 float gaussian = expf(-(dist2 * dist2) / (2.0f * sigma * sigma));
                 uint8_t ballBrightness = 255 * gaussian;
+
+                // EFFETTO PULSANTE TREMOLANTE proporzionale alla massa temporanea
+                // Più massa temporanea = più pulsa e tremola (effetto "carica di energia")
+                if (ball2_tempMass > 1.0f) {
+                    // Calcola intensità del pulsing in base alla massa temporanea
+                    float massRatio = min(ball2_tempMass / 20.0f, 1.0f);  // 0.0 -> 1.0
+
+                    // Pulsing: usa tempo per oscillazione continua
+                    uint8_t pulsePhase = (now >> 3) & 0xFF;  // Cambia ogni ~8ms
+                    uint8_t pulseBrightness = 128 + scale8(sin8(pulsePhase), 127);  // Range 128-255
+
+                    // Tremore casuale aumenta con la massa
+                    uint8_t jitter = random8(massRatio * 60);  // Tremore fino a 60
+
+                    ballBrightness = scale8(ballBrightness, pulseBrightness);
+                    ballBrightness = qadd8(ballBrightness, jitter);
+                }
 
                 if (ballBrightness > 30) {
                     CRGB ball2Color = CHSV(ball2_hue, 255, ballBrightness);
