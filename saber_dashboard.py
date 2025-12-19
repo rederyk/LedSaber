@@ -343,7 +343,7 @@ class MotionDirectionCard(Static):
 
 
 class MotionSection(Container):
-    """Container responsive per widget Motion summary + Device Info"""
+    """Container responsive per widget Motion summary + Device Info + Chrono Themes"""
 
     motion_state: reactive[Dict] = reactive({})
 
@@ -352,12 +352,14 @@ class MotionSection(Container):
         self.status_card = MotionStatusCard(id="motion_status_card")
         self.intensity_card = MotionIntensityCard(id="motion_intensity_card")
         self.direction_card = MotionDirectionCard(id="motion_direction_card")
+        self.chrono_themes_card = ChronoThemesCard(id="chrono_themes_card")
         self.device_info_card = DeviceInfoCard(id="device_info_card")
 
     def compose(self) -> ComposeResult:
         yield self.status_card
         yield self.intensity_card
         yield self.direction_card
+        yield self.chrono_themes_card
         yield self.device_info_card
 
     def watch_motion_state(self, new_state: Dict):
@@ -604,6 +606,64 @@ class CameraFramesCard(Static):
         )
 
 
+class ChronoThemesCard(Static):
+    """Card per selezione temi Chrono - stile cyberpunk interattivo"""
+
+    chrono_hour_theme: reactive[int] = reactive(0)
+    chrono_second_theme: reactive[int] = reactive(0)
+    connected: reactive[bool] = reactive(False)
+
+    HOUR_THEMES = ["Classic", "Neon", "Plasma", "Digital"]
+    SECOND_THEMES = ["Classic", "Spiral", "Fire", "Lightning", "Particle", "Quantum"]
+
+    def render(self):
+        if not self.connected:
+            content = Text("Connect to\nconfigure", style="dim", justify="center")
+        else:
+            # Nome temi correnti
+            hour_name = self.HOUR_THEMES[self.chrono_hour_theme % len(self.HOUR_THEMES)]
+            second_name = self.SECOND_THEMES[self.chrono_second_theme % len(self.SECOND_THEMES)]
+
+            # Icone tematiche
+            hour_icons = ["◎", "◉", "◈", "◆"]
+            second_icons = ["○", "◐", "🔥", "⚡", "●", "◯"]
+
+            hour_icon = hour_icons[self.chrono_hour_theme % len(hour_icons)]
+            second_icon = second_icons[self.chrono_second_theme % len(second_icons)]
+
+            table = Table.grid(padding=(0, 1))
+            table.add_column(justify="left")
+
+            # Hours row con frecce
+            hours_text = Text()
+            hours_text.append("⏰ ", style="yellow")
+            hours_text.append("◀ ", style="dim cyan")
+            hours_text.append(f"{hour_icon} {hour_name}", style="cyan bold")
+            hours_text.append(" ▶", style="dim cyan")
+            table.add_row(hours_text)
+
+            # Seconds row con frecce
+            seconds_text = Text()
+            seconds_text.append("⏱  ", style="magenta")
+            seconds_text.append("◀ ", style="dim magenta")
+            seconds_text.append(f"{second_icon} {second_name}", style="magenta bold")
+            seconds_text.append(" ▶", style="dim magenta")
+            table.add_row(seconds_text)
+
+            # Hint
+            table.add_row(Text("F6/F7 to cycle", style="dim", justify="center"))
+
+            content = table
+
+        return Panel(
+            Align.center(content, vertical="middle"),
+            title="[bold yellow]🎨 CHRONO[/]",
+            border_style="yellow",
+            box=box.ROUNDED,
+            height=7
+        )
+
+
 class DeviceInfoCard(Static):
     """Card con informazioni sul device: FW version, MAC, uptime, tempo sincronizzato, etc."""
 
@@ -806,7 +866,7 @@ class SaberDashboard(App):
     }
 
     #motion_summary {
-        column-span: 2;
+        column-span: 3;
     }
 
     #optical_flow,
@@ -826,16 +886,21 @@ class SaberDashboard(App):
 
     #motion_summary {
         layout: grid;
-        grid-size: 4;
-        grid-columns: 1fr 1fr 1fr 1fr;
+        grid-size: 5;
+        grid-columns: 1fr 1fr 1fr 1fr 1fr;
         padding-left: 1;
         height: auto;
         margin: 0 0 1 0;
     }
 
+    #motion_summary.cols-3 {
+        grid-size: 5;
+        grid-columns: 1fr 1fr 1fr 1fr 1fr;
+    }
+
     #motion_summary.cols-2 {
-        grid-size: 2;
-        grid-columns: 1fr 1fr;
+        grid-size: 3;
+        grid-columns: 1fr 1fr 1fr;
     }
 
     #motion_summary.cols-1 {
@@ -921,13 +986,15 @@ class SaberDashboard(App):
     #motion_status_card,
     #motion_intensity_card,
     #motion_direction_card,
+    #chrono_themes_card,
     #device_info_card {
         margin: 0;
     }
 
     #motion_status_card,
     #motion_intensity_card,
-    #motion_direction_card {
+    #motion_direction_card,
+    #chrono_themes_card {
         margin-right: 1;
     }
 
@@ -942,6 +1009,8 @@ class SaberDashboard(App):
         Binding("f3", "camera_start", "Cam Start"),
         Binding("f4", "camera_stop", "Cam Stop"),
         Binding("f5", "motion_toggle", "Motion Toggle"),
+        Binding("f6", "chrono_cycle_hours", "Chrono Hours"),
+        Binding("f7", "chrono_cycle_seconds", "Chrono Seconds"),
     ]
 
     TITLE = "LedSaber Live Dashboard"
@@ -958,6 +1027,7 @@ class SaberDashboard(App):
         self.rssi_card: Optional[BLERSSICard] = None
         self.fx_card: Optional[ActiveFXCard] = None
         self.camera_frames_card: Optional[CameraFramesCard] = None
+        self.chrono_themes_card: Optional[ChronoThemesCard] = None
         self.device_info_card: Optional[DeviceInfoCard] = None
         self.device_rssi_map: Dict[str, Optional[int]] = {}
         self.stats_grid: Optional[Container] = None
@@ -999,6 +1069,7 @@ class SaberDashboard(App):
         self.rssi_card = self.query_one("#ble_rssi_card", BLERSSICard)
         self.fx_card = self.query_one("#active_fx_card", ActiveFXCard)
         self.camera_frames_card = self.query_one("#camera_frames_card", CameraFramesCard)
+        self.chrono_themes_card = self.query_one("#chrono_themes_card", ChronoThemesCard)
         self.device_info_card = self.query_one("#device_info_card", DeviceInfoCard)
         self.kpi_row = self.query_one("#kpi_row", Container)
         self.main_scroll = self.query_one("#main_body", VerticalScroll)
@@ -1034,16 +1105,18 @@ class SaberDashboard(App):
                 # Terminale largo: 3 colonne (default)
                 self.stats_grid.add_class("cols-3")
 
-        # Motion summary: adatta il numero di colonne (ora 4 card)
+        # Motion summary: adatta il numero di colonne (ora 5 card)
         if self.motion_section:
-            self.motion_section.remove_class("cols-1", "cols-2")
+            self.motion_section.remove_class("cols-1", "cols-2", "cols-3")
             if width < 140:
                 # Terminale stretto: 1 colonna (motion cards impilate)
                 self.motion_section.add_class("cols-1")
-            elif width < 180:
-                # Terminale medio: 2 colonne
+            elif width < 200:
+                # Terminale medio: 3 colonne
                 self.motion_section.add_class("cols-2")
-            # else: 4 colonne (default dal CSS)
+            else:
+                # Terminale largo: 5 colonne (default)
+                self.motion_section.add_class("cols-3")
 
         # KPI row (RSSI + FX cards): adatta il numero di colonne
         if self.kpi_row:
@@ -1140,6 +1213,19 @@ class SaberDashboard(App):
                 await self.client.set_effect(mode, speed)
                 self._log(f"Effect: {mode} @ {speed}ms", "magenta")
 
+            elif cmd == "chrono":
+                if not args:
+                    self._log("Usage: chrono <hour_theme> <second_theme>", "red")
+                    self._log("Hour themes: 0=Classic, 1=Neon, 2=Plasma, 3=Digital", "cyan")
+                    self._log("Second themes: 0=Classic, 1=Spiral, 2=Fire, 3=Lightning, 4=Particle, 5=Quantum", "cyan")
+                    return
+
+                hour_theme = int(args[0]) if len(args) > 0 else 0
+                second_theme = int(args[1]) if len(args) > 1 else 0
+
+                # Invia comando al dispositivo
+                await self._send_chrono_themes(hour_theme, second_theme)
+
             elif cmd == "brightness":
                 if not args:
                     self._log("Usage: brightness <0-255>", "red")
@@ -1227,14 +1313,41 @@ class SaberDashboard(App):
             # === HELP ===
             elif cmd == "help":
                 self._log("Commands: scan, connect, disconnect, color, effect, brightness, on, off", "cyan")
+                self._log("          chrono <hour_theme> <second_theme> - Set chrono themes (0-3 for hours, 0-5 for seconds)", "cyan")
                 self._log("          cam <init|start|stop|status>, motion <enable|disable|status|sensitivity N>", "cyan")
                 self._log("Shortcuts: Ctrl+S=scan, Ctrl+D=disconnect, F2=cam init, F3=start, F4=stop, F5=motion toggle", "cyan")
+                self._log("           F6=cycle hour theme, F7=cycle second theme", "cyan")
 
             else:
                 self._log(f"Unknown command: {cmd}. Type 'help' for list.", "red")
 
         except Exception as e:
             self._log(f"Error: {e}", "red")
+
+    async def _send_chrono_themes(self, hour_theme: int, second_theme: int):
+        """Invia i temi chrono al dispositivo"""
+        try:
+            # Aggiorna widget locale
+            if self.chrono_themes_card:
+                self.chrono_themes_card.chrono_hour_theme = hour_theme
+                self.chrono_themes_card.chrono_second_theme = second_theme
+
+            # Prepara comando JSON
+            command = {
+                "mode": "chrono_hybrid",
+                "chronoHourTheme": hour_theme,
+                "chronoSecondTheme": second_theme
+            }
+
+            # Invia via BLE
+            await self.client.set_effect_raw(command)
+
+            hour_name = ChronoThemesCard.HOUR_THEMES[hour_theme % len(ChronoThemesCard.HOUR_THEMES)]
+            second_name = ChronoThemesCard.SECOND_THEMES[second_theme % len(ChronoThemesCard.SECOND_THEMES)]
+
+            self._log(f"Chrono themes: {hour_name} + {second_name}", "yellow")
+        except Exception as e:
+            self._log(f"Failed to set chrono themes: {e}", "red")
 
     async def _connect_device(self, address: str, name: str, rssi: Optional[int] = None):
         """Connette a dispositivo"""
@@ -1251,6 +1364,10 @@ class SaberDashboard(App):
             if self.device_info_card:
                 self.device_info_card.connected = True
                 self.device_info_card.device_address = address
+
+            # Aggiorna Chrono Themes Card
+            if self.chrono_themes_card:
+                self.chrono_themes_card.connected = True
 
             # Aggiorna RSSI card
             if self.rssi_card:
@@ -1411,6 +1528,32 @@ class SaberDashboard(App):
             self.run_worker(self._execute_command("motion disable"))
         else:
             self.run_worker(self._execute_command("motion enable"))
+
+    def action_chrono_cycle_hours(self) -> None:
+        """F6: Cycle chrono hour themes"""
+        if not self.chrono_themes_card or not self.chrono_themes_card.connected:
+            self._log("Connect device first to change chrono themes", "yellow")
+            return
+
+        # Cycle to next theme
+        current = self.chrono_themes_card.chrono_hour_theme
+        next_theme = (current + 1) % len(ChronoThemesCard.HOUR_THEMES)
+        second_theme = self.chrono_themes_card.chrono_second_theme
+
+        self.run_worker(self._send_chrono_themes(next_theme, second_theme))
+
+    def action_chrono_cycle_seconds(self) -> None:
+        """F7: Cycle chrono second themes"""
+        if not self.chrono_themes_card or not self.chrono_themes_card.connected:
+            self._log("Connect device first to change chrono themes", "yellow")
+            return
+
+        # Cycle to next theme
+        hour_theme = self.chrono_themes_card.chrono_hour_theme
+        current = self.chrono_themes_card.chrono_second_theme
+        next_theme = (current + 1) % len(ChronoThemesCard.SECOND_THEMES)
+
+        self.run_worker(self._send_chrono_themes(hour_theme, next_theme))
 
 
 # ═══════════════════════════════════════════════════════════════════════════

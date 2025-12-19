@@ -480,6 +480,17 @@ class LedSaberClient:
         await self._write(CHAR_LED_EFFECT_UUID, effect_data.encode('utf-8'), label="set_effect")
         print(f"{Colors.GREEN}✓ Effetto impostato: {mode} (speed: {speed}){Colors.RESET}")
 
+    async def set_effect_raw(self, effect_dict: dict):
+        """Imposta effetto LED con parametri custom (per chrono themes, etc.)"""
+        if not self.client or not self.client.is_connected:
+            print(f"{Colors.RED}✗ Non connesso{Colors.RESET}")
+            return
+
+        effect_data = json.dumps(effect_dict)
+        await self._write(CHAR_LED_EFFECT_UUID, effect_data.encode('utf-8'), label="set_effect_raw")
+        mode = effect_dict.get('mode', 'unknown')
+        print(f"{Colors.GREEN}✓ Effetto custom impostato: {mode}{Colors.RESET}")
+
     async def set_brightness(self, brightness: int, enabled: bool = True):
         """Imposta luminosità (0-255) e stato on/off"""
         if not self.client or not self.client.is_connected:
