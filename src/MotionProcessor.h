@@ -43,17 +43,17 @@ public:
         uint16_t gestureCooldownMs;    // Cooldown after major gesture (default: 800ms)
 
         bool perturbationEnabled;
-        uint8_t perturbationScale;     // Perturbation multiplier 0-255 (default: 128)
+        uint8_t perturbationScale;     // Perturbation multiplier 0-255 (default: 255)
 
         Config() :
             gesturesEnabled(true),
             gestureThreshold(12),   // Più sensibile (5fps + mano vicina alla camera)
             gestureDurationMs(80),  // Più reattivo
-            clashDeltaThreshold(15), // Abbassato da 100 a 15 per clash più sensibili
-            clashWindowMs(350),     // 5fps ~200ms/frame: 100ms era troppo stretto
+            clashDeltaThreshold(60), // Aumentato da 15 a 60 per ridurre falsi positivi
+            clashWindowMs(400),     // ~2.2 frame @ 5.6fps per catturare veri clash
             gestureCooldownMs(800), // Meno "bloccante" del vecchio 2s
             perturbationEnabled(true),
-            perturbationScale(128) {}
+            perturbationScale(255) {}  // 100% = effetto massimo
     };
 
     MotionProcessor();

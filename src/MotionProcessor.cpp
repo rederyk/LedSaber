@@ -243,19 +243,33 @@ void MotionProcessor::_calculatePerturbationGrid(
                 // Calculate magnitude of motion vector
                 float magnitude = sqrtf(dx * dx + dy * dy);
 
-                // Scale by confidence and config scale
-                // magnitude: 0-20 typical (±10 px max per direction)
-                // Normalize to 0-255 range
-                float normalized = magnitude / 20.0f;  // 0.0-1.0 (can exceed 1.0)
+                // AMPLIFIED SCALING: Motion vectors are small (±1-2 px typical at 5fps)
+                // Old: magnitude / 20.0f = troppo conservativo
+                // New: magnitude / 3.0f = molto più sensibile
+                float normalized = magnitude / 3.0f;  // 0.0-3.0+ range
                 if (normalized > 1.0f) normalized = 1.0f;
 
-                // Apply confidence weighting
-                normalized *= (confidence / 255.0f);
+                // Apply confidence weighting (but boost it)
+                // Confidence è spesso basso con optical flow grossolano
+                float confidenceBoost = (confidence / 255.0f) * 0.5f + 0.5f;  // Min 50%
+                normalized *= confidenceBoost;
 
-                // Apply config scale (0-255)
+                // Apply config scale (default 128 = 50%, ma lo applichiamo su range già amplificato)
                 normalized *= (_config.perturbationScale / 255.0f);
 
-                perturbationGrid[row][col] = (uint8_t)(normalized * 255.0f);
+                // AGGRESSIVE BOOST: Quadratic scaling for dramatic effect
+                // x^0.7 = softer curve, più valori medi/alti
+                normalized = powf(normalized, 0.7f);
+
+                uint8_t value = (uint8_t)(normalized * 255.0f);
+                perturbationGrid[row][col] = value;
+
+                // Debug periodico (ogni 100 frame con motion)
+                static uint32_t debugCounter = 0;
+                if (magnitude > 0.5f && (debugCounter++ % 100) == 0) {
+                    Serial.printf("[PERTURB] row=%d col=%d mag=%.1f conf=%d → value=%d\n",
+                                 row, col, magnitude, confidence, value);
+                }
             } else {
                 perturbationGrid[row][col] = 0;
             }

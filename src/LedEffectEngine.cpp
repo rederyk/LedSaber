@@ -166,14 +166,14 @@ void LedEffectEngine::renderSolid(const LedState& state, const uint8_t perturbat
             maxPerturbation = max(maxPerturbation, perturbationGrid[row][col]);
         }
 
-        if (maxPerturbation > 10) {  // More sensitive threshold
+        if (maxPerturbation > 10) {
             // BREATHING EFFECT: motion makes blade pulse locally
-            // Subtle darkening creates visual "wind" effect
-            uint8_t breathEffect = scale8(maxPerturbation, 100);  // 0-100 fade
-            uint8_t randomNoise = random8(breathEffect / 3);      // Add organic variation
+            // Slightly more reactive with subtle shimmer
+            uint8_t breathEffect = scale8(maxPerturbation, 80);  // Reduced from 100 for less fade
+            uint8_t randomNoise = random8(breathEffect / 4);     // Less random variation
 
             CRGB perturbedColor = baseColor;
-            perturbedColor.fadeToBlackBy(breathEffect / 2 + randomNoise);
+            perturbedColor.fadeToBlackBy(breathEffect / 3 + randomNoise);  // Less fade = more visible
 
             perturbedColor = scaleColorByBrightness(perturbedColor, safeBrightness);
             setLedPair(i, state.foldPoint, perturbedColor);
@@ -285,18 +285,18 @@ void LedEffectEngine::renderFlicker(const LedState& state, const uint8_t perturb
                 perturbSum = qadd8(perturbSum, perturbationGrid[row][col] / 3);
             }
 
-            // AGGRESSIVE: Motion adds MAJOR instability (up to 150% of base flicker)
-            uint8_t motionBoost = scale8(perturbSum, 200);  // Amplify perturbation
+            // AGGRESSIVE: Motion adds MAJOR instability (up to 200% of base flicker)
+            uint8_t motionBoost = scale8(perturbSum, 255);  // Maximum amplify perturbation
             noise = qadd8(noise, motionBoost);
 
             // Add random spikes when motion is high (mimics unstable plasma)
             if (perturbSum > 60 && random8() < 80) {
-                noise = qadd8(noise, random8(40, 100));
+                noise = qadd8(noise, random8(60, 140));
             }
         }
 
-        // Clamp noise and convert to brightness
-        uint8_t brightness = 255 - min(noise, (uint8_t)200);  // Don't go completely black
+        // Clamp noise and convert to brightness - darker blacks for more contrast
+        uint8_t brightness = 255 - min(noise, (uint8_t)220);  // Allow darker blacks
 
         CRGB flickeredColor = baseColor;
         flickeredColor.fadeToBlackBy(255 - brightness);
@@ -322,7 +322,7 @@ void LedEffectEngine::renderUnstable(const LedState& state, const uint8_t pertur
     uint8_t sparkChance = state.speed / 2;
 
     if (perturbationGrid != nullptr) {
-        // MOTION CREATES PLASMA CHAOS: scan all rows for maximum instability
+        // MOTION CREATES PLASMA CHAOS: perturbation triggers eruptions
         for (uint8_t col = 0; col < 8; col++) {
             uint8_t maxPerturbation = 0;
             for (uint8_t row = 0; row < 6; row++) {
@@ -330,38 +330,38 @@ void LedEffectEngine::renderUnstable(const LedState& state, const uint8_t pertur
             }
 
             // Motion-triggered eruptions: MORE AGGRESSIVE
-            if (maxPerturbation > 30) {  // Lower threshold
+            if (maxPerturbation > 30) {
                 uint16_t pos = map(col, 0, 7, 0, maxIndex - 1);
 
                 // High motion = EXPLOSIVE sparks
-                uint8_t eruptionChance = sparkChance + scale8(maxPerturbation, 150);
+                uint8_t eruptionChance = sparkChance + scale8(maxPerturbation, 200);  // Increased from 150
                 if (random8() < eruptionChance) {
                     // VIOLENT eruption: add major heat
-                    _unstableHeat[pos] = qadd8(_unstableHeat[pos], random8(150, 255));
+                    _unstableHeat[pos] = qadd8(_unstableHeat[pos], random8(180, 255));  // Increased minimum
 
                     // Spread chaos to neighbors (plasma arc effect)
                     if (pos > 0) {
-                        _unstableHeat[pos - 1] = qadd8(_unstableHeat[pos - 1], random8(80, 150));
+                        _unstableHeat[pos - 1] = qadd8(_unstableHeat[pos - 1], random8(100, 180));  // Increased
                     }
                     if (pos < maxIndex - 1) {
-                        _unstableHeat[pos + 1] = qadd8(_unstableHeat[pos + 1], random8(80, 150));
+                        _unstableHeat[pos + 1] = qadd8(_unstableHeat[pos + 1], random8(100, 180));  // Increased
                     }
                 }
             }
         }
     }
 
-    // Base random sparks (less frequent now)
+    // Base random sparks (balanced frequency)
     if (random8() < sparkChance) {
         uint16_t pos = random16(maxIndex);
-        _unstableHeat[pos] = qadd8(_unstableHeat[pos], random8(100, 180));
+        _unstableHeat[pos] = qadd8(_unstableHeat[pos], random8(120, 200));  // Increased range
     }
 
     // Render with enhanced contrast
     for (uint16_t i = 0; i < maxIndex; i++) {
         // More dramatic brightness swing
         uint8_t heatBrightness = _unstableHeat[i];
-        uint8_t brightness = 180 + (heatBrightness / 3);  // 180-255 range (darker base)
+        uint8_t brightness = 160 + scale8(heatBrightness, 95);  // 160-255 range (higher base, more contrast)
 
         CRGB unstableColor = baseColor;
         unstableColor.fadeToBlackBy(255 - brightness);
@@ -375,7 +375,7 @@ void LedEffectEngine::renderUnstable(const LedState& state, const uint8_t pertur
 
 void LedEffectEngine::renderPulse(const LedState& state, const uint8_t perturbationGrid[6][8]) {
     const unsigned long now = millis();
-    uint16_t pulseSpeed = map(state.speed, 1, 255, 80, 1);
+    uint16_t pulseSpeed = map(state.speed, 1, 255, 50, 1);  // Faster pulse
 
     if (now - _lastPulseUpdate > pulseSpeed) {
         _pulsePosition = (_pulsePosition + 1) % state.foldPoint;
@@ -391,9 +391,14 @@ void LedEffectEngine::renderPulse(const LedState& state, const uint8_t perturbat
 
         uint8_t brightness;
         if (distance < pulseWidth) {
-            brightness = map(distance, 0, pulseWidth, 255, 150);
+            // Peak brighter for more contrast
+            brightness = map(distance, 0, pulseWidth, 255, 200);
+        } else if (distance < pulseWidth + 8) {
+            // Depth halo: darker zone around pulse for profondità
+            brightness = map(distance, pulseWidth, pulseWidth + 8, 200, 100);
         } else {
-            brightness = 150;
+            // Darker base for more contrast
+            brightness = 100;
         }
 
         // MOTION RIPPLES: movement creates brightness waves along the blade
@@ -407,9 +412,9 @@ void LedEffectEngine::renderPulse(const LedState& state, const uint8_t perturbat
             }
             uint8_t avgPerturbation = perturbSum / 4;
 
-            // Motion creates ripples: brighten where there's movement
+            // Motion creates ripples: brighten where there's movement (increased boost)
             if (avgPerturbation > 20) {
-                uint8_t rippleBoost = scale8(avgPerturbation, 80);  // Up to +80 brightness
+                uint8_t rippleBoost = scale8(avgPerturbation, 100);  // Up to +100 brightness
                 brightness = qadd8(brightness, rippleBoost);
             }
         }
@@ -505,16 +510,16 @@ void LedEffectEngine::renderRainbowBlade(const LedState& state, const uint8_t pe
             }
             uint8_t avgPerturbation = perturbSum / 3;
 
-            if (avgPerturbation > 12) {
+            if (avgPerturbation > 8) {  // More sensitive threshold
                 // Motion creates chromatic shimmer: hue shift + saturation pulse
                 int8_t hueShift = (avgPerturbation / 4) - 32;  // ±32 hue shift
                 hue = hue + hueShift;
 
-                // Sparkle effect: reduce saturation = more white
-                saturation = 255 - scale8(avgPerturbation, 120);
+                // Sparkle effect: reduce saturation = more white (increased effect)
+                saturation = 255 - scale8(avgPerturbation, 160);
 
-                // Random sparkles on high motion
-                if (avgPerturbation > 50 && random8() < 60) {
+                // Random sparkles on high motion (increased probability)
+                if (avgPerturbation > 50 && random8() < 100) {
                     saturation = random8(100, 200);  // Deep sparkle
                     brightness = 255;
                 }
