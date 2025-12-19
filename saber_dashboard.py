@@ -331,8 +331,30 @@ class MotionDirectionCard(Static):
         )
 
 
-class OpticalFlowGridWidget(Static):
-    """Widget griglia optical flow - full width"""
+class MotionSection(Container):
+    """Container responsive per widget Motion summary"""
+
+    motion_state: reactive[Dict] = reactive({})
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.status_card = MotionStatusCard(id="motion_status_card")
+        self.intensity_card = MotionIntensityCard(id="motion_intensity_card")
+        self.direction_card = MotionDirectionCard(id="motion_direction_card")
+
+    def compose(self) -> ComposeResult:
+        yield self.status_card
+        yield self.intensity_card
+        yield self.direction_card
+
+    def watch_motion_state(self, new_state: Dict):
+        self.status_card.motion_state = new_state or {}
+        self.intensity_card.motion_state = new_state or {}
+        self.direction_card.motion_state = new_state or {}
+
+
+class OpticalFlowCanvas(Static):
+    """Widget griglia optical flow - parte grafica (ex OpticalFlowGridWidget)"""
 
     motion_state: reactive[Dict] = reactive({})
 
@@ -481,6 +503,22 @@ class OpticalFlowGridWidget(Static):
         )
 
 
+class OpticalFlowGridWidget(Container):
+    """Container principale per sezione Optical Flow (Cards + Grid)"""
+
+    motion_state: reactive[Dict] = reactive({})
+
+    def compose(self) -> ComposeResult:
+        yield MotionSection(id="motion_summary")
+        yield OpticalFlowCanvas(id="optical_canvas")
+
+    def watch_motion_state(self, new_state: Dict):
+        try:
+            self.query_one("#optical_canvas", OpticalFlowCanvas).motion_state = new_state
+        except Exception:
+            pass
+
+
 class BLERSSICard(Static):
     """Mini card RSSI BLE"""
 
@@ -551,28 +589,6 @@ class CameraFramesCard(Static):
             box=box.ROUNDED,
             height=4
         )
-
-
-class MotionSection(Container):
-    """Container responsive per widget Motion summary"""
-
-    motion_state: reactive[Dict] = reactive({})
-
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        self.status_card = MotionStatusCard(id="motion_status_card")
-        self.intensity_card = MotionIntensityCard(id="motion_intensity_card")
-        self.direction_card = MotionDirectionCard(id="motion_direction_card")
-
-    def compose(self) -> ComposeResult:
-        yield self.status_card
-        yield self.intensity_card
-        yield self.direction_card
-
-    def watch_motion_state(self, new_state: Dict):
-        self.status_card.motion_state = new_state or {}
-        self.intensity_card.motion_state = new_state or {}
-        self.direction_card.motion_state = new_state or {}
 
 
 class ConsoleWidget(TextArea):
@@ -713,9 +729,12 @@ class SaberDashboard(App):
         margin: 0;
     }
 
-    /* Prima riga 3x (1/3), seconda riga 2x (1/2) su desktop */
+    /* Prima riga 2x (1/2), seconda riga 2x (1/2) su desktop */
     #led_column,
-    #camera_column,
+    #camera_column {
+        column-span: 3;
+    }
+
     #motion_summary {
         column-span: 2;
     }
@@ -741,7 +760,7 @@ class SaberDashboard(App):
         grid-columns: 1fr 1fr 1fr;
         padding-left: 1;
         height: auto;
-        margin: 0;
+        margin: 0 0 1 0;
     }
 
     #motion_summary.cols-1 {
@@ -769,14 +788,18 @@ class SaberDashboard(App):
         margin: 0;
         padding: 1;
         border: round purple;
+    }
 
-
-
+    #optical_canvas {
+        width: 100%;
+        height: auto;
+        margin: 0;
+        padding: 0;
     }
 
     #console_column {
         width: 100%;
-        min-width: 40;
+        min-width: 20;
         layout: vertical;
         height: auto;
         max-height: 1fr;
@@ -877,7 +900,6 @@ class SaberDashboard(App):
                 with Vertical(id="camera_column"):
                     yield CameraPanelWidget(id="camera_panel")
                     yield CameraFramesCard(id="camera_frames_card")
-                yield MotionSection(id="motion_summary")
                 
                 # Optical Flow e Console ora fanno parte della griglia principale
                 yield OpticalFlowGridWidget(id="optical_flow")

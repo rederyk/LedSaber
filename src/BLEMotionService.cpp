@@ -1,7 +1,8 @@
 #include "BLEMotionService.h"
 
-BLEMotionService::BLEMotionService(OpticalFlowDetector* motionDetector)
+BLEMotionService::BLEMotionService(OpticalFlowDetector* motionDetector, MotionProcessor* motionProcessor)
     : _motion(motionDetector)
+    , _processor(motionProcessor)
     , _pService(nullptr)
     , _pCharStatus(nullptr)
     , _pCharControl(nullptr)

@@ -35,18 +35,18 @@ public:
 
     struct Config {
         bool gesturesEnabled;
-        uint8_t gestureThreshold;      // Min intensity for gesture (default: 180)
-        uint16_t gestureDurationMs;    // Min duration for sustained gestures (default: 150ms)
-        uint8_t clashDeltaThreshold;   // Min delta for clash (default: 100)
+        uint8_t gestureThreshold;      // Min intensity for gesture (default: 20)
+        uint16_t gestureDurationMs;    // Min duration for sustained gestures (default: 100ms)
+        uint8_t clashDeltaThreshold;   // Min delta for clash (default: 15)
 
         bool perturbationEnabled;
         uint8_t perturbationScale;     // Perturbation multiplier 0-255 (default: 128)
 
         Config() :
             gesturesEnabled(true),
-            gestureThreshold(180),
-            gestureDurationMs(150),
-            clashDeltaThreshold(100),
+            gestureThreshold(20),   // Abbassato da 180 a 20 per movimenti meno intensi
+            gestureDurationMs(100), // Abbassato da 150ms a 100ms per reattività
+            clashDeltaThreshold(15), // Abbassato da 100 a 15 per clash più sensibili
             perturbationEnabled(true),
             perturbationScale(128) {}
     };
