@@ -823,10 +823,10 @@ void LedEffectEngine::triggerRetractionOneShot() {
 bool LedEffectEngine::checkModeTimeout(uint32_t now) {
     switch (_mode) {
         case Mode::IGNITION_ACTIVE:
-            return (now - _modeStartTime) > 2000;  // 2 seconds
+            return (now - _modeStartTime) > 5000;  // 5 seconds (enough for full animation)
 
         case Mode::RETRACT_ACTIVE:
-            return (now - _modeStartTime) > 2000;  // 2 seconds
+            return (now - _modeStartTime) > 5000;  // 5 seconds (enough for full animation)
 
         case Mode::CLASH_ACTIVE:
             return (now - _modeStartTime) > 500;   // 500ms
@@ -848,6 +848,9 @@ void LedEffectEngine::handleGestureTriggers(MotionProcessor::GestureType gesture
             _modeStartTime = now;
             _ignitionProgress = 0;
             _lastIgnitionUpdate = now;
+            // Reset one-shot flags to allow gesture-triggered ignition to run normally
+            _ignitionOneShot = false;
+            _ignitionCompleted = false;
             Serial.println("[LED] IGNITION effect triggered by gesture!");
             break;
 
@@ -856,6 +859,9 @@ void LedEffectEngine::handleGestureTriggers(MotionProcessor::GestureType gesture
             _modeStartTime = now;
             _retractionProgress = 0;  // Will be initialized in render
             _lastRetractionUpdate = now;
+            // Reset one-shot flags to allow gesture-triggered retraction to run normally
+            _retractionOneShot = false;
+            _retractionCompleted = false;
             Serial.println("[LED] RETRACT effect triggered by gesture!");
             break;
 

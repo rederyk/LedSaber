@@ -45,3 +45,8 @@
   - Brightness minima aumentata (100 invece di 80)
   - Intensification boost fino a +120 brightness
   - Nessun salto di impulsi, flusso continuo 
+
+  - l animazione di ignition durante l accensione si interrompe a meta e viene rispodotta due volte,
+  mentre duranete le gesture viene interrotta ma solo una volta riprodotta
+
+  -  pulse e troppo sfrafalloso diminuisci molto l ombra e di poco il pulse in luncghezza numero di led , mentre aumentane l intesita per renderlo piu vivace e definito  
