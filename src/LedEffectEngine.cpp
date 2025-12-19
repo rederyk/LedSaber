@@ -685,7 +685,10 @@ void LedEffectEngine::renderDualPulse(const LedState& state, const uint8_t pertu
     static unsigned long ball1_invulnTime = 0;  // Tempo di invulnerabilità (grace period)
     static unsigned long ball2_invulnTime = 0;  // Tempo di invulnerabilità (grace period)
     static float collisionFlashPos = 0.0f;      // Centro flash collisione (pixel)
-    static uint8_t collisionFlash = 0;          // Intensità flash collisione (0-255)
+    static uint8_t collisionFusionFlash = 0;    // Intensità flash fusione (0-255)
+    static uint8_t collisionWhiteCore = 0;      // Core bianco (solo impatti forti)
+    static uint8_t collisionHueA = 0;
+    static uint8_t collisionHueB = 160;
     static unsigned long ball1_crackleLast = 0;
     static unsigned long ball2_crackleLast = 0;
     static uint8_t ball1_crackle = 0;
@@ -723,7 +726,8 @@ void LedEffectEngine::renderDualPulse(const LedState& state, const uint8_t pertu
         ball2_crackleLast = 0;
         ball1_crackle = 0;
         ball2_crackle = 0;
-        collisionFlash = 0;
+        collisionFusionFlash = 0;
+        collisionWhiteCore = 0;
         initialized = true;
 
         Serial.println("[DUAL_PONG] Initialized with MASS-based physics (EASY MODE)");
@@ -990,12 +994,21 @@ void LedEffectEngine::renderDualPulse(const LedState& state, const uint8_t pertu
                         Serial.print(" v2="); Serial.println(ball2_vel);
                     }
 
-                    // Leggero clash localizzato nel punto d'urto
+                    // Collisione: "fusion flash" + core bianco solo per impatti forti
                     float relativeSpeed = abs(ball1_vel - ball2_vel);
                     float impact = min(1.0f, relativeSpeed / 0.25f);  // 0..1
-                    uint8_t impactBrightness = (uint8_t)(60.0f + impact * 120.0f); // 60..180
+                    uint8_t impactBrightness = (uint8_t)(60.0f + impact * 140.0f); // 60..200
                     collisionFlashPos = midPoint;
-                    collisionFlash = max(collisionFlash, impactBrightness);
+                    collisionHueA = ball1_hue;
+                    collisionHueB = ball2_hue;
+                    collisionFusionFlash = max(collisionFusionFlash, impactBrightness);
+
+                    const float strongImpactThreshold = 0.18f;
+                    if (relativeSpeed >= strongImpactThreshold) {
+                        float strongT = min(1.0f, (relativeSpeed - strongImpactThreshold) / 0.20f);
+                        uint8_t core = (uint8_t)(70.0f + strongT * 160.0f); // 70..230
+                        collisionWhiteCore = max(collisionWhiteCore, core);
+                    }
 
                     collisionCount++;
                 }
@@ -1152,9 +1165,12 @@ void LedEffectEngine::renderDualPulse(const LedState& state, const uint8_t pertu
         spawnFlashBrightness = qsub8(spawnFlashBrightness, 20);  // Fade veloce
     }
 
-    // Decay del clash collisione (breve e sottile)
-    if (collisionFlash > 0) {
-        collisionFlash = qsub8(collisionFlash, 35);
+    // Decay del flash collisione
+    if (collisionFusionFlash > 0) {
+        collisionFusionFlash = qsub8(collisionFusionFlash, 28);
+    }
+    if (collisionWhiteCore > 0) {
+        collisionWhiteCore = qsub8(collisionWhiteCore, 45);
     }
 
     // "Plasma held": crackle/clash ripetuti quando una palla è quasi ferma.
@@ -1167,6 +1183,7 @@ void LedEffectEngine::renderDualPulse(const LedState& state, const uint8_t pertu
             uint8_t base = (uint8_t)(30.0f + t * 140.0f); // 30..170
             base = qadd8(base, random8((uint8_t)(20.0f + t * 60.0f)));
             ball1_crackle = qadd8(ball1_crackle, base);
+            if (ball1_crackle > 160) ball1_crackle = 160;
         }
     }
     if (ball2_invulnTime > 0) {
@@ -1177,6 +1194,7 @@ void LedEffectEngine::renderDualPulse(const LedState& state, const uint8_t pertu
             uint8_t base = (uint8_t)(30.0f + t * 140.0f);
             base = qadd8(base, random8((uint8_t)(20.0f + t * 60.0f)));
             ball2_crackle = qadd8(ball2_crackle, base);
+            if (ball2_crackle > 160) ball2_crackle = 160;
         }
     }
 
@@ -1334,42 +1352,91 @@ void LedEffectEngine::renderDualPulse(const LedState& state, const uint8_t pertu
             }
         }
 
-        // Clash localizzato: flash bianco breve attorno alla collisione
-        if (collisionFlash > 0) {
+        // Collisione: fusion flash (colore) + core bianco sottile (solo impatti forti)
+        if (collisionFusionFlash > 0) {
             float dist = abs((float)i - collisionFlashPos);
-            const float radius = 10.0f;
+            const float radius = 12.0f;
             if (dist < radius) {
                 float t = 1.0f - (dist / radius);
-                uint8_t boost = (uint8_t)(collisionFlash * t * t);
+                uint8_t boost = (uint8_t)(collisionFusionFlash * t * t);
+                CRGB fusionA = CHSV(collisionHueA, 255, 255);
+                CRGB fusionB = CHSV(collisionHueB, 255, 255);
+                CRGB fusion = blend(fusionA, fusionB, 128);
+                fusion.r = scale8(fusion.r, boost);
+                fusion.g = scale8(fusion.g, boost);
+                fusion.b = scale8(fusion.b, boost);
+                color.r = qadd8(color.r, fusion.r);
+                color.g = qadd8(color.g, fusion.g);
+                color.b = qadd8(color.b, fusion.b);
+            }
+        }
+        if (collisionWhiteCore > 0) {
+            float dist = abs((float)i - collisionFlashPos);
+            const float radius = 4.0f;
+            if (dist < radius) {
+                float t = 1.0f - (dist / radius);
+                uint8_t boost = (uint8_t)(collisionWhiteCore * t * t);
                 color.r = qadd8(color.r, boost);
                 color.g = qadd8(color.g, boost);
                 color.b = qadd8(color.b, boost);
             }
         }
 
-        // Crackle localizzato sulle palle lente (grace period): più vicino al limite = più forte e più largo
-        if (ball1_active && ball1_crackle > 0 && ball1_invulnTime > 0) {
+        // Grabbing: alone complementare + micro-sparkle bianco sporadico (clampato)
+        if (ball1_active && ball1_invulnTime > 0) {
             float t = min(1.0f, (float)(now - ball1_invulnTime) / (float)GRACE_PERIOD);
             float dist = abs((float)i - ball1_pos);
-            float radius = 5.0f + t * 7.0f; // 5..12
+            float radius = 8.0f + t * 10.0f; // 8..18
             if (dist < radius) {
                 float k = 1.0f - (dist / radius);
-                uint8_t boost = (uint8_t)(ball1_crackle * k * k);
-                color.r = qadd8(color.r, boost);
-                color.g = qadd8(color.g, boost);
-                color.b = qadd8(color.b, boost);
+                uint8_t haloHue = ball1_hue + 128;
+                uint8_t haloV = (uint8_t)(40.0f + t * 120.0f);
+                haloV = scale8(haloV, 180 + scale8(sin8((now >> 2) & 0xFF), 75));
+                CRGB halo = CHSV(haloHue, 255, (uint8_t)(scale8(haloV, (uint8_t)(k * k * 255.0f))));
+                color.r = qadd8(color.r, halo.r);
+                color.g = qadd8(color.g, halo.g);
+                color.b = qadd8(color.b, halo.b);
+            }
+
+            if (ball1_crackle > 0 && dist < (5.0f + t * 7.0f)) {
+                uint8_t p = (uint8_t)(18.0f + t * 90.0f); // probabilità sparkles 7%..42%
+                if (random8() < p) {
+                    float r = 5.0f + t * 7.0f;
+                    float k = 1.0f - (dist / r);
+                    uint8_t crackle = (ball1_crackle > 120) ? 120 : ball1_crackle;
+                    uint8_t boost = (uint8_t)(crackle * k * k);
+                    color.r = qadd8(color.r, boost);
+                    color.g = qadd8(color.g, boost);
+                    color.b = qadd8(color.b, boost);
+                }
             }
         }
-        if (ball2_active && ball2_crackle > 0 && ball2_invulnTime > 0) {
+        if (ball2_active && ball2_invulnTime > 0) {
             float t = min(1.0f, (float)(now - ball2_invulnTime) / (float)GRACE_PERIOD);
             float dist = abs((float)i - ball2_pos);
-            float radius = 5.0f + t * 7.0f; // 5..12
+            float radius = 8.0f + t * 10.0f;
             if (dist < radius) {
                 float k = 1.0f - (dist / radius);
-                uint8_t boost = (uint8_t)(ball2_crackle * k * k);
-                color.r = qadd8(color.r, boost);
-                color.g = qadd8(color.g, boost);
-                color.b = qadd8(color.b, boost);
+                uint8_t haloHue = ball2_hue + 128;
+                uint8_t haloV = (uint8_t)(40.0f + t * 120.0f);
+                haloV = scale8(haloV, 180 + scale8(sin8((now >> 2) & 0xFF), 75));
+                CRGB halo = CHSV(haloHue, 255, (uint8_t)(scale8(haloV, (uint8_t)(k * k * 255.0f))));
+                color.r = qadd8(color.r, halo.r);
+                color.g = qadd8(color.g, halo.g);
+                color.b = qadd8(color.b, halo.b);
+            }
+
+            if (ball2_crackle > 0 && dist < (5.0f + t * 7.0f)) {
+                uint8_t p = (uint8_t)(18.0f + t * 90.0f);
+                if (random8() < p) {
+                    float r = 5.0f + t * 7.0f;
+                    float k = 1.0f - (dist / r);
+                    uint8_t crackle = (ball2_crackle > 120) ? 120 : ball2_crackle;
+                    uint8_t boost = (uint8_t)(crackle * k * k);
+                    color.r = qadd8(color.r, boost);
+                    color.g = qadd8(color.g, boost);
+                    color.b = qadd8(color.b, boost);
+                }
             }
         }
 
