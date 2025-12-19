@@ -10,8 +10,12 @@ LedEffectEngine::LedEffectEngine(CRGB* leds, uint16_t numLeds) :
     _hue(0),
     _ignitionProgress(0),
     _lastIgnitionUpdate(0),
+    _ignitionOneShot(false),
+    _ignitionCompleted(false),
     _retractionProgress(0),
     _lastRetractionUpdate(0),
+    _retractionOneShot(false),
+    _retractionCompleted(false),
     _pulsePosition(0),
     _lastPulseUpdate(0),
     _pulseCharge(0),
@@ -579,6 +583,11 @@ void LedEffectEngine::renderRainbowBlade(const LedState& state, const uint8_t pe
 // ═══════════════════════════════════════════════════════════
 
 void LedEffectEngine::renderIgnition(const LedState& state) {
+    // If one-shot mode and already completed, skip rendering
+    if (_ignitionOneShot && _ignitionCompleted) {
+        return;
+    }
+
     const unsigned long now = millis();
     uint16_t ignitionSpeed = map(state.speed, 1, 255, 100, 1);
 
@@ -586,7 +595,15 @@ void LedEffectEngine::renderIgnition(const LedState& state) {
         if (_ignitionProgress < state.foldPoint) {
             _ignitionProgress++;
         } else {
-            _ignitionProgress = 0;  // Loop
+            // Progress complete
+            if (_ignitionOneShot) {
+                // One-shot mode: mark as completed and return to IDLE
+                _ignitionCompleted = true;
+                _mode = Mode::IDLE;
+            } else {
+                // Normal mode: loop
+                _ignitionProgress = 0;
+            }
         }
         _lastIgnitionUpdate = now;
     }
@@ -607,6 +624,12 @@ void LedEffectEngine::renderIgnition(const LedState& state) {
 }
 
 void LedEffectEngine::renderRetraction(const LedState& state) {
+    // If one-shot mode and already completed, all LEDs off
+    if (_retractionOneShot && _retractionCompleted) {
+        fill_solid(_leds, _numLeds, CRGB::Black);
+        return;
+    }
+
     const unsigned long now = millis();
     uint16_t retractionSpeed = map(state.speed, 1, 255, 100, 1);
 
@@ -618,7 +641,16 @@ void LedEffectEngine::renderRetraction(const LedState& state) {
         if (_retractionProgress > 0) {
             _retractionProgress--;
         } else {
-            _retractionProgress = state.foldPoint;  // Loop
+            // Progress complete (reached 0)
+            if (_retractionOneShot) {
+                // One-shot mode: mark as completed
+                _retractionCompleted = true;
+                _mode = Mode::IDLE;
+                Serial.println("[LED] Retraction complete - all LEDs off");
+            } else {
+                // Normal mode: loop
+                _retractionProgress = state.foldPoint;
+            }
         }
         _lastRetractionUpdate = now;
     }
@@ -666,6 +698,30 @@ void LedEffectEngine::renderClash(const LedState& state) {
     }
 
     // Note: Brightness scaling already applied, will be set globally in render()
+}
+
+// ═══════════════════════════════════════════════════════════
+// PUBLIC TRIGGER METHODS
+// ═══════════════════════════════════════════════════════════
+
+void LedEffectEngine::triggerIgnitionOneShot() {
+    _ignitionOneShot = true;
+    _ignitionCompleted = false;
+    _ignitionProgress = 0;
+    _mode = Mode::IGNITION_ACTIVE;
+    _modeStartTime = millis();
+    _lastIgnitionUpdate = millis();
+    Serial.println("[LED] Ignition ONE-SHOT triggered!");
+}
+
+void LedEffectEngine::triggerRetractionOneShot() {
+    _retractionOneShot = true;
+    _retractionCompleted = false;
+    _retractionProgress = 0;  // Will be initialized in renderRetraction
+    _mode = Mode::RETRACT_ACTIVE;
+    _modeStartTime = millis();
+    _lastRetractionUpdate = millis();
+    Serial.println("[LED] Retraction ONE-SHOT triggered!");
 }
 
 // ═══════════════════════════════════════════════════════════

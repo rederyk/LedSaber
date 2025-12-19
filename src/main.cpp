@@ -84,6 +84,9 @@ class MainServerCallbacks: public BLEServerCallbacks {
     void onConnect(BLEServer* pServer) override {
         bleController.setConnected(true);
         Serial.println("[BLE] Client connected!");
+
+        // Trigger ignition effect on BLE connection (one-shot mode)
+        effectEngine.triggerIgnitionOneShot();
     }
 
     void onConnect(BLEServer* pServer, esp_ble_gatts_cb_param_t *param) override {
@@ -558,6 +561,9 @@ void setup() {
 
     Serial.printf("Free heap: %u bytes\n", ESP.getFreeHeap());
     Serial.println("*** THE FORCE IS IN YOU ***");
+
+    // Trigger ignition effect at boot (one-shot mode)
+    effectEngine.triggerIgnitionOneShot();
 }
 
 void loop() {

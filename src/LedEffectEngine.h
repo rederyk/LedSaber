@@ -47,6 +47,18 @@ public:
      */
     void resetMode() { _mode = Mode::IDLE; }
 
+    /**
+     * @brief Trigger ignition effect (one-shot mode)
+     * Used at boot and BLE connection
+     */
+    void triggerIgnitionOneShot();
+
+    /**
+     * @brief Trigger retraction effect (one-shot mode)
+     * Used for shutdown/power-off
+     */
+    void triggerRetractionOneShot();
+
 private:
     CRGB* _leds;
     uint16_t _numLeds;
@@ -58,8 +70,12 @@ private:
     uint8_t _hue;
     uint16_t _ignitionProgress;
     unsigned long _lastIgnitionUpdate;
+    bool _ignitionOneShot;        // true = ignition runs once
+    bool _ignitionCompleted;      // true = cycle completed
     uint16_t _retractionProgress;
     unsigned long _lastRetractionUpdate;
+    bool _retractionOneShot;      // true = retraction runs once
+    bool _retractionCompleted;    // true = cycle completed
     uint16_t _pulsePosition;
     unsigned long _lastPulseUpdate;
     uint8_t _pulseCharge;          // 0-255 charge level at base
