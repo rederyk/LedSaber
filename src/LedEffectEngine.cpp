@@ -1727,40 +1727,10 @@ void LedEffectEngine::renderIgnition(const LedState& state) {
 }
 
 void LedEffectEngine::renderRetraction(const LedState& state) {
-    // If one-shot mode and already completed, all LEDs off
+    // If one-shot mode and already completed, keep all LEDs off
+    // (Deep sleep is handled in the animation completion block below)
     if (_retractionOneShot && _retractionCompleted) {
         fill_solid(_leds, _numLeds, CRGB::Black);
-
-        // Handle blade state and deep sleep after animation completes
-        if (_ledStateRef && _ledStateRef->bladeEnabled) {
-            _ledStateRef->bladeEnabled = false;
-            Serial.println("[LED POWER] Blade disabled");
-        }
-
-        // Trigger deep sleep if requested
-        if (_deepSleepRequested) {
-            Serial.println("[LED POWER] Entering deep sleep in 500ms...");
-            Serial.println("[LED POWER] Wake-up sources:");
-            Serial.println("[LED POWER]   - EXT0 (GPIO 0 / BOOT button) LOW level");
-            Serial.println("[LED POWER]   - Timer wake-up disabled (wake only via reset/button)");
-
-            FastLED.show();  // Ensure LEDs are off
-            delay(500);
-
-            // Configure wake-up source: GPIO 0 (BOOT button) on LOW level
-            // This allows wake-up by pressing the BOOT button
-            esp_sleep_enable_ext0_wakeup(GPIO_NUM_0, 0);  // 0 = LOW level trigger
-
-            // Optional: Configure timer wake-up (disabled by default)
-            // Uncomment to enable wake-up after X seconds:
-            // esp_sleep_enable_timer_wakeup(60 * 1000000ULL);  // 60 seconds
-
-            Serial.println("[LED POWER] Entering deep sleep NOW!");
-            Serial.flush();  // Ensure serial buffer is flushed
-
-            esp_deep_sleep_start();
-        }
-
         return;
     }
 
@@ -1778,8 +1748,36 @@ void LedEffectEngine::renderRetraction(const LedState& state) {
     if (elapsed >= RETRACTION_DURATION_MS) {
         _retractionProgress = 0;  // Ensure all LEDs off
         if (_retractionOneShot) {
-            // One-shot mode: mark as completed
+            // One-shot mode: mark as completed and disable blade
             _retractionCompleted = true;
+
+            // CRITICAL: Disable blade BEFORE returning to IDLE mode
+            if (_ledStateRef && _ledStateRef->bladeEnabled) {
+                _ledStateRef->bladeEnabled = false;
+                Serial.println("[LED POWER] Blade disabled after retraction");
+            }
+
+            // Handle deep sleep if requested (must be done BEFORE returning to IDLE)
+            if (_deepSleepRequested) {
+                Serial.println("[LED POWER] Entering deep sleep in 500ms...");
+                Serial.println("[LED POWER] Wake-up sources:");
+                Serial.println("[LED POWER]   - EXT0 (GPIO 0 / BOOT button) LOW level");
+                Serial.println("[LED POWER]   - Timer wake-up disabled (wake only via reset/button)");
+
+                fill_solid(_leds, _numLeds, CRGB::Black);
+                FastLED.show();  // Ensure LEDs are off
+                delay(500);
+
+                // Configure wake-up source: GPIO 0 (BOOT button) on LOW level
+                esp_sleep_enable_ext0_wakeup(GPIO_NUM_0, 0);  // 0 = LOW level trigger
+
+                Serial.println("[LED POWER] Entering deep sleep NOW!");
+                Serial.flush();  // Ensure serial buffer is flushed
+
+                esp_deep_sleep_start();
+                // Code never reaches here - ESP32 enters deep sleep
+            }
+
             _mode = Mode::IDLE;
             Serial.println("[LED] Retraction complete - all LEDs off");
         } else {
