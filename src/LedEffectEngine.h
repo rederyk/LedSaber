@@ -31,6 +31,12 @@ public:
     LedEffectEngine(CRGB* leds, uint16_t numLeds);
 
     /**
+     * @brief Set LedState reference for power control
+     * @param state Pointer to LedState (required for powerOn/powerOff)
+     */
+    void setLedStateRef(LedState* state) { _ledStateRef = state; }
+
+    /**
      * @brief Main render function with motion integration
      * @param state Current LED state
      * @param motion Processed motion data (gestures + perturbations)
@@ -48,14 +54,27 @@ public:
     void resetMode() { _mode = Mode::IDLE; }
 
     /**
+     * @brief Power ON: Enable blade, trigger ignition animation, set to normal effects
+     * This is the primary function for turning on the saber
+     */
+    void powerOn();
+
+    /**
+     * @brief Power OFF: Trigger retraction animation, disable blade, optionally deep sleep
+     * @param deepSleep If true, ESP32 will enter deep sleep after animation completes
+     * This is the primary function for turning off the saber
+     */
+    void powerOff(bool deepSleep = false);
+
+    /**
      * @brief Trigger ignition effect (one-shot mode)
-     * Used at boot and BLE connection
+     * Used at boot and BLE connection - LEGACY, prefer powerOn()
      */
     void triggerIgnitionOneShot();
 
     /**
      * @brief Trigger retraction effect (one-shot mode)
-     * Used for shutdown/power-off
+     * Used for shutdown/power-off - LEGACY, prefer powerOff()
      */
     void triggerRetractionOneShot();
 
@@ -66,6 +85,10 @@ private:
     Mode _mode;
     uint32_t _modeStartTime;
     bool _suppressGestureOverrides;
+
+    // Power state management
+    bool _deepSleepRequested;     // true = enter deep sleep after retraction completes
+    LedState* _ledStateRef;       // Reference to LedState for bladeEnabled control
 
     // Animation state variables
     uint8_t _hue;

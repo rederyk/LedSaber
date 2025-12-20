@@ -1,4 +1,6 @@
 #include "BLELedController.h"
+#include "LedEffectEngine.h"
+#include <esp_system.h>
 
 // Callback scrittura colore
 class ColorCallbacks: public BLECharacteristicCallbacks {
@@ -209,6 +211,87 @@ public:
     }
 };
 
+// Callback Device Control (ignition, retract, reboot, sleep)
+class DeviceControlCallbacks: public BLECharacteristicCallbacks {
+    BLELedController* controller;
+public:
+    explicit DeviceControlCallbacks(BLELedController* ctrl) : controller(ctrl) {}
+
+    void onWrite(BLECharacteristic *pChar) override {
+        String value = pChar->getValue().c_str();
+        Serial.printf("[BLE DEVICE_CONTROL] Received: %s\n", value.c_str());
+
+        JsonDocument doc;
+        DeserializationError error = deserializeJson(doc, value);
+
+        if (!error) {
+            String command = doc["command"] | "";
+            Serial.printf("[BLE DEVICE_CONTROL] Parsed command: %s\n", command.c_str());
+
+            if (command == "ignition") {
+                if (controller->effectEngine) {
+                    Serial.println("[BLE] Power ON (ignition with animation)");
+                    controller->effectEngine->powerOn();
+                } else {
+                    Serial.println("[BLE ERROR] EffectEngine not set!");
+                }
+            } else if (command == "retract") {
+                if (controller->effectEngine) {
+                    Serial.println("[BLE] Power OFF (retraction with animation, no deep sleep)");
+                    controller->effectEngine->powerOff(false);  // No deep sleep via BLE
+                } else {
+                    Serial.println("[BLE ERROR] EffectEngine not set!");
+                }
+            } else if (command == "reboot") {
+                Serial.println("[BLE] Rebooting ESP32 in 1 second...");
+                delay(1000);
+                esp_restart();
+            } else if (command == "sleep") {
+                if (controller->effectEngine) {
+                    Serial.println("[BLE] Power OFF with deep sleep");
+                    controller->effectEngine->powerOff(true);  // Deep sleep mode
+                } else {
+                    Serial.println("[BLE] Entering deep sleep directly (no animation)...");
+                    delay(500);
+                    esp_deep_sleep_start();
+                }
+            } else {
+                Serial.printf("[BLE ERROR] Unknown device control command: %s\n", command.c_str());
+            }
+        } else {
+            Serial.printf("[BLE ERROR] Invalid JSON for device control: %s\n", error.c_str());
+        }
+    }
+};
+
+// Callback Effects List (READ only)
+class EffectsListCallbacks: public BLECharacteristicCallbacks {
+    BLELedController* controller;
+public:
+    explicit EffectsListCallbacks(BLELedController* ctrl) : controller(ctrl) {}
+
+    void onRead(BLECharacteristic *pChar) override {
+        // Costruisci JSON con lista effetti e parametri
+        const char* effectsList = R"({
+  "version": "1.0.0",
+  "effects": [
+    {"id":"solid","name":"Solid Color","params":["color"],"icon":"🟢"},
+    {"id":"rainbow","name":"Rainbow","params":["speed"],"icon":"🌈"},
+    {"id":"pulse","name":"Pulse Wave","params":["speed","color"],"icon":"⚡"},
+    {"id":"breathe","name":"Breathing","params":["speed"],"icon":"💨"},
+    {"id":"flicker","name":"Kylo Ren Flicker","params":["speed"],"icon":"🔥"},
+    {"id":"unstable","name":"Kylo Ren Advanced","params":["speed"],"icon":"💥"},
+    {"id":"dual_pulse","name":"Dual Pulse","params":["speed"],"icon":"⚔️"},
+    {"id":"rainbow_blade","name":"Rainbow Blade","params":["speed"],"icon":"🌟"},
+    {"id":"chrono_hybrid","name":"Chrono Clock","params":["chronoHourTheme","chronoSecondTheme"],"themes":{"hour":["Classic","Neon","Plasma","Digital","Inferno","Storm"],"second":["Classic","Spiral","Fire","Lightning","Particle","Quantum"]},"icon":"🕐"}
+  ]
+})";
+
+        pChar->setValue(effectsList);
+        Serial.println("[BLE] Effects list sent to client");
+    }
+};
+
 // Costruttore
 BLELedController::BLELedController(LedState* state) {
     ledState = state;
@@ -222,6 +305,9 @@ BLELedController::BLELedController(LedState* state) {
     pCharStatusLed = nullptr;
     pCharFoldPoint = nullptr;
     pCharTimeSync = nullptr;
+    pCharDeviceControl = nullptr;
+    pCharEffectsList = nullptr;
+    effectEngine = nullptr;
 }
 
 // Inizializzazione BLE
@@ -321,20 +407,45 @@ void BLELedController::begin(BLEServer* server) {
     descTimeSync->setValue("Time Sync");
     pCharTimeSync->addDescriptor(descTimeSync);
 
+    // Characteristic 8: Device Control (WRITE) - ignition, retract, reboot, sleep
+    pCharDeviceControl = pService->createCharacteristic(
+        CHAR_DEVICE_CONTROL_UUID,
+        BLECharacteristic::PROPERTY_WRITE |
+        BLECharacteristic::PROPERTY_WRITE_NR
+    );
+    logCreate("DeviceControl", CHAR_DEVICE_CONTROL_UUID, pCharDeviceControl);
+    pCharDeviceControl->setCallbacks(new DeviceControlCallbacks(this));
+    BLEDescriptor* descDeviceControl = new BLEDescriptor(BLEUUID((uint16_t)0x2901));
+    descDeviceControl->setValue("Device Control");
+    pCharDeviceControl->addDescriptor(descDeviceControl);
+
+    // Characteristic 9: Effects List (READ) - lista effetti disponibili
+    pCharEffectsList = pService->createCharacteristic(
+        CHAR_EFFECTS_LIST_UUID,
+        BLECharacteristic::PROPERTY_READ
+    );
+    logCreate("EffectsList", CHAR_EFFECTS_LIST_UUID, pCharEffectsList);
+    pCharEffectsList->setCallbacks(new EffectsListCallbacks(this));
+    BLEDescriptor* descEffectsList = new BLEDescriptor(BLEUUID((uint16_t)0x2901));
+    descEffectsList->setValue("Effects List");
+    pCharEffectsList->addDescriptor(descEffectsList);
+
     // Avvia service
     pService->start();
 
     Serial.println("[BLE DEBUG] LED GATT UUIDs:");
-    Serial.printf("  Service: %s\n", LED_SERVICE_UUID);
-    Serial.printf("  State:   %s\n", CHAR_LED_STATE_UUID);
-    Serial.printf("  Color:   %s\n", CHAR_LED_COLOR_UUID);
-    Serial.printf("  Effect:  %s\n", CHAR_LED_EFFECT_UUID);
-    Serial.printf("  Bright:  %s\n", CHAR_LED_BRIGHTNESS_UUID);
-    Serial.printf("  Status:  %s\n", CHAR_STATUS_LED_UUID);
-    Serial.printf("  Fold:    %s\n", CHAR_FOLD_POINT_UUID);
-    Serial.printf("  Time:    %s\n", CHAR_TIME_SYNC_UUID);
+    Serial.printf("  Service:        %s\n", LED_SERVICE_UUID);
+    Serial.printf("  State:          %s\n", CHAR_LED_STATE_UUID);
+    Serial.printf("  Color:          %s\n", CHAR_LED_COLOR_UUID);
+    Serial.printf("  Effect:         %s\n", CHAR_LED_EFFECT_UUID);
+    Serial.printf("  Bright:         %s\n", CHAR_LED_BRIGHTNESS_UUID);
+    Serial.printf("  Status:         %s\n", CHAR_STATUS_LED_UUID);
+    Serial.printf("  Fold:           %s\n", CHAR_FOLD_POINT_UUID);
+    Serial.printf("  Time:           %s\n", CHAR_TIME_SYNC_UUID);
+    Serial.printf("  DeviceControl:  %s\n", CHAR_DEVICE_CONTROL_UUID);
+    Serial.printf("  EffectsList:    %s\n", CHAR_EFFECTS_LIST_UUID);
 
-    Serial.println("[BLE OK] LED Service initialized!");
+    Serial.println("[BLE OK] LED Service initialized with 9 characteristics!");
 }
 
 // Notifica stato LED ai client connessi
@@ -349,6 +460,23 @@ void BLELedController::notifyState() {
     doc["effect"] = ledState->effect;
     doc["speed"] = ledState->speed;
     doc["enabled"] = ledState->enabled;
+
+    // Campo bladeState: "off" | "igniting" | "on" | "retracting"
+    String bladeState = "off";
+    if (effectEngine) {
+        LedEffectEngine::Mode mode = effectEngine->getMode();
+        if (mode == LedEffectEngine::Mode::IGNITION_ACTIVE) {
+            bladeState = "igniting";
+        } else if (mode == LedEffectEngine::Mode::RETRACT_ACTIVE) {
+            bladeState = "retracting";
+        } else if (ledState->enabled) {
+            bladeState = "on";
+        }
+    } else if (ledState->enabled) {
+        bladeState = "on";
+    }
+    doc["bladeState"] = bladeState;
+
     doc["statusLedEnabled"] = ledState->statusLedEnabled;
     doc["statusLedBrightness"] = ledState->statusLedBrightness;
     doc["foldPoint"] = ledState->foldPoint;
@@ -374,4 +502,9 @@ void BLELedController::setConfigDirty(bool dirty) {
 
 bool BLELedController::isConfigDirty() {
     return configDirty;
+}
+
+void BLELedController::setEffectEngine(LedEffectEngine* engine) {
+    effectEngine = engine;
+    Serial.println("[BLE] EffectEngine linked for device control commands");
 }

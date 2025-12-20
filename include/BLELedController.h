@@ -16,9 +16,11 @@
 #define CHAR_STATUS_LED_UUID     "a4b8d7f9-1e43-6c7d-ad8f-456789abcdef"  // WRITE + READ
 #define CHAR_FOLD_POINT_UUID     "a5b0f9a7-3c65-8e9f-cf0c-6789abcdef01"  // WRITE + READ
 #define CHAR_TIME_SYNC_UUID      "d6e1a0b8-4a76-9f0c-dc1a-789abcdef012"  // WRITE
+#define CHAR_DEVICE_CONTROL_UUID "c7f8e0d9-5b87-1a2b-be9d-7890abcdef23"  // WRITE
+#define CHAR_EFFECTS_LIST_UUID   "d8f9e1ea-6c98-2b3c-cf0e-890abcdef234"  // READ
 
-// NOTA: Il servizio LED richiede ~16 handle (8 char). Il default è 15.
-// In BLELedController.cpp usare: pServer->createService(LED_SERVICE_UUID, 30);
+// NOTA: Il servizio LED richiede ~16 handle (10 char). Il default è 15.
+// In BLELedController.cpp usare: pServer->createService(LED_SERVICE_UUID, 50);
 
 // Stato LED globale
 struct LedState {
@@ -30,6 +32,7 @@ struct LedState {
     String effect = "solid";
     uint8_t speed = 50;
     bool enabled = true;
+    bool bladeEnabled = false;  // Stato accensione lama (false = spenta, true = accesa)
     bool statusLedEnabled = true;  // Stato del LED integrato sul pin 4
     uint8_t foldPoint = 72;  // Punto di piegatura LED (default = metà)
 
@@ -42,6 +45,9 @@ struct LedState {
     uint8_t chronoSecondTheme = 0; // 0=Classic, 1=TimeSpiral, 2=FireClock, 3=Lightning, 4=Particle, 5=Quantum
 };
 
+// Forward declaration
+class LedEffectEngine;
+
 class BLELedController {
 private:
     BLEServer* pServer;
@@ -52,9 +58,12 @@ private:
     BLECharacteristic* pCharStatusLed;
     BLECharacteristic* pCharFoldPoint;
     BLECharacteristic* pCharTimeSync;
+    BLECharacteristic* pCharDeviceControl;
+    BLECharacteristic* pCharEffectsList;
     bool deviceConnected;
     LedState* ledState;
     bool configDirty;
+    LedEffectEngine* effectEngine;
 
 public:
     explicit BLELedController(LedState* state);
@@ -64,6 +73,7 @@ public:
     void setConnected(bool connected);
     void setConfigDirty(bool dirty);
     bool isConfigDirty();
+    void setEffectEngine(LedEffectEngine* engine);
 
     // Callback classes (friend)
     friend class ColorCallbacks;
@@ -72,6 +82,8 @@ public:
     friend class StatusLedCallbacks;
     friend class FoldPointCallbacks;
     friend class TimeSyncCallbacks;
+    friend class DeviceControlCallbacks;
+    friend class EffectsListCallbacks;
 };
 
 #endif

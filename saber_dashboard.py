@@ -1011,6 +1011,8 @@ class SaberDashboard(App):
         Binding("f5", "motion_toggle", "Motion Toggle"),
         Binding("f6", "chrono_cycle_hours", "Chrono Hours"),
         Binding("f7", "chrono_cycle_seconds", "Chrono Seconds"),
+        Binding("f8", "device_ignition", "Ignition"),
+        Binding("f9", "device_retract", "Retract"),
     ]
 
     TITLE = "LedSaber Live Dashboard"
@@ -1310,13 +1312,42 @@ class SaberDashboard(App):
                 else:
                     self._log(f"Unknown motion command: {subcmd}", "red")
 
+            # === DEVICE CONTROL ===
+            elif cmd == "ignition":
+                await self.client.device_ignition()
+
+            elif cmd == "retract":
+                await self.client.device_retract()
+
+            elif cmd == "reboot":
+                self._log("Rebooting device...", "yellow")
+                await self.client.device_reboot()
+                await asyncio.sleep(1)
+                self.exit()
+
+            elif cmd == "sleep":
+                self._log("Entering deep sleep...", "yellow")
+                await self.client.device_sleep()
+                await asyncio.sleep(1)
+                self.exit()
+
+            elif cmd == "effects":
+                effects_list = await self.client.get_effects_list()
+                if effects_list:
+                    self._log(f"Available effects (v{effects_list.get('version', 'unknown')}):", "cyan")
+                    for effect in effects_list.get('effects', []):
+                        self._log(f"  {effect.get('icon', '🎨')} {effect['id']} - {effect['name']}", "cyan")
+                else:
+                    self._log("Could not retrieve effects list", "red")
+
             # === HELP ===
             elif cmd == "help":
                 self._log("Commands: scan, connect, disconnect, color, effect, brightness, on, off", "cyan")
                 self._log("          chrono <hour_theme> <second_theme> - Set chrono themes (0-3 for hours, 0-5 for seconds)", "cyan")
                 self._log("          cam <init|start|stop|status>, motion <enable|disable|status|sensitivity N>", "cyan")
+                self._log("          ignition, retract, reboot, sleep, effects", "cyan")
                 self._log("Shortcuts: Ctrl+S=scan, Ctrl+D=disconnect, F2=cam init, F3=start, F4=stop, F5=motion toggle", "cyan")
-                self._log("           F6=cycle hour theme, F7=cycle second theme", "cyan")
+                self._log("           F6=cycle hour theme, F7=cycle second theme, F8=ignition, F9=retract", "cyan")
 
             else:
                 self._log(f"Unknown command: {cmd}. Type 'help' for list.", "red")
@@ -1554,6 +1585,14 @@ class SaberDashboard(App):
         next_theme = (current + 1) % len(ChronoThemesCard.SECOND_THEMES)
 
         self.run_worker(self._send_chrono_themes(hour_theme, next_theme))
+
+    def action_device_ignition(self) -> None:
+        """F8: Trigger ignition animation"""
+        self.run_worker(self._execute_command("ignition"))
+
+    def action_device_retract(self) -> None:
+        """F9: Trigger retraction animation"""
+        self.run_worker(self._execute_command("retract"))
 
 
 # ═══════════════════════════════════════════════════════════════════════════

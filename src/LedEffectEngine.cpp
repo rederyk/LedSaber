@@ -1,4 +1,5 @@
 #include "LedEffectEngine.h"
+#include <esp_sleep.h>
 
 static constexpr uint8_t MAX_SAFE_BRIGHTNESS = 112;
 
@@ -8,6 +9,8 @@ LedEffectEngine::LedEffectEngine(CRGB* leds, uint16_t numLeds) :
     _mode(Mode::IDLE),
     _modeStartTime(0),
     _suppressGestureOverrides(false),
+    _deepSleepRequested(false),
+    _ledStateRef(nullptr),
     _hue(0),
     _ignitionProgress(0),
     _lastIgnitionUpdate(0),
@@ -61,6 +64,29 @@ void LedEffectEngine::render(const LedState& state, const MotionProcessor::Proce
         FastLED.show();
         _lastUpdate = now;
         return;
+    }
+
+    // CRITICAL: If blade is disabled, only allow IGNITION or RETRACT animations
+    // All other modes should show black (blade off)
+    if (!state.bladeEnabled) {
+        // Allow ignition and retraction animations even when blade is disabled
+        if (_mode == Mode::IGNITION_ACTIVE) {
+            renderIgnition(state);
+            FastLED.show();
+            _lastUpdate = now;
+            return;
+        } else if (_mode == Mode::RETRACT_ACTIVE) {
+            renderRetraction(state);
+            FastLED.show();
+            _lastUpdate = now;
+            return;
+        } else {
+            // Blade is off and no animation running - keep LEDs off
+            fill_solid(_leds, _numLeds, CRGB::Black);
+            FastLED.show();
+            _lastUpdate = now;
+            return;
+        }
     }
 
     // In some modes we don't want gestures to override the running effect
@@ -1662,23 +1688,27 @@ void LedEffectEngine::renderIgnition(const LedState& state) {
     }
 
     const unsigned long now = millis();
-    uint16_t ignitionSpeed = map(state.speed, 1, 255, 100, 1);
+    const uint32_t IGNITION_DURATION_MS = 1000;  // Fixed 1 second duration
 
-    if (now - _lastIgnitionUpdate > ignitionSpeed) {
-        if (_ignitionProgress < state.foldPoint) {
-            _ignitionProgress++;
+    // Calculate progress based on elapsed time (0.0 to 1.0)
+    uint32_t elapsed = now - _modeStartTime;
+    float progress = min(1.0f, (float)elapsed / IGNITION_DURATION_MS);
+
+    // Convert progress to LED count
+    _ignitionProgress = (uint16_t)(progress * state.foldPoint);
+
+    // Check if animation is complete
+    if (progress >= 1.0f) {
+        _ignitionProgress = state.foldPoint;  // Ensure full brightness
+        if (_ignitionOneShot) {
+            // One-shot mode: mark as completed and return to IDLE
+            _ignitionCompleted = true;
+            _mode = Mode::IDLE;
+            Serial.println("[LED] Ignition complete - blade fully ignited");
         } else {
-            // Progress complete
-            if (_ignitionOneShot) {
-                // One-shot mode: mark as completed and return to IDLE
-                _ignitionCompleted = true;
-                _mode = Mode::IDLE;
-            } else {
-                // Normal mode: loop
-                _ignitionProgress = 0;
-            }
+            // Normal mode: loop
+            _modeStartTime = now;  // Restart animation
         }
-        _lastIgnitionUpdate = now;
     }
 
     fill_solid(_leds, _numLeds, CRGB::Black);
@@ -1700,32 +1730,62 @@ void LedEffectEngine::renderRetraction(const LedState& state) {
     // If one-shot mode and already completed, all LEDs off
     if (_retractionOneShot && _retractionCompleted) {
         fill_solid(_leds, _numLeds, CRGB::Black);
+
+        // Handle blade state and deep sleep after animation completes
+        if (_ledStateRef && _ledStateRef->bladeEnabled) {
+            _ledStateRef->bladeEnabled = false;
+            Serial.println("[LED POWER] Blade disabled");
+        }
+
+        // Trigger deep sleep if requested
+        if (_deepSleepRequested) {
+            Serial.println("[LED POWER] Entering deep sleep in 500ms...");
+            Serial.println("[LED POWER] Wake-up sources:");
+            Serial.println("[LED POWER]   - EXT0 (GPIO 0 / BOOT button) LOW level");
+            Serial.println("[LED POWER]   - Timer wake-up disabled (wake only via reset/button)");
+
+            FastLED.show();  // Ensure LEDs are off
+            delay(500);
+
+            // Configure wake-up source: GPIO 0 (BOOT button) on LOW level
+            // This allows wake-up by pressing the BOOT button
+            esp_sleep_enable_ext0_wakeup(GPIO_NUM_0, 0);  // 0 = LOW level trigger
+
+            // Optional: Configure timer wake-up (disabled by default)
+            // Uncomment to enable wake-up after X seconds:
+            // esp_sleep_enable_timer_wakeup(60 * 1000000ULL);  // 60 seconds
+
+            Serial.println("[LED POWER] Entering deep sleep NOW!");
+            Serial.flush();  // Ensure serial buffer is flushed
+
+            esp_deep_sleep_start();
+        }
+
         return;
     }
 
     const unsigned long now = millis();
-    uint16_t retractionSpeed = map(state.speed, 1, 255, 100, 1);
+    const uint32_t RETRACTION_DURATION_MS = 800;  // Fixed 800ms duration
 
-    if (_retractionProgress == 0) {
-        _retractionProgress = state.foldPoint;
-    }
+    // Calculate progress based on elapsed time (1.0 to 0.0, reverse)
+    uint32_t elapsed = now - _modeStartTime;
+    float progress = 1.0f - min(1.0f, (float)elapsed / RETRACTION_DURATION_MS);
 
-    if (now - _lastRetractionUpdate > retractionSpeed) {
-        if (_retractionProgress > 0) {
-            _retractionProgress--;
+    // Convert progress to LED count (counts down from foldPoint to 0)
+    _retractionProgress = (uint16_t)(progress * state.foldPoint);
+
+    // Check if animation is complete
+    if (elapsed >= RETRACTION_DURATION_MS) {
+        _retractionProgress = 0;  // Ensure all LEDs off
+        if (_retractionOneShot) {
+            // One-shot mode: mark as completed
+            _retractionCompleted = true;
+            _mode = Mode::IDLE;
+            Serial.println("[LED] Retraction complete - all LEDs off");
         } else {
-            // Progress complete (reached 0)
-            if (_retractionOneShot) {
-                // One-shot mode: mark as completed
-                _retractionCompleted = true;
-                _mode = Mode::IDLE;
-                Serial.println("[LED] Retraction complete - all LEDs off");
-            } else {
-                // Normal mode: loop
-                _retractionProgress = state.foldPoint;
-            }
+            // Normal mode: loop
+            _modeStartTime = now;  // Restart animation
         }
-        _lastRetractionUpdate = now;
     }
 
     fill_solid(_leds, _numLeds, CRGB::Black);
@@ -1795,6 +1855,72 @@ void LedEffectEngine::triggerRetractionOneShot() {
     _modeStartTime = millis();
     _lastRetractionUpdate = millis();
     Serial.println("[LED] Retraction ONE-SHOT triggered!");
+}
+
+void LedEffectEngine::powerOn() {
+    // Check if blade is already on or ignition is in progress
+    if (_ledStateRef && _ledStateRef->bladeEnabled) {
+        Serial.println("[LED POWER] Blade already ON - ignoring powerOn()");
+        return;
+    }
+
+    if (_mode == Mode::IGNITION_ACTIVE) {
+        Serial.println("[LED POWER] Ignition already in progress - ignoring powerOn()");
+        return;
+    }
+
+    Serial.println("[LED POWER] Power ON sequence initiated");
+
+    // Step 1: Enable blade state FIRST
+    if (_ledStateRef) {
+        _ledStateRef->bladeEnabled = true;
+        Serial.println("[LED POWER] Blade enabled");
+    } else {
+        Serial.println("[LED POWER ERROR] LedState reference not set!");
+    }
+
+    // Step 2: Trigger ignition animation (one-shot)
+    _ignitionOneShot = true;
+    _ignitionCompleted = false;
+    _ignitionProgress = 0;
+    _mode = Mode::IGNITION_ACTIVE;
+    _modeStartTime = millis();
+    _lastIgnitionUpdate = millis();
+
+    Serial.println("[LED POWER] Ignition animation started");
+    // Step 3: After animation completes, mode will return to IDLE automatically
+    // and normal effects will render
+}
+
+void LedEffectEngine::powerOff(bool deepSleep) {
+    // Check if blade is already off or retraction is in progress
+    if (_ledStateRef && !_ledStateRef->bladeEnabled && _mode != Mode::RETRACT_ACTIVE) {
+        Serial.println("[LED POWER] Blade already OFF - ignoring powerOff()");
+        return;
+    }
+
+    if (_mode == Mode::RETRACT_ACTIVE) {
+        Serial.println("[LED POWER] Retraction already in progress - ignoring powerOff()");
+        return;
+    }
+
+    Serial.printf("[LED POWER] Power OFF sequence initiated (deep sleep: %s)\n",
+                  deepSleep ? "YES" : "NO");
+
+    // Step 1: Store deep sleep request
+    _deepSleepRequested = deepSleep;
+
+    // Step 2: Trigger retraction animation (one-shot)
+    _retractionOneShot = true;
+    _retractionCompleted = false;
+    _retractionProgress = 0;
+    _mode = Mode::RETRACT_ACTIVE;
+    _modeStartTime = millis();
+    _lastRetractionUpdate = millis();
+
+    Serial.println("[LED POWER] Retraction animation started");
+    // Step 3: After animation completes, blade will be disabled and deep sleep triggered
+    // (handled in renderRetraction when _retractionCompleted becomes true)
 }
 
 // ═══════════════════════════════════════════════════════════

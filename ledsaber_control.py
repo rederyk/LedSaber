@@ -21,6 +21,8 @@ CHAR_STATUS_LED_UUID = "a4b8d7f9-1e43-6c7d-ad8f-456789abcdef"
 CHAR_FOLD_POINT_UUID = "a5b0f9a7-3c65-8e9f-cf0c-6789abcdef01"
 CHAR_TIME_SYNC_UUID = "d6e1a0b8-4a76-9f0c-dc1a-789abcdef012"
 CHAR_FW_VERSION_UUID = "a4b8d7fa-1e43-6c7d-ad8f-456789abcdef"
+CHAR_DEVICE_CONTROL_UUID = "c7f8e0d9-5b87-1a2b-be9d-7890abcdef23"
+CHAR_EFFECTS_LIST_UUID = "d8f9e1ea-6c98-2b3c-cf0e-890abcdef234"
 
 # Camera Service UUIDs
 CAMERA_SERVICE_UUID = "5fafc301-1fb5-459e-8fcc-c5c9c331914b"
@@ -727,6 +729,63 @@ class LedSaberClient:
         print(f"{Colors.GREEN}✓ Motion config aggiornata: {config}{Colors.RESET}")
 
     # ========================================================================
+    # DEVICE CONTROL METHODS (NEW)
+    # ========================================================================
+
+    async def device_ignition(self):
+        """Trigger ignition animation (blade power on)"""
+        if not self.client or not self.client.is_connected:
+            print(f"{Colors.RED}✗ Non connesso{Colors.RESET}")
+            return
+
+        command_data = json.dumps({"command": "ignition"})
+        await self._write(CHAR_DEVICE_CONTROL_UUID, command_data.encode('utf-8'), label="device_ignition")
+        print(f"{Colors.GREEN}✓ Ignition triggered{Colors.RESET}")
+
+    async def device_retract(self):
+        """Trigger retraction animation (blade power off)"""
+        if not self.client or not self.client.is_connected:
+            print(f"{Colors.RED}✗ Non connesso{Colors.RESET}")
+            return
+
+        command_data = json.dumps({"command": "retract"})
+        await self._write(CHAR_DEVICE_CONTROL_UUID, command_data.encode('utf-8'), label="device_retract")
+        print(f"{Colors.GREEN}✓ Retraction triggered{Colors.RESET}")
+
+    async def device_reboot(self):
+        """Reboot ESP32 device"""
+        if not self.client or not self.client.is_connected:
+            print(f"{Colors.RED}✗ Non connesso{Colors.RESET}")
+            return
+
+        command_data = json.dumps({"command": "reboot"})
+        await self._write(CHAR_DEVICE_CONTROL_UUID, command_data.encode('utf-8'), label="device_reboot")
+        print(f"{Colors.GREEN}✓ Device reboot commanded{Colors.RESET}")
+
+    async def device_sleep(self):
+        """Enter deep sleep mode"""
+        if not self.client or not self.client.is_connected:
+            print(f"{Colors.RED}✗ Non connesso{Colors.RESET}")
+            return
+
+        command_data = json.dumps({"command": "sleep"})
+        await self._write(CHAR_DEVICE_CONTROL_UUID, command_data.encode('utf-8'), label="device_sleep")
+        print(f"{Colors.GREEN}✓ Device entering deep sleep{Colors.RESET}")
+
+    async def get_effects_list(self) -> dict:
+        """Get available effects list from device"""
+        if not self.client or not self.client.is_connected:
+            return {}
+
+        try:
+            effects_data = await self.client.read_gatt_char(CHAR_EFFECTS_LIST_UUID)
+            effects_json = effects_data.decode('utf-8')
+            return json.loads(effects_json)
+        except Exception as e:
+            print(f"{Colors.RED}✗ Errore lettura effects list: {e}{Colors.RESET}")
+            return {}
+
+    # ========================================================================
     # DEBUG & UTILITIES
     # ========================================================================
 
@@ -835,6 +894,13 @@ class InteractiveCLI:
   {Colors.MAGENTA}motion config{Colors.RESET}        - Mostra configurazione
   {Colors.MAGENTA}motion sensitivity <0-255>{Colors.RESET} - Imposta sensibilità
   {Colors.MAGENTA}motion reset{Colors.RESET}         - Reset statistiche motion
+
+  {Colors.BOLD}⚡ DEVICE CONTROL COMMANDS:{Colors.RESET}
+  {Colors.YELLOW}ignition{Colors.RESET}         - Trigger ignition animation (power on blade)
+  {Colors.YELLOW}retract{Colors.RESET}          - Trigger retraction animation (power off blade)
+  {Colors.YELLOW}reboot{Colors.RESET}           - Reboot ESP32 device
+  {Colors.YELLOW}sleep{Colors.RESET}            - Enter deep sleep mode
+  {Colors.YELLOW}effects{Colors.RESET}          - Show available effects from device
 
   {Colors.RED}quit{Colors.RESET}              - Esci
   {Colors.BLUE}help{Colors.RESET}              - Mostra questo menu
@@ -1260,6 +1326,62 @@ class InteractiveCLI:
                 else:
                     print(f"{Colors.RED}✗ Comando motion sconosciuto: {subcmd}{Colors.RESET}")
                     print(f"{Colors.YELLOW}💡 Comandi: enable, disable, status, config, sensitivity, reset{Colors.RESET}")
+
+            # ================================================================
+            # DEVICE CONTROL COMMANDS
+            # ================================================================
+            elif cmd == "ignition":
+                await self.client.device_ignition()
+
+            elif cmd == "retract":
+                await self.client.device_retract()
+
+            elif cmd == "reboot":
+                confirm = input(f"{Colors.YELLOW}⚠ Sei sicuro di voler riavviare il dispositivo? (y/n): {Colors.RESET}")
+                if confirm.lower() == 'y':
+                    await self.client.device_reboot()
+                    print(f"{Colors.YELLOW}Disconnessione in corso...{Colors.RESET}")
+                    await asyncio.sleep(1)
+                    self.running = False
+                else:
+                    print(f"{Colors.CYAN}Operazione annullata{Colors.RESET}")
+
+            elif cmd == "sleep":
+                confirm = input(f"{Colors.YELLOW}⚠ Sei sicuro di voler mettere il dispositivo in deep sleep? (y/n): {Colors.RESET}")
+                if confirm.lower() == 'y':
+                    await self.client.device_sleep()
+                    print(f"{Colors.YELLOW}Disconnessione in corso...{Colors.RESET}")
+                    await asyncio.sleep(1)
+                    self.running = False
+                else:
+                    print(f"{Colors.CYAN}Operazione annullata{Colors.RESET}")
+
+            elif cmd == "effects":
+                effects_list = await self.client.get_effects_list()
+                if effects_list:
+                    print(f"\n{Colors.BOLD}✨ Available Effects (version {effects_list.get('version', 'unknown')}):{Colors.RESET}")
+                    effects = effects_list.get('effects', [])
+                    for effect in effects:
+                        icon = effect.get('icon', '🎨')
+                        name = effect.get('name', 'Unknown')
+                        effect_id = effect.get('id', 'unknown')
+                        params = ', '.join(effect.get('params', []))
+
+                        print(f"  {icon} {Colors.CYAN}{effect_id}{Colors.RESET} - {name}")
+                        if params:
+                            print(f"      Params: {Colors.DIM}{params}{Colors.RESET}")
+
+                        # Se ha themes, mostrale
+                        if 'themes' in effect:
+                            themes = effect['themes']
+                            if 'hour' in themes:
+                                hour_themes = ', '.join(themes['hour'])
+                                print(f"      Hour themes: {Colors.YELLOW}{hour_themes}{Colors.RESET}")
+                            if 'second' in themes:
+                                second_themes = ', '.join(themes['second'])
+                                print(f"      Second themes: {Colors.MAGENTA}{second_themes}{Colors.RESET}")
+                else:
+                    print(f"{Colors.RED}✗ Impossibile recuperare la lista effetti{Colors.RESET}")
 
             elif cmd == "help":
                 self.print_menu()

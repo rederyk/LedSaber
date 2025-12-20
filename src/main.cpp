@@ -84,9 +84,8 @@ class MainServerCallbacks: public BLEServerCallbacks {
     void onConnect(BLEServer* pServer) override {
         bleController.setConnected(true);
         Serial.println("[BLE] Client connected!");
-
-        // Trigger ignition effect on BLE connection (one-shot mode)
-        effectEngine.triggerIgnitionOneShot();
+        // Note: Blade remains in its current state (on/off)
+        // User must explicitly send 'ignition' command to turn on
     }
 
     void onConnect(BLEServer* pServer, esp_ble_gatts_cb_param_t *param) override {
@@ -510,6 +509,8 @@ void setup() {
 
     // 3. Inizializza il servizio LED, agganciandolo al server principale
     bleController.begin(pServer);
+    bleController.setEffectEngine(&effectEngine);  // Link EffectEngine for device control
+    effectEngine.setLedStateRef(&ledState);  // Set LedState reference for power control
     Serial.println("*** BLE LED Service avviato ***");
 
     // 4. Inizializza il servizio OTA, agganciandolo allo stesso server
@@ -562,8 +563,24 @@ void setup() {
     Serial.printf("Free heap: %u bytes\n", ESP.getFreeHeap());
     Serial.println("*** THE FORCE IS IN YOU ***");
 
-    // Trigger ignition effect at boot (one-shot mode)
-    effectEngine.triggerIgnitionOneShot();
+    // Check wake-up reason
+    esp_sleep_wakeup_cause_t wakeup_reason = esp_sleep_get_wakeup_cause();
+    switch (wakeup_reason) {
+        case ESP_SLEEP_WAKEUP_EXT0:
+            Serial.println("[BOOT] Woke up from deep sleep via GPIO (BOOT button)");
+            // Auto-ignite blade after wake from deep sleep
+            effectEngine.powerOn();
+            break;
+        case ESP_SLEEP_WAKEUP_TIMER:
+            Serial.println("[BOOT] Woke up from deep sleep via timer");
+            effectEngine.powerOn();
+            break;
+        case ESP_SLEEP_WAKEUP_UNDEFINED:
+        default:
+            Serial.println("[BOOT] Normal boot (not from deep sleep)");
+            // Blade stays OFF at normal boot - user must trigger ignition manually
+            break;
+    }
 }
 
 void loop() {
