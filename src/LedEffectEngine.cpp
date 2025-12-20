@@ -1,7 +1,7 @@
 #include "LedEffectEngine.h"
 #include <esp_sleep.h>
 
-static constexpr uint8_t MAX_SAFE_BRIGHTNESS = 112;
+static constexpr uint8_t MAX_SAFE_BRIGHTNESS = 255;
 
 LedEffectEngine::LedEffectEngine(CRGB* leds, uint16_t numLeds) :
     _leds(leds),
@@ -27,6 +27,7 @@ LedEffectEngine::LedEffectEngine(CRGB* leds, uint16_t numLeds) :
     _pulse1Pos(0),
     _pulse2Pos(0),
     _lastDualPulseUpdate(0),
+    _lastDualPulseSimpleUpdate(0),
     _clashBrightness(0),
     _lastClashTrigger(0),
     _clashActive(false),
@@ -91,7 +92,7 @@ void LedEffectEngine::render(const LedState& state, const MotionProcessor::Proce
 
     // In some modes we don't want gestures to override the running effect
     // (e.g. Dual Pong/Dual Pulse manages its own "collision clash").
-    _suppressGestureOverrides = (state.effect == "dual_pulse");
+    _suppressGestureOverrides = (state.effect == "dual_pulse" || state.effect == "dual_pulse_simple");
 
     // Handle gesture triggers (if motion available)
     if (motion != nullptr) {
@@ -139,11 +140,13 @@ void LedEffectEngine::render(const LedState& state, const MotionProcessor::Proce
                 renderPulse(state, motion ? motion->perturbationGrid : nullptr);
             } else if (state.effect == "dual_pulse") {
                 renderDualPulse(state, motion ? motion->perturbationGrid : nullptr);
+            } else if (state.effect == "dual_pulse_simple") {
+                renderDualPulseSimple(state, motion ? motion->perturbationGrid : nullptr);
             } else if (state.effect == "rainbow_blade") {
                 renderRainbowBlade(state, motion ? motion->perturbationGrid : nullptr);
             } else if (state.effect == "rainbow_effect") {
                 renderRainbowEffect(state, motion ? motion->perturbationGrid : nullptr, motion);
-            } else if (state.effect == "chrono_hybrid" ||"chrono_hybrid" || "clock" ) {
+            } else if (state.effect == "chrono_hybrid" || state.effect == "clock") {
                 renderChronoHybrid(state, motion ? motion->perturbationGrid : nullptr, motion);
             } else if (state.effect == "ignition") {
                 // Manual ignition effect (user triggered)
@@ -1589,6 +1592,337 @@ void LedEffectEngine::renderDualPulse(const LedState& state, const uint8_t pertu
     }
 }
 
+void LedEffectEngine::renderDualPulseSimple(const LedState& state, const uint8_t perturbationGrid[6][8]) {
+    const unsigned long now = millis();
+
+    // Dual Pulse Simple:
+    // - Due sfere sempre presenti (nessun collasso/respawn)
+    // - La perturbazione "aggancia" una sfera (massa temporanea)
+    // - Finché la sfera è tenuta, il suo colore cambia continuamente e resta sull'ultimo al rilascio
+
+    static float ball1_pos = 0.0f;
+    static float ball2_pos = 0.0f;
+    static float ball1_vel = 0.0f;              // pixel/ms
+    static float ball2_vel = 0.0f;
+    static float ball1_mass = 1.0f;
+    static float ball2_mass = 1.0f;
+    static float ball1_tempMass = 0.0f;
+    static float ball2_tempMass = 0.0f;
+    static uint8_t ball1_hue = 0;
+    static uint8_t ball2_hue = 160;
+    static uint8_t ball1_pulsePhase = 0;
+    static uint8_t ball2_pulsePhase = 128;
+    static bool ball1_holdActivePrev = false;
+    static bool ball2_holdActivePrev = false;
+    static uint8_t ball1_pulseValue = 0;
+    static uint8_t ball2_pulseValue = 0;
+    static int8_t perturbTarget = 0;            // -1=ball1, +1=ball2, 0=none
+    static uint8_t perturbAccumulator = 0;
+    static bool initialized = false;
+
+    const float FIXED_BASE_SPEED = 0.14f;       // pixel/ms
+    const float HOLD_THRESHOLD = 0.30f;
+    const uint16_t HOLD_PULSE_PERIOD_MS = 1600; // pulsazione lenta (skill timing)
+
+    if (state.foldPoint < 2) {
+        fill_solid(_leds, _numLeds, CRGB::Black);
+        _lastDualPulseSimpleUpdate = now;
+        return;
+    }
+
+    if (!initialized || now < 500) {
+        ball1_pos = state.foldPoint * 0.25f;
+        ball2_pos = state.foldPoint * 0.75f;
+        ball1_vel = FIXED_BASE_SPEED;
+        ball2_vel = -FIXED_BASE_SPEED;
+        ball1_mass = 1.0f;
+        ball2_mass = 1.0f;
+        ball1_tempMass = 0.0f;
+        ball2_tempMass = 0.0f;
+        ball1_hue = 0;
+        ball2_hue = 160;
+        ball1_pulsePhase = 0;
+        ball2_pulsePhase = 128;
+        ball1_holdActivePrev = false;
+        ball2_holdActivePrev = false;
+        ball1_pulseValue = 0;
+        ball2_pulseValue = 0;
+        perturbTarget = 0;
+        perturbAccumulator = 0;
+        initialized = true;
+    }
+
+    unsigned long deltaTime = now - _lastDualPulseSimpleUpdate;
+    if (deltaTime > 100) deltaTime = 20;
+    if (deltaTime == 0) deltaTime = 20;
+
+    // ═══════════════════════════════════════════════════════════
+    // PERTURBATION -> TEMP MASS (local to each ball)
+    // ═══════════════════════════════════════════════════════════
+
+    uint8_t ball1Perturb = 0;
+    uint8_t ball2Perturb = 0;
+    if (perturbationGrid != nullptr) {
+        auto sampleBallPerturb = [&](float pos) -> uint8_t {
+            uint16_t idx = (uint16_t)constrain((int)lroundf(pos), 0, (int)state.foldPoint - 1);
+            uint8_t col = (uint8_t)map(idx, 0, state.foldPoint - 1, 0, 7);
+
+            uint16_t sum = 0;
+            uint8_t samples = 0;
+            for (int8_t dc = -1; dc <= 1; dc++) {
+                int8_t c = (int8_t)col + dc;
+                if (c < 0 || c > 7) continue;
+                for (uint8_t row = 1; row <= 4; row++) {
+                    sum += perturbationGrid[row][(uint8_t)c];
+                    samples++;
+                }
+            }
+            return samples ? (uint8_t)(sum / samples) : 0;
+        };
+
+        ball1Perturb = sampleBallPerturb(ball1_pos);
+        ball2Perturb = sampleBallPerturb(ball2_pos);
+    }
+
+    uint8_t maxPerturb = max(ball1Perturb, ball2Perturb);
+
+    if (maxPerturb > 15) {
+        perturbAccumulator = (uint8_t)min(255, (int)perturbAccumulator + (int)(maxPerturb / 4));
+
+        if (perturbAccumulator > 50 && perturbTarget == 0) {
+            perturbTarget = (ball1Perturb >= ball2Perturb) ? -1 : 1;
+        }
+
+        uint8_t targetPerturb = 0;
+        if (perturbTarget == -1) targetPerturb = ball1Perturb;
+        else if (perturbTarget == 1) targetPerturb = ball2Perturb;
+
+        const float t = (targetPerturb / 255.0f);
+        float tempMassFromMotion = t * t * 3.0f; // 0..3
+
+        if (perturbTarget == -1) {
+            ball1_tempMass = ball1_tempMass * 0.7f + tempMassFromMotion * 0.3f;
+            ball1_tempMass = min(ball1_tempMass, 7.0f);
+            ball1_mass = min(ball1_mass + t * 0.0005f, 4.0f);
+        } else if (perturbTarget == 1) {
+            ball2_tempMass = ball2_tempMass * 0.7f + tempMassFromMotion * 0.3f;
+            ball2_tempMass = min(ball2_tempMass, 7.0f);
+            ball2_mass = min(ball2_mass + t * 0.0005f, 4.0f);
+        }
+    } else {
+        // Release behavior + decay
+        if (ball1_tempMass > 0.5f) {
+            float bonus = ball1_tempMass * 0.1f;
+            float targetSpeed = FIXED_BASE_SPEED + bonus;
+            float snapFactor = 0.4f;
+            ball1_vel = ball1_vel * (1.0f - snapFactor) + (fabs(targetSpeed)) * snapFactor;
+        }
+        if (ball2_tempMass > 0.5f) {
+            float bonus = ball2_tempMass * 0.1f;
+            float targetSpeed = FIXED_BASE_SPEED + bonus;
+            float snapFactor = 0.4f;
+            ball2_vel = ball2_vel * (1.0f - snapFactor) + (-fabs(targetSpeed)) * snapFactor;
+        }
+
+        ball1_tempMass *= 0.85f;
+        ball2_tempMass *= 0.85f;
+        if (ball1_tempMass < 0.1f) ball1_tempMass = 0.0f;
+        if (ball2_tempMass < 0.1f) ball2_tempMass = 0.0f;
+
+            if (perturbAccumulator > 0) perturbAccumulator = qsub8(perturbAccumulator, 3);
+            if (perturbAccumulator < 30) perturbTarget = 0;
+    }
+
+    // "Holding" is driven by LOCAL perturbation near the selected ball.
+    const uint8_t HOLD_ON_TH = 16;
+    const bool ball1_holdActive = (perturbTarget == -1) && (ball1Perturb >= HOLD_ON_TH);
+    const bool ball2_holdActive = (perturbTarget == 1) && (ball2Perturb >= HOLD_ON_TH);
+
+    // ═══════════════════════════════════════════════════════════
+    // COLOR: while held, hue cycles; on release, keeps last hue
+    // ═══════════════════════════════════════════════════════════
+
+    auto updateHueWhileHeld = [&](bool holdActive, float tempMass, uint8_t& hue) {
+        if (!holdActive) return;
+        float speedFactor = min(1.0f, tempMass / 3.0f);
+        uint16_t step = (uint16_t)(1 + (deltaTime * (14.0f + speedFactor * 30.0f)) / 20.0f);
+        hue = (uint8_t)(hue + (uint8_t)step);
+    };
+
+    updateHueWhileHeld(ball1_holdActive, ball1_tempMass, ball1_hue);
+    updateHueWhileHeld(ball2_holdActive, ball2_tempMass, ball2_hue);
+
+    // ═══════════════════════════════════════════════════════════
+    // HOLD PULSE + RELEASE BOOST (timing game)
+    // ═══════════════════════════════════════════════════════════
+
+    auto advancePulse = [&](bool holdActive, uint8_t& phase, uint8_t& value) {
+        if (!holdActive) return;
+        uint16_t step = (uint16_t)((deltaTime * 256UL) / HOLD_PULSE_PERIOD_MS);
+        if (step < 1) step = 1;
+        if (step > 20) step = 20;
+        phase = (uint8_t)(phase + (uint8_t)step);
+        value = sin8(phase); // 0..255 (peak = "moment giusto")
+    };
+
+    advancePulse(ball1_holdActive, ball1_pulsePhase, ball1_pulseValue);
+    advancePulse(ball2_holdActive, ball2_pulsePhase, ball2_pulseValue);
+
+    auto applyReleaseBoost = [&](bool holdPrev,
+                                 bool holdNow,
+                                 uint8_t pulseValue,
+                                 float& vel,
+                                 float direction) {
+        if (!holdPrev || holdNow) return;
+
+        float brightness01 = min(1.0f, (float)min(state.brightness, MAX_SAFE_BRIGHTNESS) / 255.0f);
+        float pulse01 = min(1.0f, (float)pulseValue / 255.0f);
+        float timing = pulse01 * pulse01; // reward peak more
+
+        float boost = (0.015f + 0.11f * brightness01) * (0.20f + 0.80f * timing);
+
+        float speed = fabs(vel);
+        speed = min(0.95f, speed + boost);
+        vel = direction * speed;
+    };
+
+    applyReleaseBoost(ball1_holdActivePrev, ball1_holdActive, ball1_pulseValue, ball1_vel, +1.0f);
+    applyReleaseBoost(ball2_holdActivePrev, ball2_holdActive, ball2_pulseValue, ball2_vel, -1.0f);
+
+    ball1_holdActivePrev = ball1_holdActive;
+    ball2_holdActivePrev = ball2_holdActive;
+
+    // ═══════════════════════════════════════════════════════════
+    // PHYSICS UPDATE
+    // ═══════════════════════════════════════════════════════════
+
+    float dt = deltaTime / 1000.0f;
+    float old_b1 = ball1_pos;
+    float old_b2 = ball2_pos;
+
+    ball1_pos += ball1_vel * dt * 1000.0f;
+    ball2_pos += ball2_vel * dt * 1000.0f;
+
+    // Drag while held (temp mass)
+    if (ball1_tempMass > 0.5f) {
+        float dragFactor = min(ball1_tempMass / 5.0f, 0.98f);
+        ball1_vel *= (1.0f - dragFactor * dt * 5.0f);
+    }
+    if (ball2_tempMass > 0.5f) {
+        float dragFactor = min(ball2_tempMass / 5.0f, 0.98f);
+        ball2_vel *= (1.0f - dragFactor * dt * 5.0f);
+    }
+
+    // Boundary bounces
+    if (ball1_pos < 0.0f) { ball1_pos = -ball1_pos; ball1_vel = -ball1_vel; }
+    if (ball2_pos < 0.0f) { ball2_pos = -ball2_pos; ball2_vel = -ball2_vel; }
+    float maxPos = (float)(state.foldPoint - 1);
+    if (ball1_pos > maxPos) { float excess = ball1_pos - maxPos; ball1_pos = maxPos - excess; ball1_vel = -ball1_vel; }
+    if (ball2_pos > maxPos) { float excess = ball2_pos - maxPos; ball2_pos = maxPos - excess; ball2_vel = -ball2_vel; }
+
+    // Ball-ball elastic collision
+    {
+        bool was_left = (old_b1 < old_b2);
+        bool is_left = (ball1_pos < ball2_pos);
+        bool crossed = (was_left != is_left);
+
+        float dist = fabs(ball1_pos - ball2_pos);
+        const float collisionRadius = 8.0f;
+        bool overlap = (dist < collisionRadius);
+
+        if (crossed || overlap) {
+            float midPoint = (ball1_pos + ball2_pos) / 2.0f;
+            float sepDist = collisionRadius / 2.0f + 0.1f;
+            if (was_left) {
+                ball1_pos = midPoint - sepDist;
+                ball2_pos = midPoint + sepDist;
+            } else {
+                ball1_pos = midPoint + sepDist;
+                ball2_pos = midPoint - sepDist;
+            }
+
+            bool approaching = was_left ? (ball1_vel > ball2_vel) : (ball2_vel > ball1_vel);
+            if (approaching) {
+                float m1 = ball1_mass + ball1_tempMass;
+                float m2 = ball2_mass + ball2_tempMass;
+                float totalMass = m1 + m2;
+                float v1 = ball1_vel;
+                float v2 = ball2_vel;
+                ball1_vel = ((m1 - m2) * v1 + 2.0f * m2 * v2) / totalMass;
+                ball2_vel = ((m2 - m1) * v2 + 2.0f * m1 * v1) / totalMass;
+            }
+        }
+    }
+
+    _lastDualPulseSimpleUpdate = now;
+
+    // ═══════════════════════════════════════════════════════════
+    // RENDERING
+    // ═══════════════════════════════════════════════════════════
+
+    uint8_t safeBrightness = min(state.brightness, MAX_SAFE_BRIGHTNESS);
+    const float ballRadius = 6.0f;
+
+    auto addColor = [&](CRGB& dst, const CRGB& src) {
+        dst.r = qadd8(dst.r, src.r);
+        dst.g = qadd8(dst.g, src.g);
+        dst.b = qadd8(dst.b, src.b);
+    };
+
+    auto renderBall = [&](uint16_t i, float ballPos, uint8_t hue, float tempMass, CRGB& out) {
+        float dist = fabs((float)i - ballPos);
+
+        // Halo while held: complementary glow
+        if (tempMass > HOLD_THRESHOLD) {
+            float totalMass = 1.0f + tempMass;
+            float haloRadius = ballRadius * (1.6f + totalMass * 0.12f);
+            if (dist < haloRadius && dist > ballRadius) {
+                uint8_t haloHue = hue + 128;
+                float haloT = (dist - ballRadius) / max(0.001f, (haloRadius - ballRadius));
+                haloT = min(1.0f, max(0.0f, haloT));
+                float intensity = (tempMass / 3.0f) * (1.0f - haloT);
+                uint8_t haloB = (uint8_t)min(180.0f, 40.0f + intensity * 160.0f);
+                addColor(out, CHSV(haloHue, 255, haloB));
+            }
+        }
+
+        if (dist < ballRadius * 2.0f) {
+            const float sigma = ballRadius / 2.5066f;
+            float gaussian = expf(-(dist * dist) / (2.0f * sigma * sigma));
+            uint8_t ballB = (uint8_t)min(255.0f, 255.0f * gaussian);
+
+            if (tempMass > HOLD_THRESHOLD) {
+                float boost = 1.0f + min(1.0f, tempMass / 3.0f) * 0.25f;
+                ballB = (uint8_t)min(255.0f, ballB * boost);
+            }
+
+            addColor(out, CHSV(hue, 255, ballB));
+        }
+    };
+
+    for (uint16_t i = 0; i < state.foldPoint; i++) {
+        CRGB color = CRGB(8, 8, 8);
+
+        float b1PulseBoost = 1.0f;
+        if (ball1_holdActive) {
+            float p = (float)ball1_pulseValue / 255.0f;
+            b1PulseBoost = 0.80f + 0.40f * p;
+        }
+
+        float b2PulseBoost = 1.0f;
+        if (ball2_holdActive) {
+            float p = (float)ball2_pulseValue / 255.0f;
+            b2PulseBoost = 0.80f + 0.40f * p;
+        }
+
+        // Render "pulsing" by boosting tempMass visually while holding (no physics side-effects)
+        renderBall(i, ball1_pos, ball1_hue, ball1_tempMass * b1PulseBoost, color);
+        renderBall(i, ball2_pos, ball2_hue, ball2_tempMass * b2PulseBoost, color);
+        color = scaleColorByBrightness(color, safeBrightness);
+        setLedPair(i, state.foldPoint, color);
+    }
+}
+
 void LedEffectEngine::renderRainbowBlade(const LedState& state, const uint8_t perturbationGrid[6][8]) {
     uint8_t hueStep = map(state.speed, 1, 255, 1, 15);
     if (hueStep == 0) hueStep = 1;
@@ -1960,25 +2294,16 @@ void LedEffectEngine::handleGestureTriggers(MotionProcessor::GestureType gesture
 
     switch (gesture) {
         case MotionProcessor::GestureType::IGNITION:
-            _mode = Mode::IGNITION_ACTIVE;
-            _modeStartTime = now;
-            _ignitionProgress = 0;
-            _lastIgnitionUpdate = now;
-            // Reset one-shot flags to allow gesture-triggered ignition to run normally
-            _ignitionOneShot = false;
-            _ignitionCompleted = false;
-            Serial.println("[LED] IGNITION effect triggered by gesture!");
+            // Gesture ignition should behave like a real "power on":
+            // enable blade and run ignition animation once, then return to IDLE.
+            powerOn();
+            Serial.println("[LED] IGNITION triggered by gesture (powerOn)");
             break;
 
         case MotionProcessor::GestureType::RETRACT:
-            _mode = Mode::RETRACT_ACTIVE;
-            _modeStartTime = now;
-            _retractionProgress = 0;  // Will be initialized in render
-            _lastRetractionUpdate = now;
-            // Reset one-shot flags to allow gesture-triggered retraction to run normally
-            _retractionOneShot = false;
-            _retractionCompleted = false;
-            Serial.println("[LED] RETRACT effect triggered by gesture!");
+            // Gesture retract should behave like a real "power off" without deep sleep.
+            powerOff(false);
+            Serial.println("[LED] RETRACT triggered by gesture (powerOff, no deep sleep)");
             break;
 
         case MotionProcessor::GestureType::CLASH:

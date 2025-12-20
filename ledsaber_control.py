@@ -473,7 +473,7 @@ class LedSaberClient:
         print(f"{Colors.GREEN}✓ Colore impostato: RGB({r},{g},{b}){Colors.RESET}")
 
     async def set_effect(self, mode: str, speed: int = 150):
-        """Imposta effetto LED (solid, rainbow, breathe, ignition, retraction, flicker, unstable, pulse, dual_pulse, clash, rainbow_blade)"""
+        """Imposta effetto LED (solid, rainbow, breathe, ignition, retraction, flicker, unstable, pulse, dual_pulse, dual_pulse_simple, clash, rainbow_blade)"""
         if not self.client or not self.client.is_connected:
             print(f"{Colors.RED}✗ Non connesso{Colors.RESET}")
             return
@@ -973,6 +973,7 @@ class InteractiveCLI:
             "unstable": "Kylo Ren avanzato (flicker + sparks)",
             "pulse": "Onda di energia che percorre la lama",
             "dual_pulse": "Due onde in direzioni opposte",
+            "dual_pulse_simple": "Dual Pulse senza collasso (colore cambia mentre tieni la sfera)",
             "clash": "Flash bianco su impatto (auto ogni 3s)",
             "rainbow_blade": "Arcobaleno lineare sulla lama",
         }

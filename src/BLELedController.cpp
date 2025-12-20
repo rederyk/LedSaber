@@ -80,8 +80,8 @@ public:
 
         if (!error) {
             uint8_t requestedBrightness = doc["brightness"] | 255;
-            // IMPORTANTE: Limita brightness a MAX_SAFE_BRIGHTNESS (60) per sicurezza alimentatore
-            static constexpr uint8_t MAX_SAFE_BRIGHTNESS = 60;
+            // IMPORTANTE: FastLED gestisce la potenza (5V 4500mA), permettiamo range completo 0-255
+            static constexpr uint8_t MAX_SAFE_BRIGHTNESS = 255;
             controller->ledState->brightness = min(requestedBrightness, MAX_SAFE_BRIGHTNESS);
             controller->ledState->enabled = doc["enabled"] | true;
 
@@ -282,6 +282,7 @@ public:
     {"id":"flicker","name":"Kylo Ren Flicker","params":["speed"],"icon":"🔥"},
     {"id":"unstable","name":"Kylo Ren Advanced","params":["speed"],"icon":"💥"},
     {"id":"dual_pulse","name":"Dual Pulse","params":["speed"],"icon":"⚔️"},
+    {"id":"dual_pulse_simple","name":"Dual Pulse Simple","params":["speed"],"icon":"⚔️"},
     {"id":"rainbow_blade","name":"Rainbow Blade","params":["speed"],"icon":"🌟"},
     {"id":"chrono_hybrid","name":"Chrono Clock","params":["chronoHourTheme","chronoSecondTheme"],"themes":{"hour":["Classic","Neon","Plasma","Digital","Inferno","Storm"],"second":["Classic","Spiral","Fire","Lightning","Particle","Quantum"]},"icon":"🕐"}
   ]

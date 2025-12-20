@@ -31,9 +31,13 @@ static constexpr uint8_t DEFAULT_STATUS_LED_BRIGHTNESS = 32;
 // Limite di sicurezza per alimentatore 2A
 // Calcolo: 5V * 2A = 10W disponibili
 // 144 LED * 60mA (max) = 8.64A teorici a luminosità 255
-// Luminosità massima sicura: (2A / 8.64A) * 255 ≈ 59
-// Luminosità massima modulo 5v5A: (4A / 8.64A) * 255 ≈ 112
-static constexpr uint8_t MAX_SAFE_BRIGHTNESS = 112;
+// Con FastLED.setMaxPowerInVoltsAndMilliamps(5, 4500) la luminosità massima sicura è gestita dinamicamente da FastLED.
+// Impostiamo a 255 per permettere a FastLED di usare l'intera gamma e limitare solo se necessario.
+static constexpr uint8_t MAX_SAFE_BRIGHTNESS = 255;
+
+// Configurazione Power Management FastLED
+static constexpr uint8_t LED_STRIP_VOLTAGE = 5;      // Voltaggio striscia LED (es. 5V)
+static constexpr uint16_t MAX_POWER_MILLIAMPS = 4500; // Limite corrente in mA (es. 4500mA = 4.5A)
 
 CRGB leds[NUM_LEDS];
 
@@ -495,6 +499,8 @@ void setup() {
     Serial.println("\n=== LEDSABER (BLE GATT + OTA) ===");
 
     initPeripherals();
+
+    FastLED.setMaxPowerInVoltsAndMilliamps(LED_STRIP_VOLTAGE, MAX_POWER_MILLIAMPS);
 
     // 1. Carica configurazione da LittleFS PRIMA di inizializzare BLE
     if (!configManager.begin()) {

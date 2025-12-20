@@ -107,6 +107,7 @@ private:
     uint16_t _pulse1Pos;
     uint16_t _pulse2Pos;
     unsigned long _lastDualPulseUpdate;
+    unsigned long _lastDualPulseSimpleUpdate;
 
     // Secondary pulses spawned from main pulse (plasma discharge effect)
     struct SecondaryPulse {
@@ -183,6 +184,7 @@ private:
     void renderUnstable(const LedState& state, const uint8_t perturbationGrid[6][8]);
     void renderPulse(const LedState& state, const uint8_t perturbationGrid[6][8]);
     void renderDualPulse(const LedState& state, const uint8_t perturbationGrid[6][8]);
+    void renderDualPulseSimple(const LedState& state, const uint8_t perturbationGrid[6][8]);
     void renderRainbowBlade(const LedState& state, const uint8_t perturbationGrid[6][8]);
     void renderRainbowEffect(const LedState& state, const uint8_t perturbationGrid[6][8], const MotionProcessor::ProcessedMotion* motion);
     void renderChronoHybrid(const LedState& state, const uint8_t perturbationGrid[6][8], const MotionProcessor::ProcessedMotion* motion);
