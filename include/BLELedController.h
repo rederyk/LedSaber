@@ -36,6 +36,10 @@ struct LedState {
     bool statusLedEnabled = true;  // Stato del LED integrato sul pin 4
     uint8_t foldPoint = 72;  // Punto di piegatura LED (default = metà)
 
+    // Boot behavior
+    bool autoIgnitionOnBoot = false;   // Se true, accende la lama automaticamente dopo un delay
+    uint32_t autoIgnitionDelayMs = 5000; // Delay accensione automatica (ms)
+
     // Time sync data (ChronoSaber)
     uint32_t epochBase = 0;      // Unix timestamp di riferimento
     uint32_t millisAtSync = 0;   // millis() al momento del sync

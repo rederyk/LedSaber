@@ -235,6 +235,28 @@ public:
                 } else {
                     Serial.println("[BLE ERROR] EffectEngine not set!");
                 }
+            } else if (command == "boot_config") {
+                bool updated = false;
+
+                if (doc.containsKey("autoIgnitionOnBoot")) {
+                    controller->ledState->autoIgnitionOnBoot = doc["autoIgnitionOnBoot"] | controller->ledState->autoIgnitionOnBoot;
+                    updated = true;
+                }
+
+                if (doc.containsKey("autoIgnitionDelayMs")) {
+                    const uint32_t requestedDelayMs = doc["autoIgnitionDelayMs"] | controller->ledState->autoIgnitionDelayMs;
+                    controller->ledState->autoIgnitionDelayMs = min<uint32_t>(requestedDelayMs, 60000);
+                    updated = true;
+                }
+
+                if (updated) {
+                    controller->setConfigDirty(true);
+                    Serial.printf("[BLE] Boot config updated: autoIgnitionOnBoot=%d, autoIgnitionDelayMs=%lu\n",
+                        controller->ledState->autoIgnitionOnBoot ? 1 : 0,
+                        controller->ledState->autoIgnitionDelayMs);
+                } else {
+                    Serial.println("[BLE] Boot config command received but no fields provided");
+                }
             } else if (command == "retract") {
                 if (controller->effectEngine) {
                     Serial.println("[BLE] Power OFF (retraction with animation, no deep sleep)");
@@ -481,6 +503,8 @@ void BLELedController::notifyState() {
     doc["statusLedEnabled"] = ledState->statusLedEnabled;
     doc["statusLedBrightness"] = ledState->statusLedBrightness;
     doc["foldPoint"] = ledState->foldPoint;
+    doc["autoIgnitionOnBoot"] = ledState->autoIgnitionOnBoot;
+    doc["autoIgnitionDelayMs"] = ledState->autoIgnitionDelayMs;
 
     String jsonString;
     serializeJson(doc, jsonString);

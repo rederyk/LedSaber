@@ -78,6 +78,9 @@ static TaskHandle_t gCameraTaskHandle = nullptr;
 static volatile bool gCameraTaskShouldRun = false;
 static bool gCameraTaskStreaming = false;
 
+static bool gAutoIgnitionScheduled = false;
+static uint32_t gAutoIgnitionAtMs = 0;
+
 static void CameraCaptureTask(void* pvParameters);
 
 // ============================================================================
@@ -574,18 +577,27 @@ void setup() {
     switch (wakeup_reason) {
         case ESP_SLEEP_WAKEUP_EXT0:
             Serial.println("[BOOT] Woke up from deep sleep via GPIO (BOOT button)");
-            // Auto-ignite blade after wake from deep sleep
-            effectEngine.powerOn();
             break;
         case ESP_SLEEP_WAKEUP_TIMER:
             Serial.println("[BOOT] Woke up from deep sleep via timer");
-            effectEngine.powerOn();
             break;
         case ESP_SLEEP_WAKEUP_UNDEFINED:
         default:
             Serial.println("[BOOT] Normal boot (not from deep sleep)");
-            // Blade stays OFF at normal boot - user must trigger ignition manually
             break;
+    }
+
+    if (ledState.autoIgnitionOnBoot) {
+        const uint32_t delayMs = ledState.autoIgnitionDelayMs;
+        gAutoIgnitionScheduled = true;
+        gAutoIgnitionAtMs = millis() + delayMs;
+        Serial.printf("[BOOT] Auto-ignition enabled: scheduling ignition in %lu ms\n", delayMs);
+    } else if (wakeup_reason == ESP_SLEEP_WAKEUP_EXT0 || wakeup_reason == ESP_SLEEP_WAKEUP_TIMER) {
+        // Legacy behavior: auto-ignite immediately after waking from deep sleep
+        Serial.println("[BOOT] Auto-ignition disabled: igniting immediately after deep sleep wake");
+        effectEngine.powerOn();
+    } else {
+        Serial.println("[BOOT] Auto-ignition disabled: blade stays OFF at normal boot");
     }
 }
 
@@ -600,6 +612,16 @@ void loop() {
 
     const bool bleConnected = bleController.isConnected();
     const bool cameraActive = bleCameraService.isCameraActive();
+
+    if (gAutoIgnitionScheduled && (int32_t)(now - gAutoIgnitionAtMs) >= 0) {
+        gAutoIgnitionScheduled = false;
+        if (!ledState.bladeEnabled) {
+            Serial.println("[BOOT] Auto-ignition trigger");
+            effectEngine.powerOn();
+        } else {
+            Serial.println("[BOOT] Auto-ignition skipped (blade already enabled)");
+        }
+    }
 
     // Gestisce stato del task camera/motion
     if (cameraActive && !gCameraTaskStreaming) {

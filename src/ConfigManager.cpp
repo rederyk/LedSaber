@@ -68,6 +68,8 @@ bool ConfigManager::loadConfig() {
     ledState->statusLedEnabled = doc["statusLedEnabled"] | defaults.statusLedEnabled;
     ledState->statusLedBrightness = doc["statusLedBrightness"] | defaults.statusLedBrightness;
     ledState->foldPoint = doc["foldPoint"] | defaults.foldPoint;
+    ledState->autoIgnitionOnBoot = doc["autoIgnitionOnBoot"] | defaults.autoIgnitionOnBoot;
+    ledState->autoIgnitionDelayMs = doc["autoIgnitionDelayMs"] | defaults.autoIgnitionDelayMs;
 
     // Valida i valori caricati
     if (ledState->brightness > 255) ledState->brightness = 255;
@@ -76,6 +78,11 @@ bool ConfigManager::loadConfig() {
     if (ledState->b > 255) ledState->b = 255;
     if (ledState->speed > 255) ledState->speed = 255;
     if (ledState->statusLedBrightness > 255) ledState->statusLedBrightness = 255;
+
+    // Validazione auto ignition delay (0..60000ms)
+    if (ledState->autoIgnitionDelayMs > 60000) {
+        ledState->autoIgnitionDelayMs = defaults.autoIgnitionDelayMs;
+    }
 
     // Validazione foldPoint: deve essere tra 1 e 143 (NUM_LEDS-1)
     if (ledState->foldPoint == 0 || ledState->foldPoint >= 144) {
@@ -130,6 +137,14 @@ bool ConfigManager::saveConfig() {
         doc["foldPoint"] = ledState->foldPoint;
         modifiedCount++;
     }
+    if (ledState->autoIgnitionOnBoot != defaults.autoIgnitionOnBoot) {
+        doc["autoIgnitionOnBoot"] = ledState->autoIgnitionOnBoot;
+        modifiedCount++;
+    }
+    if (ledState->autoIgnitionDelayMs != defaults.autoIgnitionDelayMs) {
+        doc["autoIgnitionDelayMs"] = ledState->autoIgnitionDelayMs;
+        modifiedCount++;
+    }
 
     // Se tutti i valori sono uguali ai default, elimina il file config
     if (modifiedCount == 0) {
@@ -175,6 +190,8 @@ void ConfigManager::resetToDefaults() {
     ledState->statusLedEnabled = defaults.statusLedEnabled;
     ledState->statusLedBrightness = defaults.statusLedBrightness;
     ledState->foldPoint = defaults.foldPoint;
+    ledState->autoIgnitionOnBoot = defaults.autoIgnitionOnBoot;
+    ledState->autoIgnitionDelayMs = defaults.autoIgnitionDelayMs;
 
     if (LittleFS.exists(CONFIG_FILE)) {
         LittleFS.remove(CONFIG_FILE);
@@ -228,4 +245,6 @@ void ConfigManager::createDefaultConfig() {
     ledState->statusLedEnabled = defaults.statusLedEnabled;
     ledState->statusLedBrightness = defaults.statusLedBrightness;
     ledState->foldPoint = defaults.foldPoint;
+    ledState->autoIgnitionOnBoot = defaults.autoIgnitionOnBoot;
+    ledState->autoIgnitionDelayMs = defaults.autoIgnitionDelayMs;
 }

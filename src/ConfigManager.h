@@ -22,6 +22,8 @@ private:
         uint8_t statusLedBrightness = 32;
         bool statusLedEnabled = true;
         uint8_t foldPoint = 72;  // Punto di piegatura LED (default = metà)
+        bool autoIgnitionOnBoot = false;
+        uint32_t autoIgnitionDelayMs = 5000;
     };
     DefaultConfig defaults;
 

@@ -13,6 +13,8 @@ Implementare un sistema di persistenza delle configurazioni utente usando Little
   - `speed` (velocità effetto 0-255)
   - `enabled` (LED strip on/off)
   - `statusLedEnabled` (LED integrato pin 4 on/off)
+  - `autoIgnitionOnBoot` (accensione automatica lama al boot)
+  - `autoIgnitionDelayMs` (delay in ms, default 5000)
 
 ## Valori Default (hardcoded in main.cpp)
 ```cpp

@@ -521,6 +521,9 @@ class LedSaberOTA {
 
 // Deep sleep (risveglio con motion sensor)
 {"command": "sleep"}
+
+// Config boot: auto-ignition dopo delay (persistito in LittleFS)
+{"command":"boot_config","autoIgnitionOnBoot":true,"autoIgnitionDelayMs":5000}
 ```
 
 #### Motivazione
