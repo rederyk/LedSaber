@@ -68,15 +68,16 @@ void LedEffectEngine::render(const LedState& state, const MotionProcessor::Proce
         return;
     }
 
-    // Auto-IGNITION when blade is off: any motion above half-threshold wakes it
+    // Auto-IGNITION when blade is off: require an explicit IGNITION gesture
     if (!state.bladeEnabled && motion != nullptr) {
-        const uint8_t ignitionWakeThreshold = 10;  // Half of current gesture threshold (12)
-        const unsigned long AUTO_IGNITION_DEBOUNCE_MS = 4000;
-        if (motion->motionIntensity >= ignitionWakeThreshold &&
+        const unsigned long AUTO_IGNITION_DEBOUNCE_MS = 600;
+        const uint8_t AUTO_IGNITION_MIN_CONFIDENCE = 45;
+        if (motion->gesture == MotionProcessor::GestureType::IGNITION &&
+            motion->gestureConfidence >= AUTO_IGNITION_MIN_CONFIDENCE &&
             (now - _bladeOffTimestamp) >= AUTO_IGNITION_DEBOUNCE_MS)
         {
-            Serial.printf("[LED] Auto ignition gesture (I=%u) while blade off. OffTime: %lu, Now: %lu\n", 
-                motion->motionIntensity, _bladeOffTimestamp, now);
+            Serial.printf("[LED] Auto ignition gesture (conf=%u) while blade off. OffTime: %lu, Now: %lu\n",
+                motion->gestureConfidence, _bladeOffTimestamp, now);
             powerOn();
         }
     }
@@ -2284,6 +2285,12 @@ void LedEffectEngine::powerOff(bool deepSleep) {
 // ═══════════════════════════════════════════════════════════
 
 bool LedEffectEngine::checkModeTimeout(uint32_t now) {
+    // Guard: if modeStartTime was updated after 'now' in the same render() tick,
+    // unsigned subtraction would underflow and immediately time out the mode.
+    if (now < _modeStartTime) {
+        return false;
+    }
+
     switch (_mode) {
         case Mode::IGNITION_ACTIVE:
             return (now - _modeStartTime) > 5000;  // 5 seconds (enough for full animation)
