@@ -2597,26 +2597,92 @@ void LedEffectEngine::renderChronoHours_Inferno(uint16_t foldPoint, CRGB baseCol
 }
 
 void LedEffectEngine::renderChronoHours_Storm(uint16_t foldPoint, CRGB baseColor, uint8_t hours) {
-    // TEMA STORM: Nuvole scure ed elettricità statica
-    // Ideale come sfondo per Lightning
+    // TEMA STORM: Nuvole organiche in movimento + Lampi occasionali
+    // Richiesta: via le righe (uso Perlin Noise), nuvole che scorrono, lampi casuali non invasivi
 
     unsigned long now = millis();
 
-    // Sfondo: Nuvole temporalesche (Blu scuro/Viola)
+    // 1. Sfondo: Nuvole che scorrono (Perlin Noise)
+    // Scala spaziale: i * 20 (più basso = nuvole più larghe)
+    // Scala temporale: now / 15 (velocità vento)
+    uint16_t timeShift = now / 15;
+    
     for (uint16_t i = 0; i < foldPoint; i++) {
-        uint8_t cloud = sin8(i * 3 + now / 40); // Movimento lento
-        uint8_t hue = map(cloud, 0, 255, 155, 185); // Blue -> Purple
-        uint8_t bri = map(cloud, 0, 255, 5, 30); // Molto scuro
-        setLedPair(i, foldPoint, CHSV(hue, 200, bri));
+        // Usa inoise8 per texture organica (0-255)
+        uint16_t noiseX = i * 20 + timeShift;
+        uint8_t density = inoise8(noiseX);
+        
+        // Mappa densità su colori tempesta (Grigio-Blu-Viola scuro)
+        CRGB cloudColor;
+        if (density < 80) {
+            // Vuoto tra le nuvole (quasi nero/blu notte)
+            cloudColor = CRGB(1, 1, 3);
+        } else {
+            // Corpo nuvola
+            // Hue: 160 (Blu) -> 190 (Viola)
+            uint8_t hue = map(density, 80, 255, 160, 190);
+            // Brightness: molto bassa per non disturbare (5-35)
+            uint8_t bri = map(density, 80, 255, 5, 35);
+            // Saturation: meno saturo nelle parti più dense (più grigio/bianco)
+            uint8_t sat = map(density, 80, 255, 200, 140);
+            
+            cloudColor = CHSV(hue, sat, bri);
+        }
+        setLedPair(i, foldPoint, cloudColor);
     }
 
-    // Marker Ore: Nodi elettrici
+    // 2. Lampi Casuali (Background Flash)
+    static uint16_t flashPos = 0;
+    static uint8_t flashIntensity = 0;
+    static unsigned long nextFlashTime = 0;
+    static uint8_t flashWidth = 2;
+
+    // Gestione trigger
+    if (now > nextFlashTime) {
+        // Intervallo casuale tra lampi (3-10 secondi) per non disturbare
+        nextFlashTime = now + random16(3000, 10000);
+        
+        // Trigger
+        flashPos = random16(foldPoint);
+        flashIntensity = random8(120, 240); // Intensità variabile
+        flashWidth = random8(2, 6); // Larghezza variabile
+    }
+
+    // Rendering e Decay Lampo
+    if (flashIntensity > 0) {
+        for (int16_t i = -flashWidth; i <= flashWidth; i++) {
+            int16_t pos = flashPos + i;
+            if (pos >= 0 && pos < foldPoint) {
+                // Falloff dal centro del lampo
+                uint8_t dist = abs(i);
+                uint8_t bri = flashIntensity;
+                if (dist > 0) bri = scale8(bri, 255 - (dist * 255 / (flashWidth + 1)));
+                
+                // Colore lampo: Bianco freddo/Azzurro
+                CRGB flashColor = CRGB(bri, bri, bri + 20);
+                
+                // Sovrascrivi nuvole (il lampo è molto più luminoso)
+                setLedPair(pos, foldPoint, flashColor);
+            }
+        }
+        // Decay rapido
+        flashIntensity = qsub8(flashIntensity, 20);
+    }
+
+    // 3. Marker Ore (Nodi elettrici statici) - Rimangono sopra tutto
     for (uint8_t h = 0; h < 12; h++) {
         uint16_t pos = map(h, 0, 12, 0, foldPoint);
         bool isCurrent = (h == hours);
-        // Jitter elettrico per l'ora corrente
-        uint8_t jitter = isCurrent ? random8(100, 255) : 60;
-        setLedPair(pos, foldPoint, CHSV(140, 180, jitter)); // Cyan elettrico
+        
+        CRGB markerColor;
+        if (isCurrent) {
+            // Ora corrente: Elettricità attiva
+            markerColor = CHSV(130, 220, random8(180, 255)); // Cyan pulsante
+        } else {
+            // Altre ore: Led di stato fioco
+            markerColor = CHSV(160, 255, 50); // Blu scuro
+        }
+        setLedPair(pos, foldPoint, markerColor);
     }
 }
 
