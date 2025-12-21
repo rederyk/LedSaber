@@ -418,6 +418,10 @@ class LedSaberClient:
             intensity = event.get('intensity', 0)
             pixels = event.get('changedPixels', 0)
             direction = event.get('direction', 'none')
+            speed = event.get('speed', 0)
+            confidence = event.get('confidence', 0)
+            active_blocks = event.get('activeBlocks', 0)
+            frame_diff = event.get('frameDiff', 0)
             gesture = event.get('gesture', 'none')
             gesture_confidence = event.get('gestureConfidence', 0)
 
@@ -436,10 +440,8 @@ class LedSaberClient:
                     emoji = "😴"
 
                 print(f"\n{Colors.YELLOW}{emoji} Motion Event: {event_type.upper()}{Colors.RESET}")
-                print(f"  Intensity: {intensity}")
-                print(f"  Changed Pixels: {pixels}")
-                if direction != 'none':
-                    print(f"  Direction: {Colors.CYAN}{direction}{Colors.RESET}")
+                print(f"  Intensity: {intensity} | Dir: {direction} | Spd: {speed} | Conf: {confidence}%")
+                print(f"  Blocks: {active_blocks} | FrameDiff: {frame_diff} | Changed Pixels: {pixels}")
 
                 # Visualizza gesture se rilevata
                 if gesture != 'none' and gesture_confidence > 50:

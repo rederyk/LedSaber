@@ -90,30 +90,50 @@ void BLEMotionService::notifyStatus() {
 }
 
 void BLEMotionService::notifyEvent(const String& eventType, bool includeGesture) {
+    OpticalFlowDetector::Metrics metrics = _motion->getMetrics();
+    const char* directionStr = OpticalFlowDetector::directionToString(metrics.dominantDirection);
+    const char* gestureStr = includeGesture ? MotionProcessor::gestureToString(_lastGesture) : "none";
+    const uint8_t gestureConfidence = includeGesture ? _lastGestureConfidence : 0;
+
+    const unsigned long now = millis();
+
+    auto logMotionStats = [&](const char* reason) {
+        Serial.printf("[MOTION BLE] %s: %s | I:%u dir=%s spd=%.1f conf=%u%% blocks=%u diff=%u gesture=%s(%u)\n",
+                      reason,
+                      eventType.c_str(),
+                      metrics.currentIntensity,
+                      directionStr,
+                      round(metrics.avgSpeed * 10.0f) / 10.0f,
+                      (uint8_t)round(metrics.avgConfidence * 100.0f),
+                      metrics.avgActiveBlocks,
+                      metrics.frameDiff,
+                      gestureStr,
+                      gestureConfidence);
+    };
+
     if (!_eventsNotifyEnabled) {
+        logMotionStats("notify skipped (disabled)");
         return;
     }
 
-    unsigned long now = millis();
-
     // Debouncing: ridotto a 100ms per eventi più rapidi
     if (now - _lastEventTime < 100) {
+        logMotionStats("notify skipped (debounce)");
         return;
     }
 
     JsonDocument doc;
-    OpticalFlowDetector::Metrics metrics = _motion->getMetrics();
     doc["event"] = eventType;
     doc["timestamp"] = now;
     doc["intensity"] = metrics.currentIntensity;
-    doc["direction"] = OpticalFlowDetector::directionToString(metrics.dominantDirection);
+    doc["direction"] = directionStr;
     doc["speed"] = round(metrics.avgSpeed * 10.0f) / 10.0f;
     doc["confidence"] = round(metrics.avgConfidence * 100.0f);
     doc["activeBlocks"] = metrics.avgActiveBlocks;
     doc["frameDiff"] = metrics.frameDiff;
     if (includeGesture) {
-        doc["gesture"] = MotionProcessor::gestureToString(_lastGesture);
-        doc["gestureConfidence"] = _lastGestureConfidence;
+        doc["gesture"] = gestureStr;
+        doc["gestureConfidence"] = gestureConfidence;
         doc["gestureTimestamp"] = _lastGestureTime;
     } else {
         doc["gesture"] = "none";
@@ -131,6 +151,7 @@ void BLEMotionService::notifyEvent(const String& eventType, bool includeGesture)
 
     Serial.printf("[MOTION BLE] Event notified: %s (len=%u)\n",
                   eventType.c_str(), (unsigned)output.length());
+    logMotionStats("notify sent");
 }
 
 void BLEMotionService::update(bool motionDetected, bool shakeDetected, const MotionProcessor::ProcessedMotion* processed) {

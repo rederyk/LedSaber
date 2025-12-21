@@ -1510,6 +1510,13 @@ class SaberDashboard(App):
         """Callback motion events"""
         event_type = event.get('event', 'unknown')
         intensity = event.get('intensity', 0)
+        direction = event.get('direction', 'none')
+        speed = event.get('speed', 0)
+        confidence = event.get('confidence', 0)
+        active_blocks = event.get('activeBlocks', 0)
+        frame_diff = event.get('frameDiff', 0)
+        gesture = event.get('gesture', 'none')
+        gesture_conf = event.get('gestureConfidence', 0)
 
         emoji_map = {
             "shake_detected": "⚡",
@@ -1519,7 +1526,10 @@ class SaberDashboard(App):
         }
 
         emoji = emoji_map.get(event_type, "🔔")
-        self._log(f"{emoji} {event_type.upper()} (I:{intensity})", "yellow")
+        base = f"{emoji} {event_type.upper()} I:{intensity} dir:{direction} spd:{speed} conf:{confidence}% blocks:{active_blocks} diff:{frame_diff}"
+        if gesture != 'none':
+            base += f" gesture:{gesture}({gesture_conf}%)"
+        self._log(base, "yellow")
 
     # ═══════════════════════════════════════════════════════════════════════
     # ACTIONS (KEYBOARD SHORTCUTS)
