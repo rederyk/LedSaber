@@ -2737,67 +2737,76 @@ void LedEffectEngine::renderChronoSeconds_FireClock(uint16_t foldPoint, uint8_t 
 }
 
 void LedEffectEngine::renderChronoSeconds_Lightning(uint16_t foldPoint, uint8_t minutes, uint8_t seconds, float visualOffset, CRGB baseColor) {
-    // Fulmini pulsanti: frequenza dipende dai secondi, posizioni dai minuti
+    // Fulmine drammatico: veloce, bianco/blu, scia frastagliata
+    // Richiesta: via il rosso, più veloce, più drammatico, flash attenuato
 
-    int visualSeconds = seconds + (int)visualOffset;
-    while (visualSeconds < 0) visualSeconds += 60;
-    while (visualSeconds >= 60) visualSeconds -= 60;
+    uint16_t targetPos = map(minutes, 0, 60, 0, foldPoint);
+    if (targetPos == 0) targetPos = 1;
 
-    // Posizione principale del fulmine (basata sui minuti)
-    uint16_t strikePos = map(minutes, 0, 60, 0, foldPoint);
-
-    // Pulse del fulmine (rapido nei primi millisecondi del secondo)
     unsigned long now = millis();
     uint16_t millisInSecond = now % 1000;
+    
+    // Timing molto più aggressivi per effetto "scarica"
+    const uint16_t STRIKE_DURATION = 150; // Corsa rapida (150ms)
+    const uint16_t FLASH_DURATION = 200;  // Durata flash impatto
+    
+    // Colore forzato "Elettrico" (Bianco-Blu) per realismo
+    // Ignoriamo baseColor che potrebbe essere rosso
+    CRGB lightningColor = CRGB(200, 220, 255); 
+    CRGB coreColor = CRGB::White;
 
-    // Strike multipli per secondo (frequenza aumenta con i secondi)
-    uint8_t strikesPerSecond = 1 + (visualSeconds / 20);  // 1-3 strike/sec
-    uint16_t strikePeriod = 1000 / strikesPerSecond;
-    uint16_t phaseInPeriod = millisInSecond % strikePeriod;
-
-    if (phaseInPeriod < 80) {
-        // Lightning flash attivo
-        uint8_t flashBrightness = map(phaseInPeriod, 0, 80, 255, 0);
-
-        // Fulmine principale
-        CRGB boltColor = baseColor;
-        boltColor.nscale8(flashBrightness);
-        boltColor += CRGB(flashBrightness, flashBrightness, 255);  // Tint blu elettrico
-
-        // Ramificazioni casuali del fulmine
-        for (int8_t i = -10; i <= 10; i++) {
-            if (random8(100) < 30) {  // 30% probabilità di ramificazione
-                int16_t pos = strikePos + i;
-                if (pos >= 0 && pos < foldPoint) {
-                    CRGB branchColor = boltColor;
-                    branchColor.nscale8(random8(128, 255));
-                    setLedPair(pos, foldPoint, branchColor);
+    if (millisInSecond < STRIKE_DURATION) {
+        // FASE 1: Corsa del Leader (Rapidissima)
+        float progress = (float)millisInSecond / (float)STRIKE_DURATION;
+        // Ease-in cubico per scatto finale violento
+        progress = progress * progress * progress;
+        
+        uint16_t headPos = (uint16_t)(progress * targetPos);
+        
+        // Disegna testa
+        if (headPos < foldPoint) {
+            setLedPair(headPos, foldPoint, coreColor);
+            
+            // Scia frastagliata (randomica)
+            // Accende segmenti casuali dietro la testa per simulare arco voltaico
+            for (uint16_t i = 0; i < headPos; i++) {
+                // Probabilità sparsa
+                if (random8() < 60) { 
+                    uint8_t bri = random8(50, 200);
+                    CRGB trail = lightningColor;
+                    trail.nscale8(bri);
+                    setLedPair(i, foldPoint, trail);
                 }
             }
         }
-
-        // Core del fulmine (più brillante)
-        for (int8_t i = -2; i <= 2; i++) {
-            int16_t pos = strikePos + i;
+    } else if (millisInSecond < STRIKE_DURATION + FLASH_DURATION) {
+        // FASE 2: Impatto e Dissipazione
+        uint16_t flashTime = millisInSecond - STRIKE_DURATION;
+        
+        // Attenuazione richiesta: max brightness 140
+        uint8_t maxBri = 140;
+        uint8_t decay = map(flashTime, 0, FLASH_DURATION, maxBri, 0);
+        
+        // Flash sul target
+        uint8_t spread = 2;
+        for (int i = -spread; i <= spread; i++) {
+            int16_t pos = targetPos + i;
             if (pos >= 0 && pos < foldPoint) {
-                setLedPair(pos, foldPoint, boltColor);
+                CRGB flash = (abs(i) == 0) ? coreColor : lightningColor;
+                flash.nscale8(decay);
+                setLedPair(pos, foldPoint, flash);
             }
         }
-    } else {
-        // Afterglow (bagliore residuo)
-        uint8_t glowBrightness = map(phaseInPeriod, 80, strikePeriod, 60, 0);
-        CRGB glowColor = CRGB(0, 0, glowBrightness / 2);
-
-        for (int8_t i = -5; i <= 5; i++) {
-            int16_t pos = strikePos + i;
-            if (pos >= 0 && pos < foldPoint) {
-                uint8_t distFade = map(abs(i), 0, 5, 255, 64);
-                CRGB fade = glowColor;
-                fade.nscale8(distFade);
-                setLedPair(pos, foldPoint, fade);
-            }
+        
+        // Residui statici lungo il percorso (fading out)
+        if (random8() < 100) {
+            uint16_t randomPos = random16(targetPos);
+            CRGB spark = lightningColor;
+            spark.nscale8(decay / 2);
+            setLedPair(randomPos, foldPoint, spark);
         }
     }
+    // FASE 3: Buio totale (contrasto drammatico)
 }
 
 void LedEffectEngine::renderChronoSeconds_Particle(uint16_t foldPoint, uint8_t minutes, uint8_t seconds, float visualOffset, CRGB baseColor) {
