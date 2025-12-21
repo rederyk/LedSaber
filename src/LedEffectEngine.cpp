@@ -434,8 +434,11 @@ void LedEffectEngine::renderUnstable(const LedState& state, const uint8_t pertur
     for (uint16_t i = 0; i < maxIndex; i++) {
         // INVERTED: heat makes LED darker (perturbations = dark spots)
         uint8_t heatBrightness = _unstableHeat[i];
-        // Inverted mapping: 0 heat = bright (255), max heat = dark (60)
-        uint8_t brightness = 255 - scale8(heatBrightness, 195);  // 255 -> 60 range (high contrast)
+        // Inverted mapping: 0 heat = bright (255), max heat = dark (0)
+        // Range esteso a 255 per nero profondo
+        uint8_t brightness = 255 - scale8(heatBrightness, 255);
+        // Gamma correction (quadratica) per rendere il cambio più evidente/netto
+        brightness = scale8(brightness, brightness);
 
         CRGB unstableColor = baseColor;
         unstableColor.fadeToBlackBy(255 - brightness);
@@ -2296,6 +2299,10 @@ void LedEffectEngine::handleGestureTriggers(MotionProcessor::GestureType gesture
         case MotionProcessor::GestureType::IGNITION:
             // Gesture ignition should behave like a real "power on":
             // enable blade and run ignition animation once, then return to IDLE.
+            if (_ledStateRef && _ledStateRef->bladeEnabled) {
+                Serial.println("[LED] IGNITION gesture ignored (blade already on)");
+                break;
+            }
             powerOn();
             Serial.println("[LED] IGNITION triggered by gesture (powerOn)");
             break;

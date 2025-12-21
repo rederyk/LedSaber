@@ -8,6 +8,7 @@ MotionProcessor::MotionProcessor() :
     _directionStartTime(0),
     _gestureCooldown(false),
     _gestureCooldownEnd(0),
+    _clashCooldownEnd(0),
     _lastGestureConfidence(0)
 {
 }
@@ -51,6 +52,21 @@ MotionProcessor::GestureType MotionProcessor::_detectGesture(
 {
     _lastGestureConfidence = 0;
 
+    auto max16 = [](uint16_t a, uint16_t b) { return (a > b) ? a : b; };
+    auto min16 = [](uint16_t a, uint16_t b) { return (a < b) ? a : b; };
+
+    // Per-gesture thresholds tuned for current optical flow noise/profile
+    const uint8_t ignitionIntensityThreshold = (uint8_t)max(8, (int)_config.gestureThreshold - 2);   // Easy ignition
+    const uint16_t ignitionDurationThreshold = max16((uint16_t)60, (uint16_t)((_config.gestureDurationMs > 20) ? (_config.gestureDurationMs - 20) : _config.gestureDurationMs));
+    const float ignitionSpeedThreshold = 0.45f;
+
+    const uint8_t retractIntensityThreshold = (uint8_t)max(14, (int)_config.gestureThreshold + 4);   // Cleaner gesture
+    const uint16_t retractDurationThreshold = max16((uint16_t)120, (uint16_t)(_config.gestureDurationMs + 40));
+    const float retractSpeedThreshold = 0.9f;
+
+    const uint8_t clashIntensityThreshold = (uint8_t)max(12, (int)_config.gestureThreshold);
+    const uint16_t clashCooldown = max16(_config.clashCooldownMs, (uint16_t)500);
+
     // Cooldown management: prevent gesture spam
     if (_gestureCooldown) {
         if (timestamp < _gestureCooldownEnd) {
@@ -59,8 +75,11 @@ MotionProcessor::GestureType MotionProcessor::_detectGesture(
         _gestureCooldown = false;
     }
 
-    // Intensity threshold check
-    if (intensity < _config.gestureThreshold) {
+    // Intensity threshold check (use the lowest meaningful threshold)
+    uint8_t baseThreshold = ignitionIntensityThreshold;
+    baseThreshold = min(baseThreshold, retractIntensityThreshold);
+    baseThreshold = min(baseThreshold, clashIntensityThreshold);
+    if (intensity < baseThreshold) {
         _lastIntensity = intensity;
         _lastDirection = direction;
         _lastMotionTime = timestamp;
@@ -69,14 +88,21 @@ MotionProcessor::GestureType MotionProcessor::_detectGesture(
 
     // CLASH detection: sudden spike in intensity
     // Check for large delta in a window suitable for low FPS (default: 350ms)
-    if (_lastMotionTime > 0 && (timestamp - _lastMotionTime) <= _config.clashWindowMs) {
+    const bool clashOnCooldown = (timestamp < _clashCooldownEnd);
+    if (!clashOnCooldown &&
+        _lastMotionTime > 0 &&
+        (timestamp - _lastMotionTime) <= _config.clashWindowMs &&
+        intensity >= clashIntensityThreshold)
+    {
         int16_t deltaIntensity = intensity - _lastIntensity;
         if (deltaIntensity > _config.clashDeltaThreshold) {
             // Clash detected!
             _gestureCooldown = true;
             uint16_t cooldownHalf = (uint16_t)(_config.gestureCooldownMs / 2);
             if (cooldownHalf < 250) cooldownHalf = 250;
-            _gestureCooldownEnd = timestamp + cooldownHalf;
+            const uint16_t appliedCooldown = max16(cooldownHalf, clashCooldown);
+            _gestureCooldownEnd = timestamp + appliedCooldown;
+            _clashCooldownEnd = timestamp + clashCooldown;
 
             _lastIntensity = intensity;
             _lastDirection = direction;
@@ -94,8 +120,10 @@ MotionProcessor::GestureType MotionProcessor::_detectGesture(
         }
     }
 
-    // Sustained direction tracking
-    bool isSustained = _isSustainedDirection(direction, timestamp);
+    // Sustained direction tracking (use the smallest per-gesture requirement to start counting)
+    uint16_t sustainThreshold = min16(ignitionDurationThreshold, retractDurationThreshold);
+    sustainThreshold = min16(sustainThreshold, _config.gestureDurationMs);
+    bool isSustained = _isSustainedDirection(direction, timestamp, sustainThreshold);
 
     if (!isSustained) {
         // Direction just changed or started
@@ -108,11 +136,15 @@ MotionProcessor::GestureType MotionProcessor::_detectGesture(
     // At this point: high intensity + sustained direction
     uint32_t duration = timestamp - _directionStartTime;
 
+    const bool directionUp = (direction == OpticalFlowDetector::Direction::UP ||
+                              direction == OpticalFlowDetector::Direction::UP_LEFT ||
+                              direction == OpticalFlowDetector::Direction::UP_RIGHT);
+
     // IGNITION: UP veloce e sostenuto
-    if (direction == OpticalFlowDetector::Direction::UP &&
-        speed > 0.6f &&  // Più permissivo (5fps + tracking grossolano)
-        intensity > _config.gestureThreshold &&
-        duration >= _config.gestureDurationMs)
+    if (directionUp &&
+        speed >= ignitionSpeedThreshold &&  // Facilitiamo il trigger
+        intensity >= ignitionIntensityThreshold &&
+        duration >= ignitionDurationThreshold)
     {
         _gestureCooldown = true;
         _gestureCooldownEnd = timestamp + _config.gestureCooldownMs;
@@ -122,13 +154,13 @@ MotionProcessor::GestureType MotionProcessor::_detectGesture(
         _lastMotionTime = timestamp;
 
         // Confidence: intensity + speed + duration
-        float speedScore = speed / 2.0f;
+        float speedScore = speed / 1.5f;
         if (speedScore > 1.0f) speedScore = 1.0f;
-        float intScore = (float)(intensity - _config.gestureThreshold) / 60.0f;
+        float intScore = (float)(intensity - ignitionIntensityThreshold) / 40.0f;
         if (intScore > 1.0f) intScore = 1.0f;
-        float durScore = (float)duration / 300.0f;
+        float durScore = (float)duration / (float)max16((uint16_t)200, ignitionDurationThreshold);
         if (durScore > 1.0f) durScore = 1.0f;
-        int conf = (int)roundf((0.45f * speedScore + 0.35f * intScore + 0.20f * durScore) * 100.0f);
+        int conf = (int)roundf((0.40f * speedScore + 0.35f * intScore + 0.25f * durScore) * 100.0f);
         if (conf < 0) conf = 0;
         if (conf > 100) conf = 100;
         _lastGestureConfidence = (uint8_t)conf;
@@ -137,11 +169,16 @@ MotionProcessor::GestureType MotionProcessor::_detectGesture(
         return GestureType::IGNITION;
     }
 
+    const bool directionDownClean = (direction == OpticalFlowDetector::Direction::DOWN);
+    const bool directionDownLoose = (direction == OpticalFlowDetector::Direction::DOWN_LEFT ||
+                                     direction == OpticalFlowDetector::Direction::DOWN_RIGHT);
+
     // RETRACT: DOWN veloce e sostenuto
-    if (direction == OpticalFlowDetector::Direction::DOWN &&
-        speed > 0.6f &&
-        intensity > _config.gestureThreshold &&
-        duration >= _config.gestureDurationMs)
+    if ((directionDownClean || directionDownLoose) &&
+        speed >= retractSpeedThreshold &&
+        intensity >= retractIntensityThreshold &&
+        duration >= retractDurationThreshold &&
+        (directionDownClean || duration >= (retractDurationThreshold + 40)))
     {
         _gestureCooldown = true;
         _gestureCooldownEnd = timestamp + _config.gestureCooldownMs;
@@ -152,11 +189,11 @@ MotionProcessor::GestureType MotionProcessor::_detectGesture(
 
         float speedScore = speed / 2.0f;
         if (speedScore > 1.0f) speedScore = 1.0f;
-        float intScore = (float)(intensity - _config.gestureThreshold) / 60.0f;
+        float intScore = (float)(intensity - retractIntensityThreshold) / 60.0f;
         if (intScore > 1.0f) intScore = 1.0f;
-        float durScore = (float)duration / 300.0f;
+        float durScore = (float)duration / (float)max16((uint16_t)250, retractDurationThreshold);
         if (durScore > 1.0f) durScore = 1.0f;
-        int conf = (int)roundf((0.45f * speedScore + 0.35f * intScore + 0.20f * durScore) * 100.0f);
+        int conf = (int)roundf((0.30f * speedScore + 0.30f * intScore + 0.40f * durScore) * 100.0f);
         if (conf < 0) conf = 0;
         if (conf > 100) conf = 100;
         _lastGestureConfidence = (uint8_t)conf;
@@ -206,7 +243,8 @@ MotionProcessor::GestureType MotionProcessor::_detectGesture(
 
 bool MotionProcessor::_isSustainedDirection(
     OpticalFlowDetector::Direction direction,
-    uint32_t timestamp)
+    uint32_t timestamp,
+    uint16_t minDurationMs)
 {
     if (direction == OpticalFlowDetector::Direction::NONE) {
         _directionStartTime = 0;
@@ -227,7 +265,7 @@ bool MotionProcessor::_isSustainedDirection(
 
     // Check duration
     uint32_t duration = timestamp - _directionStartTime;
-    return duration >= _config.gestureDurationMs;
+    return duration >= minDurationMs;
 }
 
 void MotionProcessor::_calculatePerturbationGrid(
@@ -284,6 +322,7 @@ void MotionProcessor::reset() {
     _directionStartTime = 0;
     _gestureCooldown = false;
     _gestureCooldownEnd = 0;
+    _clashCooldownEnd = 0;
     _lastGestureConfidence = 0;
 }
 

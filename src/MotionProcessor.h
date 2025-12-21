@@ -41,6 +41,7 @@ public:
         uint8_t clashDeltaThreshold;   // Min delta for clash (default: 15)
         uint16_t clashWindowMs;        // Time window for clash delta (default: 350ms)
         uint16_t gestureCooldownMs;    // Cooldown after major gesture (default: 800ms)
+        uint16_t clashCooldownMs;      // Specific cooldown for clash spam control
 
         bool perturbationEnabled;
         uint8_t perturbationScale;     // Perturbation multiplier 0-255 (default: 255)
@@ -52,6 +53,7 @@ public:
             clashDeltaThreshold(60), // Aumentato da 15 a 60 per ridurre falsi positivi
             clashWindowMs(400),     // ~2.2 frame @ 5.6fps per catturare veri clash
             gestureCooldownMs(800), // Meno "bloccante" del vecchio 2s
+            clashCooldownMs(900),   // Clash dedicato per evitare raffiche
             perturbationEnabled(true),
             perturbationScale(255) {}  // 100% = effetto massimo
     };
@@ -100,6 +102,7 @@ private:
     uint32_t _directionStartTime;
     bool _gestureCooldown;
     uint32_t _gestureCooldownEnd;
+    uint32_t _clashCooldownEnd;
     uint8_t _lastGestureConfidence;
 
     /**
@@ -120,7 +123,8 @@ private:
      * @brief Check if direction is sustained
      */
     bool _isSustainedDirection(OpticalFlowDetector::Direction direction,
-                               uint32_t timestamp);
+                               uint32_t timestamp,
+                               uint16_t minDurationMs);
 };
 
 #endif // MOTION_PROCESSOR_H
