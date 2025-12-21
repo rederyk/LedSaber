@@ -33,6 +33,7 @@ LedEffectEngine::LedEffectEngine(CRGB* leds, uint16_t numLeds) :
     _clashActive(false),
     _rainbowHue(0),
     _breathOverride(255),
+    _bladeOffTimestamp(0),
     _lastUpdate(0),
     _lastSecondarySpawn(0),
     _mainPulseWidth(20),
@@ -65,6 +66,19 @@ void LedEffectEngine::render(const LedState& state, const MotionProcessor::Proce
         FastLED.show();
         _lastUpdate = now;
         return;
+    }
+
+    // Auto-IGNITION when blade is off: any motion above half-threshold wakes it
+    if (!state.bladeEnabled && motion != nullptr) {
+        const uint8_t ignitionWakeThreshold = 10;  // Half of current gesture threshold (12)
+        const unsigned long AUTO_IGNITION_DEBOUNCE_MS = 4000;
+        if (motion->motionIntensity >= ignitionWakeThreshold &&
+            (now - _bladeOffTimestamp) >= AUTO_IGNITION_DEBOUNCE_MS)
+        {
+            Serial.printf("[LED] Auto ignition gesture (I=%u) while blade off. OffTime: %lu, Now: %lu\n", 
+                motion->motionIntensity, _bladeOffTimestamp, now);
+            powerOn();
+        }
     }
 
     // CRITICAL: If blade is disabled, only allow IGNITION or RETRACT animations
@@ -2094,6 +2108,10 @@ void LedEffectEngine::renderRetraction(const LedState& state) {
                 Serial.println("[LED POWER] Blade disabled after retraction");
             }
 
+            // Start counting "time off" from this moment
+            _bladeOffTimestamp = now;
+            Serial.printf("[LED] Retraction complete. Blade OFF timer started (now=%lu)\n", now);
+
             // Handle deep sleep if requested (must be done BEFORE returning to IDLE)
             if (_deepSleepRequested) {
                 Serial.println("[LED POWER] Entering deep sleep in 500ms...");
@@ -2252,6 +2270,9 @@ void LedEffectEngine::powerOff(bool deepSleep) {
     _mode = Mode::RETRACT_ACTIVE;
     _modeStartTime = millis();
     _lastRetractionUpdate = millis();
+    
+    // Safety: Reset off-timer at start of retraction too (prevent trigger during anim)
+    _bladeOffTimestamp = millis();
 
     Serial.println("[LED POWER] Retraction animation started");
     // Step 3: After animation completes, blade will be disabled and deep sleep triggered
@@ -2286,7 +2307,6 @@ void LedEffectEngine::handleGestureTriggers(MotionProcessor::GestureType gesture
 
     if (_suppressGestureOverrides) {
         switch (gesture) {
-            case MotionProcessor::GestureType::IGNITION:
             case MotionProcessor::GestureType::RETRACT:
             case MotionProcessor::GestureType::CLASH:
                 return;
@@ -2296,17 +2316,6 @@ void LedEffectEngine::handleGestureTriggers(MotionProcessor::GestureType gesture
     }
 
     switch (gesture) {
-        case MotionProcessor::GestureType::IGNITION:
-            // Gesture ignition should behave like a real "power on":
-            // enable blade and run ignition animation once, then return to IDLE.
-            if (_ledStateRef && _ledStateRef->bladeEnabled) {
-                Serial.println("[LED] IGNITION gesture ignored (blade already on)");
-                break;
-            }
-            powerOn();
-            Serial.println("[LED] IGNITION triggered by gesture (powerOn)");
-            break;
-
         case MotionProcessor::GestureType::RETRACT:
             // Gesture retract should behave like a real "power off" without deep sleep.
             powerOff(false);

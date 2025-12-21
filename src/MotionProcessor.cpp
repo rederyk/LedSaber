@@ -56,10 +56,6 @@ MotionProcessor::GestureType MotionProcessor::_detectGesture(
     auto min16 = [](uint16_t a, uint16_t b) { return (a < b) ? a : b; };
 
     // Per-gesture thresholds tuned for current optical flow noise/profile
-    const uint8_t ignitionIntensityThreshold = (uint8_t)max(8, (int)_config.gestureThreshold - 2);   // Easy ignition
-    const uint16_t ignitionDurationThreshold = max16((uint16_t)60, (uint16_t)((_config.gestureDurationMs > 20) ? (_config.gestureDurationMs - 20) : _config.gestureDurationMs));
-    const float ignitionSpeedThreshold = 0.45f;
-
     const uint8_t retractIntensityThreshold = (uint8_t)max(14, (int)_config.gestureThreshold + 4);   // Cleaner gesture
     const uint16_t retractDurationThreshold = max16((uint16_t)120, (uint16_t)(_config.gestureDurationMs + 40));
     const float retractSpeedThreshold = 0.9f;
@@ -76,8 +72,7 @@ MotionProcessor::GestureType MotionProcessor::_detectGesture(
     }
 
     // Intensity threshold check (use the lowest meaningful threshold)
-    uint8_t baseThreshold = ignitionIntensityThreshold;
-    baseThreshold = min(baseThreshold, retractIntensityThreshold);
+    uint8_t baseThreshold = retractIntensityThreshold;
     baseThreshold = min(baseThreshold, clashIntensityThreshold);
     if (intensity < baseThreshold) {
         _lastIntensity = intensity;
@@ -121,8 +116,7 @@ MotionProcessor::GestureType MotionProcessor::_detectGesture(
     }
 
     // Sustained direction tracking (use the smallest per-gesture requirement to start counting)
-    uint16_t sustainThreshold = min16(ignitionDurationThreshold, retractDurationThreshold);
-    sustainThreshold = min16(sustainThreshold, _config.gestureDurationMs);
+    uint16_t sustainThreshold = min16(retractDurationThreshold, _config.gestureDurationMs);
     bool isSustained = _isSustainedDirection(direction, timestamp, sustainThreshold);
 
     if (!isSustained) {
@@ -135,39 +129,6 @@ MotionProcessor::GestureType MotionProcessor::_detectGesture(
 
     // At this point: high intensity + sustained direction
     uint32_t duration = timestamp - _directionStartTime;
-
-    const bool directionUp = (direction == OpticalFlowDetector::Direction::UP ||
-                              direction == OpticalFlowDetector::Direction::UP_LEFT ||
-                              direction == OpticalFlowDetector::Direction::UP_RIGHT);
-
-    // IGNITION: UP veloce e sostenuto
-    if (directionUp &&
-        speed >= ignitionSpeedThreshold &&  // Facilitiamo il trigger
-        intensity >= ignitionIntensityThreshold &&
-        duration >= ignitionDurationThreshold)
-    {
-        _gestureCooldown = true;
-        _gestureCooldownEnd = timestamp + _config.gestureCooldownMs;
-
-        _lastIntensity = intensity;
-        _lastDirection = direction;
-        _lastMotionTime = timestamp;
-
-        // Confidence: intensity + speed + duration
-        float speedScore = speed / 1.5f;
-        if (speedScore > 1.0f) speedScore = 1.0f;
-        float intScore = (float)(intensity - ignitionIntensityThreshold) / 40.0f;
-        if (intScore > 1.0f) intScore = 1.0f;
-        float durScore = (float)duration / (float)max16((uint16_t)200, ignitionDurationThreshold);
-        if (durScore > 1.0f) durScore = 1.0f;
-        int conf = (int)roundf((0.40f * speedScore + 0.35f * intScore + 0.25f * durScore) * 100.0f);
-        if (conf < 0) conf = 0;
-        if (conf > 100) conf = 100;
-        _lastGestureConfidence = (uint8_t)conf;
-
-        Serial.printf("[MOTION] IGNITION detected! (speed=%.1f, duration=%ums)\n", speed, duration);
-        return GestureType::IGNITION;
-    }
 
     const bool directionDownClean = (direction == OpticalFlowDetector::Direction::DOWN);
     const bool directionDownLoose = (direction == OpticalFlowDetector::Direction::DOWN_LEFT ||
