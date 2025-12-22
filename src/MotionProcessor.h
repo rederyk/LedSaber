@@ -43,6 +43,8 @@ public:
         uint16_t clashWindowMs;        // Time window for clash delta (default: 350ms)
         uint16_t gestureCooldownMs;    // Cooldown after major gesture (default: 800ms)
         uint16_t clashCooldownMs;      // Specific cooldown for clash spam control
+        float retractSpeedMax;         // Max speed for RETRACT (slow)
+        float clashSpeedMin;           // Min speed for CLASH (fast)
 
         bool perturbationEnabled;
         uint8_t perturbationScale;     // Perturbation multiplier 0-255 (default: 255)
@@ -58,6 +60,8 @@ public:
             clashWindowMs(600),     // ~2.2 frame @ 5.6fps per catturare veri clash
             gestureCooldownMs(800), // Meno "bloccante" del vecchio 2s
             clashCooldownMs(5000),   // Clash dedicato per evitare raffiche
+            retractSpeedMax(1.6f),
+            clashSpeedMin(2.5f),
             perturbationEnabled(true),
             perturbationScale(255) {}  // 100% = effetto massimo
     };

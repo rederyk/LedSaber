@@ -714,7 +714,9 @@ class LedSaberClient:
                                 motion_intensity_min: int = None, motion_speed_min: float = None,
                                 gesture_ignition_intensity: int = None,
                                 gesture_retract_intensity: int = None,
-                                gesture_clash_intensity: int = None):
+                                gesture_clash_intensity: int = None,
+                                gesture_retract_speed_max: float = None,
+                                gesture_clash_speed_min: float = None):
         """Imposta configurazione motion detector"""
         if not self.client or not self.client.is_connected:
             print(f"{Colors.RED}✗ Non connesso{Colors.RESET}")
@@ -735,6 +737,10 @@ class LedSaberClient:
             config["gestureRetractIntensity"] = max(0, min(255, int(gesture_retract_intensity)))
         if gesture_clash_intensity is not None:
             config["gestureClashIntensity"] = max(0, min(255, int(gesture_clash_intensity)))
+        if gesture_retract_speed_max is not None:
+            config["gestureRetractSpeedMax"] = max(0.0, float(gesture_retract_speed_max))
+        if gesture_clash_speed_min is not None:
+            config["gestureClashSpeedMin"] = max(0.0, float(gesture_clash_speed_min))
 
         if not config:
             print(f"{Colors.YELLOW}⚠ Nessun parametro per motion config{Colors.RESET}")
@@ -914,6 +920,8 @@ class InteractiveCLI:
   {Colors.MAGENTA}motion ignitionmin <0-255>{Colors.RESET} - Soglia intensità ignition gesture
   {Colors.MAGENTA}motion retractmin <0-255>{Colors.RESET}  - Soglia intensità retract gesture
   {Colors.MAGENTA}motion clashmin <0-255>{Colors.RESET}    - Soglia intensità clash gesture
+  {Colors.MAGENTA}motion retractspeedmax <0-20>{Colors.RESET} - Velocità max retract gesture
+  {Colors.MAGENTA}motion clashspeedmin <0-20>{Colors.RESET}   - Velocità min clash gesture
   {Colors.MAGENTA}motion reset{Colors.RESET}         - Reset statistiche motion
 
   {Colors.BOLD}⚡ DEVICE CONTROL COMMANDS:{Colors.RESET}
@@ -1259,7 +1267,7 @@ class InteractiveCLI:
                 # Gestione comandi motion detection
                 if not args:
                     print(f"{Colors.RED}✗ Uso: motion <comando>{Colors.RESET}")
-                    print(f"{Colors.YELLOW}💡 Comandi: enable, disable, status, config, quality, motionmin, speedmin, ignitionmin, retractmin, clashmin, reset{Colors.RESET}")
+                    print(f"{Colors.YELLOW}💡 Comandi: enable, disable, status, config, quality, motionmin, speedmin, ignitionmin, retractmin, clashmin, retractspeedmax, clashspeedmin, reset{Colors.RESET}")
                     return
 
                 subcmd = args[0].lower()
@@ -1329,6 +1337,10 @@ class InteractiveCLI:
                             print(f"  GestureRetractIntensity: {config.get('gestureRetractIntensity')}")
                         if "gestureClashIntensity" in config:
                             print(f"  GestureClashIntensity: {config.get('gestureClashIntensity')}")
+                        if "gestureRetractSpeedMax" in config:
+                            print(f"  GestureRetractSpeedMax: {config.get('gestureRetractSpeedMax')}")
+                        if "gestureClashSpeedMin" in config:
+                            print(f"  GestureClashSpeedMin: {config.get('gestureClashSpeedMin')}")
                     else:
                         print(f"{Colors.YELLOW}⚠ Nessun dato disponibile{Colors.RESET}")
 
@@ -1425,6 +1437,36 @@ class InteractiveCLI:
                     except ValueError:
                         print(f"{Colors.RED}✗ Valore non valido{Colors.RESET}")
 
+                elif subcmd == "retractspeedmax":
+                    if len(args) < 2:
+                        print(f"{Colors.RED}✗ Uso: motion retractspeedmax <0-20>{Colors.RESET}")
+                        return
+                    try:
+                        value = float(args[1])
+                        if 0.0 <= value <= 20.0:
+                            await self.client.set_motion_config(gesture_retract_speed_max=value)
+                            await asyncio.sleep(0.5)
+                            print(f"{Colors.GREEN}✓ Retract speed max impostata: {value:.2f}{Colors.RESET}")
+                        else:
+                            print(f"{Colors.RED}✗ Valore deve essere tra 0 e 20{Colors.RESET}")
+                    except ValueError:
+                        print(f"{Colors.RED}✗ Valore non valido{Colors.RESET}")
+
+                elif subcmd == "clashspeedmin":
+                    if len(args) < 2:
+                        print(f"{Colors.RED}✗ Uso: motion clashspeedmin <0-20>{Colors.RESET}")
+                        return
+                    try:
+                        value = float(args[1])
+                        if 0.0 <= value <= 20.0:
+                            await self.client.set_motion_config(gesture_clash_speed_min=value)
+                            await asyncio.sleep(0.5)
+                            print(f"{Colors.GREEN}✓ Clash speed min impostata: {value:.2f}{Colors.RESET}")
+                        else:
+                            print(f"{Colors.RED}✗ Valore deve essere tra 0 e 20{Colors.RESET}")
+                    except ValueError:
+                        print(f"{Colors.RED}✗ Valore non valido{Colors.RESET}")
+
                 elif subcmd == "reset":
                     await self.client.motion_send_command("reset")
                     await asyncio.sleep(0.5)
@@ -1432,7 +1474,7 @@ class InteractiveCLI:
 
                 else:
                     print(f"{Colors.RED}✗ Comando motion sconosciuto: {subcmd}{Colors.RESET}")
-                    print(f"{Colors.YELLOW}💡 Comandi: enable, disable, status, config, quality, motionmin, speedmin, ignitionmin, retractmin, clashmin, reset{Colors.RESET}")
+                    print(f"{Colors.YELLOW}💡 Comandi: enable, disable, status, config, quality, motionmin, speedmin, ignitionmin, retractmin, clashmin, retractspeedmax, clashspeedmin, reset{Colors.RESET}")
 
             # ================================================================
             # DEVICE CONTROL COMMANDS

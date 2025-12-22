@@ -54,12 +54,10 @@ MotionProcessor::GestureType MotionProcessor::_detectGesture(
 
     // Per-gesture thresholds (configurable via BLE)
     const uint8_t retractIntensityThreshold = _config.retractIntensityThreshold;
-    const float retractSpeedThreshold = 0.60f;
-    const uint16_t retractDurationThreshold = max16(_config.gestureDurationMs, (uint16_t)70);
+    const float retractSpeedMax = _config.retractSpeedMax; // Slow movement = retract
 
     const uint8_t clashIntensityThreshold = _config.clashIntensityThreshold;
-    const float clashSpeedThreshold = 0.50f;
-    const uint16_t clashDurationThreshold = max16(_config.gestureDurationMs, (uint16_t)60);
+    const float clashSpeedMin = _config.clashSpeedMin;   // Fast movement = clash
     const uint16_t clashCooldown = max16(_config.clashCooldownMs, (uint16_t)400);
 
     // Cooldown management: prevent gesture spam
@@ -71,7 +69,6 @@ MotionProcessor::GestureType MotionProcessor::_detectGesture(
     }
 
     const bool clashOnCooldown = (timestamp < _clashCooldownEnd);
-    const bool sustained = _isSustainedDirection(direction, timestamp, _config.gestureDurationMs);
 
     auto dirIsDown = [](OpticalFlowDetector::Direction dir) {
         using D = OpticalFlowDetector::Direction;
@@ -82,25 +79,11 @@ MotionProcessor::GestureType MotionProcessor::_detectGesture(
         return (dir == D::LEFT || dir == D::RIGHT || dir == D::UP_LEFT || dir == D::UP_RIGHT);
     };
 
-    // "Cerchio a spicchi": giu' = retract, sinistra/destra = clash
-    if (dirIsDown(direction) && sustained &&
-        intensity >= retractIntensityThreshold &&
-        speed >= retractSpeedThreshold &&
-        (timestamp - _directionStartTime) >= retractDurationThreshold)
-    {
-        _gestureCooldown = true;
-        _gestureCooldownEnd = timestamp + _config.gestureCooldownMs;
-        _lastGestureConfidence = 80;
-        Serial.println("[MOTION] RETRACT detected (direction: down).");
-        _lastDirection = direction;
-        return GestureType::RETRACT;
-    }
-
-    if (!clashOnCooldown &&
-        dirIsLeftRight(direction) && sustained &&
+    // "Cerchio a spicchi": giu' lento = retract, sinistra/destra veloce = clash
+    if (dirIsLeftRight(direction) &&
+        speed >= clashSpeedMin &&
         intensity >= clashIntensityThreshold &&
-        speed >= clashSpeedThreshold &&
-        (timestamp - _directionStartTime) >= clashDurationThreshold)
+        !clashOnCooldown)
     {
         _gestureCooldown = true;
         uint16_t cooldownHalf = (uint16_t)(_config.gestureCooldownMs / 2);
@@ -109,9 +92,21 @@ MotionProcessor::GestureType MotionProcessor::_detectGesture(
         _gestureCooldownEnd = timestamp + appliedCooldown;
         _clashCooldownEnd = timestamp + clashCooldown;
         _lastGestureConfidence = 70;
-        Serial.println("[MOTION] CLASH detected (direction: left/right).");
+        Serial.println("[MOTION] CLASH detected (direction: left/right, fast).");
         _lastDirection = direction;
         return GestureType::CLASH;
+    }
+
+    if (dirIsDown(direction) &&
+        speed <= retractSpeedMax &&
+        intensity >= retractIntensityThreshold)
+    {
+        _gestureCooldown = true;
+        _gestureCooldownEnd = timestamp + _config.gestureCooldownMs;
+        _lastGestureConfidence = 80;
+        Serial.println("[MOTION] RETRACT detected (direction: down, slow).");
+        _lastDirection = direction;
+        return GestureType::RETRACT;
     }
 
     // No gesture detected
