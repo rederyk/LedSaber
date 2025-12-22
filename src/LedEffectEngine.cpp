@@ -87,12 +87,12 @@ void LedEffectEngine::render(const LedState& state, const MotionProcessor::Proce
     if (!state.bladeEnabled) {
         // Allow ignition and retraction animations even when blade is disabled
         if (_mode == Mode::IGNITION_ACTIVE) {
-            renderIgnition(state);
+            renderIgnition(state, motion);
             FastLED.show();
             _lastUpdate = now;
             return;
         } else if (_mode == Mode::RETRACT_ACTIVE) {
-            renderRetraction(state);
+            renderRetraction(state, motion);
             FastLED.show();
             _lastUpdate = now;
             return;
@@ -127,11 +127,11 @@ void LedEffectEngine::render(const LedState& state, const MotionProcessor::Proce
     // Render based on mode
     switch (_mode) {
         case Mode::IGNITION_ACTIVE:
-            renderIgnition(state);
+            renderIgnition(state, motion);
             break;
 
         case Mode::RETRACT_ACTIVE:
-            renderRetraction(state);
+            renderRetraction(state, motion);
             break;
 
         case Mode::CLASH_ACTIVE:
@@ -165,10 +165,10 @@ void LedEffectEngine::render(const LedState& state, const MotionProcessor::Proce
                 renderChronoHybrid(state, motion ? motion->perturbationGrid : nullptr, motion);
             } else if (state.effect == "ignition") {
                 // Manual ignition effect (user triggered)
-                renderIgnition(state);
+                renderIgnition(state, motion);
             } else if (state.effect == "retraction") {
                 // Manual retraction effect (user triggered)
-                renderRetraction(state);
+                renderRetraction(state, motion);
             } else if (state.effect == "clash") {
                 // Manual clash effect (user triggered)
                 renderClash(state);
@@ -227,6 +227,70 @@ void LedEffectEngine::setLedPair(uint16_t logicalIndex, uint16_t foldPoint, CRGB
 
     _leds[led1] = color;
     _leds[led2] = color;
+}
+
+void LedEffectEngine::renderBaseEffect(const LedState& state, const MotionProcessor::ProcessedMotion* motion, const String& effectName) {
+    const uint8_t (*perturbationGrid)[GRID_COLS] = motion ? motion->perturbationGrid : nullptr;
+
+    if (effectName == "solid") {
+        renderSolid(state, perturbationGrid);
+    } else if (effectName == "rainbow") {
+        renderRainbow(state, perturbationGrid);
+    } else if (effectName == "breathe") {
+        renderBreathe(state, perturbationGrid);
+    } else if (effectName == "flicker") {
+        renderFlicker(state, perturbationGrid);
+    } else if (effectName == "unstable") {
+        renderUnstable(state, perturbationGrid);
+    } else if (effectName == "pulse") {
+        renderPulse(state, perturbationGrid);
+    } else if (effectName == "dual_pulse") {
+        renderDualPulse(state, perturbationGrid);
+    } else if (effectName == "dual_pulse_simple") {
+        renderDualPulseSimple(state, perturbationGrid);
+    } else if (effectName == "rainbow_blade") {
+        renderRainbowBlade(state, perturbationGrid);
+    } else if (effectName == "rainbow_effect") {
+        renderRainbowEffect(state, perturbationGrid, motion);
+    } else if (effectName == "chrono_hybrid" || effectName == "clock") {
+        renderChronoHybrid(state, perturbationGrid, motion);
+    } else {
+        renderSolid(state, nullptr);
+    }
+}
+
+void LedEffectEngine::applyBladeMask(uint16_t activeCount, uint16_t foldPoint) {
+    if (activeCount == 0) {
+        fill_solid(_leds, _numLeds, CRGB::Black);
+        return;
+    }
+
+    uint16_t fadeStart = (activeCount > 5) ? (activeCount - 5) : 0;
+
+    for (uint16_t i = 0; i < foldPoint; i++) {
+        uint16_t led1 = i;
+        uint16_t led2 = (_numLeds - 1) - i;
+
+        if (i >= activeCount) {
+            _leds[led1] = CRGB::Black;
+            _leds[led2] = CRGB::Black;
+            continue;
+        }
+
+        if (activeCount > 1 && i >= fadeStart) {
+            uint8_t fade = 255;
+            if (activeCount - 1 > fadeStart) {
+                fade = map(i, fadeStart, activeCount - 1, 100, 255);
+            }
+
+            CRGB color1 = _leds[led1];
+            CRGB color2 = _leds[led2];
+            color1.fadeToBlackBy(255 - fade);
+            color2.fadeToBlackBy(255 - fade);
+            _leds[led1] = color1;
+            _leds[led2] = color2;
+        }
+    }
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -2056,7 +2120,7 @@ void LedEffectEngine::renderRainbowEffect(const LedState& state, const uint8_t p
 // GESTURE-TRIGGERED EFFECTS
 // ═══════════════════════════════════════════════════════════
 
-void LedEffectEngine::renderIgnition(const LedState& state) {
+void LedEffectEngine::renderIgnition(const LedState& state, const MotionProcessor::ProcessedMotion* motion) {
     // If one-shot mode and already completed, skip rendering
     if (_ignitionOneShot && _ignitionCompleted) {
         return;
@@ -2086,22 +2150,16 @@ void LedEffectEngine::renderIgnition(const LedState& state) {
         }
     }
 
-    fill_solid(_leds, _numLeds, CRGB::Black);
-    CRGB color = CRGB(state.r, state.g, state.b);
-
-    for (uint16_t i = 0; i < _ignitionProgress; i++) {
-        if (i >= _ignitionProgress - 5 && i < _ignitionProgress) {
-            uint8_t fade = map(i, _ignitionProgress - 5, _ignitionProgress - 1, 100, 255);
-            CRGB fadedColor = color;
-            fadedColor.fadeToBlackBy(255 - fade);
-            setLedPair(i, state.foldPoint, fadedColor);
-        } else {
-            setLedPair(i, state.foldPoint, color);
-        }
+    if (state.effect == "ignition" || state.effect == "retraction" || state.effect == "clash") {
+        renderSolid(state, motion ? motion->perturbationGrid : nullptr);
+    } else {
+        renderBaseEffect(state, motion, state.effect);
     }
+
+    applyBladeMask(_ignitionProgress, state.foldPoint);
 }
 
-void LedEffectEngine::renderRetraction(const LedState& state) {
+void LedEffectEngine::renderRetraction(const LedState& state, const MotionProcessor::ProcessedMotion* motion) {
     // If one-shot mode and already completed, keep all LEDs off
     // (Deep sleep is handled in the animation completion block below)
     if (_retractionOneShot && _retractionCompleted) {
@@ -2165,19 +2223,13 @@ void LedEffectEngine::renderRetraction(const LedState& state) {
         }
     }
 
-    fill_solid(_leds, _numLeds, CRGB::Black);
-    CRGB color = CRGB(state.r, state.g, state.b);
-
-    for (uint16_t i = 0; i < _retractionProgress; i++) {
-        if (i >= _retractionProgress - 5 && i < _retractionProgress) {
-            uint8_t fade = map(i, _retractionProgress - 5, _retractionProgress - 1, 100, 255);
-            CRGB fadedColor = color;
-            fadedColor.fadeToBlackBy(255 - fade);
-            setLedPair(i, state.foldPoint, fadedColor);
-        } else {
-            setLedPair(i, state.foldPoint, color);
-        }
+    if (state.effect == "ignition" || state.effect == "retraction" || state.effect == "clash") {
+        renderSolid(state, motion ? motion->perturbationGrid : nullptr);
+    } else {
+        renderBaseEffect(state, motion, state.effect);
     }
+
+    applyBladeMask(_retractionProgress, state.foldPoint);
 }
 
 void LedEffectEngine::renderClash(const LedState& state) {

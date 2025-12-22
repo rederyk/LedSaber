@@ -214,9 +214,12 @@ private:
     // GESTURE-TRIGGERED EFFECTS
     // ═══════════════════════════════════════════════════════════
 
-    void renderIgnition(const LedState& state);
-    void renderRetraction(const LedState& state);
+    void renderIgnition(const LedState& state, const MotionProcessor::ProcessedMotion* motion);
+    void renderRetraction(const LedState& state, const MotionProcessor::ProcessedMotion* motion);
     void renderClash(const LedState& state);
+
+    void renderBaseEffect(const LedState& state, const MotionProcessor::ProcessedMotion* motion, const String& effectName);
+    void applyBladeMask(uint16_t activeCount, uint16_t foldPoint);
 
     // ═══════════════════════════════════════════════════════════
     // MODE MANAGEMENT
