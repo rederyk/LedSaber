@@ -222,7 +222,7 @@ class MotionStatusCard(Static):
         enabled = state.get('enabled', False)
         motion_detected = state.get('motionDetected', False)
         shake_detected = state.get('shakeDetected', False)
-        sensitivity = state.get('sensitivity', 0)
+        quality = state.get('quality', 0)
 
         status_icon = "[green]◉ ENABLED[/]" if enabled else "[red]● DISABLED[/]"
         motion_icon = "[yellow]⚡[/]" if motion_detected else "[dim]○[/]"
@@ -231,7 +231,7 @@ class MotionStatusCard(Static):
         table = Table.grid(padding=(0, 1))
         table.add_column(justify="left")
         table.add_row(f"Status: {status_icon}")
-        table.add_row(f"Sens:   [cyan]{sensitivity}[/]")
+        table.add_row(f"Qual:   [cyan]{quality}[/]")
         table.add_row(f"Motion: {motion_icon}")
         table.add_row(f"Shake: {shake_icon}")
 
@@ -1275,7 +1275,7 @@ class SaberDashboard(App):
             # === MOTION COMMANDS ===
             elif cmd == "motion":
                 if not args:
-                    self._log("Usage: motion <enable|disable|status|sensitivity N>", "red")
+                    self._log("Usage: motion <enable|disable|status|quality N|motionmin N|speedmin N>", "red")
                     return
 
                 subcmd = args[0].lower()
@@ -1295,13 +1295,29 @@ class SaberDashboard(App):
                     else:
                         self._log("No motion status available", "yellow")
 
-                elif subcmd == "sensitivity":
+                elif subcmd == "quality":
                     if len(args) < 2:
-                        self._log("Usage: motion sensitivity <0-255>", "red")
+                        self._log("Usage: motion quality <0-255>", "red")
                         return
-                    sensitivity = int(args[1])
-                    await self.client.motion_send_command(f"sensitivity {sensitivity}")
-                    self._log(f"Sensitivity set: {sensitivity}", "green")
+                    quality = int(args[1])
+                    await self.client.motion_send_command(f"quality {quality}")
+                    self._log(f"Quality set: {quality}", "green")
+
+                elif subcmd == "motionmin":
+                    if len(args) < 2:
+                        self._log("Usage: motion motionmin <0-255>", "red")
+                        return
+                    min_intensity = int(args[1])
+                    await self.client.motion_send_command(f"motionmin {min_intensity}")
+                    self._log(f"Motion intensity min set: {min_intensity}", "green")
+
+                elif subcmd == "speedmin":
+                    if len(args) < 2:
+                        self._log("Usage: motion speedmin <0-20>", "red")
+                        return
+                    min_speed = float(args[1])
+                    await self.client.motion_send_command(f"speedmin {min_speed}")
+                    self._log(f"Motion speed min set: {min_speed:.2f}", "green")
 
                 else:
                     self._log(f"Unknown motion command: {subcmd}", "red")
@@ -1338,7 +1354,7 @@ class SaberDashboard(App):
             elif cmd == "help":
                 self._log("Commands: scan, connect, disconnect, color, effect, brightness, on, off", "cyan")
                 self._log("          chrono <hour_theme> <second_theme> - Set chrono themes (0-3 for hours, 0-5 for seconds)", "cyan")
-                self._log("          cam <init|start|stop|status>, motion <enable|disable|status|sensitivity N>", "cyan")
+                self._log("          cam <init|start|stop|status>, motion <enable|disable|status|quality N|motionmin N|speedmin N>", "cyan")
                 self._log("          ignition, retract, reboot, sleep, effects", "cyan")
                 self._log("Shortcuts: Ctrl+S=scan, Ctrl+D=disconnect, F2=cam init, F3=start, F4=stop, F5=motion toggle", "cyan")
                 self._log("           F6=cycle hour theme, F7=cycle second theme, F8=ignition, F9=retract", "cyan")

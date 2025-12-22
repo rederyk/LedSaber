@@ -63,15 +63,24 @@ public:
     uint8_t getRecommendedFlashIntensity() const { return _flashIntensity; }
 
     /**
-     * @brief Configura sensibilità
-     * @param sensitivity 0-255 (0=insensibile, 255=molto sensibile)
+     * @brief Configura qualità motion (mappa minConfidence/minActiveBlocks)
+     * @param quality 0-255 (0=rigido, 255=molto permissivo)
      */
-    void setSensitivity(uint8_t sensitivity);
+    void setQuality(uint8_t quality);
 
     /**
-     * @brief Legge sensibilità corrente (0-255)
+     * @brief Legge qualità corrente (0-255)
      */
-    uint8_t getSensitivity() const { return _sensitivity; }
+    uint8_t getQuality() const { return _quality; }
+
+    /**
+     * @brief Soglie motion globale (per motionActive)
+     */
+    void setMotionIntensityThreshold(uint8_t threshold);
+    uint8_t getMotionIntensityThreshold() const { return _motionIntensityThreshold; }
+
+    void setMotionSpeedThreshold(float threshold);
+    float getMotionSpeedThreshold() const { return _motionSpeedThreshold; }
 
     /**
      * @brief Reset stato detector
@@ -219,9 +228,11 @@ private:
     uint8_t _minActiveBlocks;   // Min blocks (default: 6)
 
     // Sensitivity and thresholds
-    uint8_t _sensitivity;
+    uint8_t _quality;
     float _directionMagnitudeThreshold;
     float _minCentroidWeight;
+    uint8_t _motionIntensityThreshold;
+    float _motionSpeedThreshold;
 
     // ═══════════════════════════════════════════════════════════
     // STATE

@@ -460,7 +460,7 @@ class LedSaberOTA {
 | Characteristic | UUID | Ops | Formato | Descrizione |
 |---------------|------|-----|---------|-------------|
 | **Motion Status** | `7eb5583e-36e1-4688-b7f5-ea07361b26a9` | READ, NOTIFY | JSON | Intensità, direzione, velocità, gesture |
-| **Motion Control** | `8dc5b4c3-eb10-4a3e-8a4c-1234567890ac` | WRITE | String | Comandi: `enable`, `disable`, `reset`, `calibrate`, `sensitivity <val>` |
+| **Motion Control** | `8dc5b4c3-eb10-4a3e-8a4c-1234567890ac` | WRITE | String | Comandi: `enable`, `disable`, `reset`, `calibrate`, `quality <val>` |
 | **Motion Events** | `9ef6c5d4-fc21-5b4f-9b5d-2345678901bd` | NOTIFY | JSON | Eventi gesturali (shake_detected, motion_started, motion_ended) |
 | **Motion Config** | `aff7d6e5-0d32-4c5a-ac6e-3456789012ce` | READ, WRITE | JSON | Sensibilità, soglie gesture |
 
@@ -825,7 +825,7 @@ Effetto selezionato: Chrono Clock 🕐
 | **Enable Button** | `MOTION_CONTROL` | `"enable"` (string) |
 | **Disable Button** | `MOTION_CONTROL` | `"disable"` |
 | **Reset Button** | `MOTION_CONTROL` | `"reset"` |
-| **Sensitivity Slider** | `MOTION_CONTROL` | `"sensitivity 128"` (string con valore) |
+| **Quality Slider** | `MOTION_CONTROL` | `"quality 128"` (string con valore) |
 
 ---
 

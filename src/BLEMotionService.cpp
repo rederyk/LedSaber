@@ -254,6 +254,7 @@ String BLEMotionService::_getStatusJson() {
 
     doc["enabled"] = _motionEnabled;
     doc["motionDetected"] = _wasMotionActive;
+    doc["quality"] = _motion->getQuality();
     doc["intensity"] = metrics.currentIntensity;
     doc["avgBrightness"] = metrics.avgBrightness;
     doc["flashIntensity"] = metrics.flashIntensity;
@@ -311,7 +312,9 @@ String BLEMotionService::_getConfigJson() {
     JsonDocument doc;
 
     doc["enabled"] = _motionEnabled;
-    doc["sensitivity"] = _motion->getSensitivity();
+    doc["quality"] = _motion->getQuality();
+    doc["motionIntensityMin"] = _motion->getMotionIntensityThreshold();
+    doc["motionSpeedMin"] = _motion->getMotionSpeedThreshold();
 
     String output;
     serializeJson(doc, output);
@@ -335,14 +338,32 @@ void BLEMotionService::_executeCommand(const String& command) {
         _wasShakeDetected = false;
         Serial.println("[MOTION BLE] ✓ Motion detector reset");
 
-    } else if (command.startsWith("sensitivity ")) {
-        // Comando: "sensitivity 128"
-        int sensitivity = command.substring(12).toInt();
-        if (sensitivity >= 0 && sensitivity <= 255) {
-            _motion->setSensitivity((uint8_t)sensitivity);
-            Serial.printf("[MOTION BLE] ✓ Sensitivity set: %d\n", sensitivity);
+    } else if (command.startsWith("quality ")) {
+        // Comando: "quality 128"
+        int quality = command.substring(8).toInt();
+        if (quality >= 0 && quality <= 255) {
+            _motion->setQuality((uint8_t)quality);
+            Serial.printf("[MOTION BLE] ✓ Quality set: %d\n", quality);
         } else {
-            Serial.printf("[MOTION BLE] ✗ Invalid sensitivity: %d (must be 0-255)\n", sensitivity);
+            Serial.printf("[MOTION BLE] ✗ Invalid quality: %d (must be 0-255)\n", quality);
+        }
+
+    } else if (command.startsWith("motionmin ")) {
+        int minIntensity = command.substring(10).toInt();
+        if (minIntensity >= 0 && minIntensity <= 255) {
+            _motion->setMotionIntensityThreshold((uint8_t)minIntensity);
+            Serial.printf("[MOTION BLE] ✓ Motion intensity min set: %d\n", minIntensity);
+        } else {
+            Serial.printf("[MOTION BLE] ✗ Invalid motionmin: %d (must be 0-255)\n", minIntensity);
+        }
+
+    } else if (command.startsWith("speedmin ")) {
+        float minSpeed = command.substring(9).toFloat();
+        if (minSpeed >= 0.0f && minSpeed <= 20.0f) {
+            _motion->setMotionSpeedThreshold(minSpeed);
+            Serial.printf("[MOTION BLE] ✓ Motion speed min set: %.2f\n", minSpeed);
+        } else {
+            Serial.printf("[MOTION BLE] ✗ Invalid speedmin: %.2f (must be 0-20)\n", minSpeed);
         }
 
     } else {
@@ -372,7 +393,8 @@ void BLEMotionService::ConfigCallbacks::onWrite(BLECharacteristic* pCharacterist
     std::string value = pCharacteristic->getValue();
     if (value.length() == 0) return;
 
-    // Parse JSON payload: {"enabled": bool, "sensitivity": 0-255}
+    // Parse JSON payload: {"enabled": bool, "quality": 0-255,
+    // "motionIntensityMin": 0-255, "motionSpeedMin": 0-20}
     JsonDocument doc;
     DeserializationError error = deserializeJson(doc, value.c_str());
 
@@ -382,13 +404,27 @@ void BLEMotionService::ConfigCallbacks::onWrite(BLECharacteristic* pCharacterist
     }
 
     bool enabled = doc["enabled"] | _service->_motionEnabled;
-    uint8_t sensitivity = doc["sensitivity"] | _service->_motion->getSensitivity();
+    const bool hasQuality = doc.containsKey("quality");
+    const bool hasMotionIntensity = doc.containsKey("motionIntensityMin");
+    const bool hasMotionSpeed = doc.containsKey("motionSpeedMin");
 
-    Serial.printf("[MOTION BLE] Config update: enabled=%s, sensitivity=%u\n",
-                  enabled ? "true" : "false", sensitivity);
+    uint8_t quality = doc["quality"] | _service->_motion->getQuality();
+    uint8_t motionIntensityMin = doc["motionIntensityMin"] | _service->_motion->getMotionIntensityThreshold();
+    float motionSpeedMin = doc["motionSpeedMin"] | _service->_motion->getMotionSpeedThreshold();
+
+    Serial.printf("[MOTION BLE] Config update: enabled=%s, quality=%u, motionMin=%u, speedMin=%.2f\n",
+                  enabled ? "true" : "false", quality, motionIntensityMin, motionSpeedMin);
 
     _service->_motionEnabled = enabled;
-    _service->_motion->setSensitivity(sensitivity);
+    if (hasQuality) {
+        _service->_motion->setQuality(quality);
+    }
+    if (hasMotionIntensity) {
+        _service->_motion->setMotionIntensityThreshold(motionIntensityMin);
+    }
+    if (hasMotionSpeed) {
+        _service->_motion->setMotionSpeedThreshold(motionSpeedMin);
+    }
 
     // Aggiorna characteristic con nuovo stato
     String response = _service->_getConfigJson();

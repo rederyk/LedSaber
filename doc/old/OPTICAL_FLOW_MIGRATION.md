@@ -291,9 +291,9 @@ public:
 
     /**
      * @brief Configura sensibilità
-     * @param sensitivity 0-255 (0=insensibile, 255=molto sensibile)
+     * @param quality 0-255 (0=rigido, 255=molto permissivo)
      */
-    void setSensitivity(uint8_t sensitivity);
+    void setQuality(uint8_t quality);
 
     /**
      * @brief Reset stato detector

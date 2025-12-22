@@ -188,7 +188,7 @@ cam status        # Mostra stato camera
 motion enable     # Abilita motion detection
 motion disable    # Disabilita motion detection
 motion status     # Mostra stato dettagliato
-motion sensitivity <0-255>  # Imposta sensibilità
+motion quality <0-255>  # Imposta qualita'
 ```
 
 #### 🆘 Other

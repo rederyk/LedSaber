@@ -178,7 +178,7 @@ Implementare un sistema di motion detection leggero usando la camera ESP32-CAM p
 ### 9.2 Comandi CLI Motion
 - [ ] `motion status` - mostra stato motion detection
 - [ ] `motion enable/disable` - toggle motion control
-- [ ] `motion sensitivity <0-255>` - imposta sensibilità
+- [ ] `motion quality <0-255>` - imposta qualita'
 - [ ] `motion triggers` - mostra mapping motion→effect
 - [ ] `motion calibrate` - calibrazione interattiva
 

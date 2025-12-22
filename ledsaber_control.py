@@ -676,7 +676,7 @@ class LedSaberClient:
     # ========================================================================
 
     async def motion_send_command(self, command: str):
-        """Invia comando al motion detector (enable, disable, reset, sensitivity <val>)"""
+        """Invia comando al motion detector (enable, disable, reset, quality <val>)"""
         if not self.client or not self.client.is_connected:
             print(f"{Colors.RED}✗ Non connesso{Colors.RESET}")
             return
@@ -710,7 +710,8 @@ class LedSaberClient:
             print(f"{Colors.RED}✗ Errore lettura motion config: {e}{Colors.RESET}")
             return {}
 
-    async def set_motion_config(self, enabled: bool = None, sensitivity: int = None):
+    async def set_motion_config(self, enabled: bool = None, quality: int = None,
+                                motion_intensity_min: int = None, motion_speed_min: float = None):
         """Imposta configurazione motion detector"""
         if not self.client or not self.client.is_connected:
             print(f"{Colors.RED}✗ Non connesso{Colors.RESET}")
@@ -719,8 +720,12 @@ class LedSaberClient:
         config = {}
         if enabled is not None:
             config["enabled"] = enabled
-        if sensitivity is not None:
-            config["sensitivity"] = max(0, min(255, int(sensitivity)))
+        if quality is not None:
+            config["quality"] = max(0, min(255, int(quality)))
+        if motion_intensity_min is not None:
+            config["motionIntensityMin"] = max(0, min(255, int(motion_intensity_min)))
+        if motion_speed_min is not None:
+            config["motionSpeedMin"] = max(0.0, float(motion_speed_min))
 
         if not config:
             print(f"{Colors.YELLOW}⚠ Nessun parametro per motion config{Colors.RESET}")
@@ -894,7 +899,9 @@ class InteractiveCLI:
   {Colors.MAGENTA}motion disable{Colors.RESET}       - Disabilita motion detection
   {Colors.MAGENTA}motion status{Colors.RESET}        - Mostra stato motion detector
   {Colors.MAGENTA}motion config{Colors.RESET}        - Mostra configurazione
-  {Colors.MAGENTA}motion sensitivity <0-255>{Colors.RESET} - Imposta sensibilità
+  {Colors.MAGENTA}motion quality <0-255>{Colors.RESET} - Imposta qualità
+  {Colors.MAGENTA}motion motionmin <0-255>{Colors.RESET}  - Soglia intensità motion attivo
+  {Colors.MAGENTA}motion speedmin <0-20>{Colors.RESET}    - Soglia velocità (px/frame)
   {Colors.MAGENTA}motion reset{Colors.RESET}         - Reset statistiche motion
 
   {Colors.BOLD}⚡ DEVICE CONTROL COMMANDS:{Colors.RESET}
@@ -1240,7 +1247,7 @@ class InteractiveCLI:
                 # Gestione comandi motion detection
                 if not args:
                     print(f"{Colors.RED}✗ Uso: motion <comando>{Colors.RESET}")
-                    print(f"{Colors.YELLOW}💡 Comandi: enable, disable, status, config, sensitivity, reset{Colors.RESET}")
+                    print(f"{Colors.YELLOW}💡 Comandi: enable, disable, status, config, quality, motionmin, speedmin, reset{Colors.RESET}")
                     return
 
                 subcmd = args[0].lower()
@@ -1301,23 +1308,57 @@ class InteractiveCLI:
                     if config:
                         print(f"\n{Colors.BOLD}⚙️  Motion Config:{Colors.RESET}")
                         print(f"  Enabled: {config.get('enabled', False)}")
-                        print(f"  Sensitivity: {config.get('sensitivity', 128)}")
+                        print(f"  Quality: {config.get('quality', 128)}")
+                        print(f"  MotionIntensityMin: {config.get('motionIntensityMin', 15)}")
+                        print(f"  MotionSpeedMin: {config.get('motionSpeedMin', 1.2)}")
                     else:
                         print(f"{Colors.YELLOW}⚠ Nessun dato disponibile{Colors.RESET}")
 
-                elif subcmd == "sensitivity":
+                elif subcmd == "quality":
                     if len(args) < 2:
-                        print(f"{Colors.RED}✗ Uso: motion sensitivity <0-255>{Colors.RESET}")
+                        print(f"{Colors.RED}✗ Uso: motion quality <0-255>{Colors.RESET}")
                         return
 
                     try:
-                        sensitivity = int(args[1])
-                        if 0 <= sensitivity <= 255:
-                            await self.client.motion_send_command(f"sensitivity {sensitivity}")
+                        quality = int(args[1])
+                        if 0 <= quality <= 255:
+                            await self.client.motion_send_command(f"quality {quality}")
                             await asyncio.sleep(0.5)
-                            print(f"{Colors.GREEN}✓ Sensitivity impostata: {sensitivity}{Colors.RESET}")
+                            print(f"{Colors.GREEN}✓ Quality impostata: {quality}{Colors.RESET}")
                         else:
                             print(f"{Colors.RED}✗ Valore deve essere tra 0 e 255{Colors.RESET}")
+                    except ValueError:
+                        print(f"{Colors.RED}✗ Valore non valido{Colors.RESET}")
+
+                elif subcmd == "motionmin":
+                    if len(args) < 2:
+                        print(f"{Colors.RED}✗ Uso: motion motionmin <0-255>{Colors.RESET}")
+                        return
+
+                    try:
+                        min_intensity = int(args[1])
+                        if 0 <= min_intensity <= 255:
+                            await self.client.motion_send_command(f"motionmin {min_intensity}")
+                            await asyncio.sleep(0.5)
+                            print(f"{Colors.GREEN}✓ Motion intensity min impostata: {min_intensity}{Colors.RESET}")
+                        else:
+                            print(f"{Colors.RED}✗ Valore deve essere tra 0 e 255{Colors.RESET}")
+                    except ValueError:
+                        print(f"{Colors.RED}✗ Valore non valido{Colors.RESET}")
+
+                elif subcmd == "speedmin":
+                    if len(args) < 2:
+                        print(f"{Colors.RED}✗ Uso: motion speedmin <0-20>{Colors.RESET}")
+                        return
+
+                    try:
+                        min_speed = float(args[1])
+                        if 0.0 <= min_speed <= 20.0:
+                            await self.client.motion_send_command(f"speedmin {min_speed}")
+                            await asyncio.sleep(0.5)
+                            print(f"{Colors.GREEN}✓ Motion speed min impostata: {min_speed:.2f}{Colors.RESET}")
+                        else:
+                            print(f"{Colors.RED}✗ Valore deve essere tra 0 e 20{Colors.RESET}")
                     except ValueError:
                         print(f"{Colors.RED}✗ Valore non valido{Colors.RESET}")
 
@@ -1328,7 +1369,7 @@ class InteractiveCLI:
 
                 else:
                     print(f"{Colors.RED}✗ Comando motion sconosciuto: {subcmd}{Colors.RESET}")
-                    print(f"{Colors.YELLOW}💡 Comandi: enable, disable, status, config, sensitivity, reset{Colors.RESET}")
+                    print(f"{Colors.YELLOW}💡 Comandi: enable, disable, status, config, quality, motionmin, speedmin, reset{Colors.RESET}")
 
             # ================================================================
             # DEVICE CONTROL COMMANDS

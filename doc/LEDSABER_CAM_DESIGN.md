@@ -403,7 +403,7 @@ void loop() {
 
 ### Phase 6: Testing & Polish (2 ore)
 14. Test end-to-end con lightsaber fisica
-15. Tuning sensitivity e thresholds
+15. Tuning quality e thresholds
 16. Documentazione finale
 
 **Totale stimato**: 9-13 ore di sviluppo attivo

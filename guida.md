@@ -108,7 +108,7 @@ color <r> <g> <b>
 effect <mode> [speed]
 brightness <val>
 cam <init|start|stop|status>
-motion <enable|disable|status|sensitivity N>
+motion <enable|disable|status|quality N>
 effects
 ```
 

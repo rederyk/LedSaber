@@ -12,9 +12,11 @@ OpticalFlowDetector::OpticalFlowDetector()
     , _searchStep(5)         // Step largo: 5×5=25 posizioni (uguale a prima, ma range maggiore)
     , _minConfidence(30)     // Aumentato per filtrare vettori deboli
     , _minActiveBlocks(4)    // Aumentato: richiede più coerenza spaziale (almeno 4 blocchi)
-    , _sensitivity(160)      // Default: bilanciato (meno rumore)
+    , _quality(160)      // Default: bilanciato (meno rumore)
     , _directionMagnitudeThreshold(2.0f)
     , _minCentroidWeight(100.0f)
+    , _motionIntensityThreshold(15)
+    , _motionSpeedThreshold(1.2f)
     , _hasPreviousFrame(false)
     , _motionActive(false)
     , _motionIntensity(0)
@@ -106,8 +108,8 @@ bool OpticalFlowDetector::begin(uint16_t frameWidth, uint16_t frameHeight) {
     _initialized = true;
     _hasPreviousFrame = false;
 
-    // Applica default sensitivity (o quella impostata via BLE prima della init)
-    setSensitivity(_sensitivity);
+    // Applica qualità default (o quella impostata via BLE prima della init)
+    setQuality(_quality);
 
     Serial.println("[OPTICAL FLOW] Initialized successfully!");
     Serial.printf("[OPTICAL FLOW] Search range: ±%d px, step: %d px\n",
@@ -404,7 +406,7 @@ void OpticalFlowDetector::_calculateGlobalMotion() {
 
     // Soglie globali (stabili, poco rumore)
     // Aumentata soglia intensità da 8 a 15 per tagliare il rumore di fondo
-    _motionActive = (_motionIntensity > 15 && _motionSpeed > 1.2f);
+    _motionActive = (_motionIntensity > _motionIntensityThreshold && _motionSpeed > _motionSpeedThreshold);
 }
 
 void OpticalFlowDetector::_calculateCentroid() {
@@ -562,16 +564,27 @@ void OpticalFlowDetector::_updateFlashIntensity() {
     }
 }
 
-void OpticalFlowDetector::setSensitivity(uint8_t sensitivity) {
-    _sensitivity = sensitivity;
+void OpticalFlowDetector::setQuality(uint8_t quality) {
+    _quality = quality;
 
-    // Sensitivity alta -> confidence threshold più basso e meno blocchi richiesti.
+    // Qualità alta -> confidence threshold più basso e meno blocchi richiesti.
     // Manteniamo soglie globali di motion stabili per non introdurre rumore.
-    _minConfidence = (uint8_t)map(sensitivity, 0, 255, 80, 30);
-    _minActiveBlocks = (uint8_t)map(sensitivity, 0, 255, 10, 4);
+    _minConfidence = (uint8_t)map(quality, 0, 255, 80, 30);
+    _minActiveBlocks = (uint8_t)map(quality, 0, 255, 10, 4);
 
-    Serial.printf("[OPTICAL FLOW] Sensitivity updated: %u (minConf: %u, minBlocks: %u)\n",
-                  _sensitivity, _minConfidence, _minActiveBlocks);
+    Serial.printf("[OPTICAL FLOW] Quality updated: %u (minConf: %u, minBlocks: %u)\n",
+                  _quality, _minConfidence, _minActiveBlocks);
+}
+
+void OpticalFlowDetector::setMotionIntensityThreshold(uint8_t threshold) {
+    _motionIntensityThreshold = (uint8_t)constrain(threshold, 0, 255);
+    Serial.printf("[OPTICAL FLOW] Motion intensity threshold set: %u\n", _motionIntensityThreshold);
+}
+
+void OpticalFlowDetector::setMotionSpeedThreshold(float threshold) {
+    if (threshold < 0.0f) threshold = 0.0f;
+    _motionSpeedThreshold = threshold;
+    Serial.printf("[OPTICAL FLOW] Motion speed threshold set: %.2f\n", _motionSpeedThreshold);
 }
 
 void OpticalFlowDetector::reset() {
