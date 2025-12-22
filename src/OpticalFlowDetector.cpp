@@ -10,8 +10,8 @@ OpticalFlowDetector::OpticalFlowDetector()
     , _previousFrame(nullptr)
     , _searchRange(10)       // Compromesso: copre ~25px movimento (era 6, tentato 12)
     , _searchStep(5)         // Step largo: 5×5=25 posizioni (uguale a prima, ma range maggiore)
-    , _minConfidence(25)     // Abbassato da 35 a 25 per bassa velocità (5fps)
-    , _minActiveBlocks(2)    // Ridotto da 3 a 2 per maggiore sensibilità a 5fps
+    , _minConfidence(30)     // Aumentato per filtrare vettori deboli
+    , _minActiveBlocks(4)    // Aumentato: richiede più coerenza spaziale (almeno 4 blocchi)
     , _sensitivity(160)      // Default: bilanciato (meno rumore)
     , _directionMagnitudeThreshold(2.0f)
     , _minCentroidWeight(100.0f)
@@ -44,6 +44,37 @@ OpticalFlowDetector::~OpticalFlowDetector() {
         _previousFrame = nullptr;
     }
     _initialized = false;
+}
+
+// Helper statico per calcolare la mappa dei bordi (Gradient Magnitude)
+// Questo evidenzia solo i contorni e ignora le aree piatte/uniformi
+static void computeEdgeImage(const uint8_t* src, uint8_t* dst, uint16_t width, uint16_t height) {
+    // Pulisci il buffer (bordi a 0)
+    memset(dst, 0, width * height);
+    
+    const int threshold = 50; // SOGLIA RUMORE: Aumentata per evitare falsi positivi da rumore sensore
+    
+    // Calcola gradiente per ogni pixel (esclusi i bordi estremi)
+    for (uint16_t y = 0; y < height - 1; y++) {
+        const uint8_t* rowPtr = src + y * width;
+        const uint8_t* nextRowPtr = src + (y + 1) * width;
+        uint8_t* dstPtr = dst + y * width;
+        
+        for (uint16_t x = 0; x < width - 1; x++) {
+            // Gradiente semplice (Manhattan): |dx| + |dy|
+            int dx = abs((int)rowPtr[x] - (int)rowPtr[x+1]);
+            int dy = abs((int)rowPtr[x] - (int)nextRowPtr[x]);
+            int mag = dx + dy;
+            
+            // Applica soglia e amplifica i bordi reali
+            if (mag < threshold) {
+                dstPtr[x] = 0;
+            } else {
+                // Saturazione a 255
+                dstPtr[x] = (mag > 255) ? 255 : (uint8_t)mag;
+            }
+        }
+    }
 }
 
 bool OpticalFlowDetector::begin(uint16_t frameWidth, uint16_t frameHeight) {
@@ -100,9 +131,19 @@ bool OpticalFlowDetector::processFrame(const uint8_t* frameBuffer, size_t frameL
     unsigned long startTime = millis();
     _totalFramesProcessed++;
 
+    // 1. Alloca buffer temporaneo per i bordi (in PSRAM per velocità/spazio)
+    uint8_t* edgeFrame = (uint8_t*)heap_caps_malloc(_frameSize, MALLOC_CAP_SPIRAM);
+    if (!edgeFrame) {
+        Serial.println("[OPTICAL FLOW ERROR] Failed to allocate edge buffer!");
+        return false;
+    }
+
+    // 2. Calcola i bordi dal frame grezzo
+    computeEdgeImage(frameBuffer, edgeFrame, _frameWidth, _frameHeight);
+
     // Primo frame: inizializza previous e non rilevare motion
     if (!_hasPreviousFrame) {
-        memcpy(_previousFrame, frameBuffer, _frameSize);
+        memcpy(_previousFrame, edgeFrame, _frameSize); // Salva i bordi, non il raw
         _hasPreviousFrame = true;
         _motionActive = false;
         _motionIntensity = 0;
@@ -111,18 +152,22 @@ bool OpticalFlowDetector::processFrame(const uint8_t* frameBuffer, size_t frameL
         _motionConfidence = 0.0f;
         _activeBlocks = 0;
         _frameDiffAvg = 0;
+        heap_caps_free(edgeFrame);
         return false;
     }
 
     // Calcola luminosità media per auto flash
+    // NOTA: Usiamo frameBuffer (raw) per la luminosità, è corretto
     _avgBrightness = _calculateAverageBrightness(frameBuffer);
     _updateFlashIntensity();
 
     // Frame diff (fallback per occlusioni / scene change)
-    _frameDiffAvg = _calculateFrameDiffAvg(frameBuffer);
+    // NOTA: Usiamo edgeFrame per confrontare bordi correnti vs bordi precedenti
+    _frameDiffAvg = _calculateFrameDiffAvg(edgeFrame);
 
     // Calcola optical flow
-    _computeOpticalFlow(frameBuffer);
+    // NOTA: Usiamo edgeFrame. _computeOpticalFlow confronterà edgeFrame con _previousFrame (che contiene i bordi precedenti)
+    _computeOpticalFlow(edgeFrame);
 
     // Filtra outliers
     _filterOutliers();
@@ -145,7 +190,11 @@ bool OpticalFlowDetector::processFrame(const uint8_t* frameBuffer, size_t frameL
     }
 
     // Copia frame corrente in previous
-    memcpy(_previousFrame, frameBuffer, _frameSize);
+    // Salviamo i bordi per il prossimo confronto
+    memcpy(_previousFrame, edgeFrame, _frameSize);
+
+    // Libera memoria temporanea
+    heap_caps_free(edgeFrame);
 
     // Aggiorna metriche timing
     unsigned long computeTime = millis() - startTime;
@@ -329,7 +378,8 @@ void OpticalFlowDetector::_calculateGlobalMotion() {
     _motionIntensity = (uint8_t)(normalizedSpeed * _motionConfidence * 255.0f);
 
     // Soglie globali (stabili, poco rumore)
-    _motionActive = (_motionIntensity > 8 && _motionSpeed > 0.8f);
+    // Aumentata soglia intensità da 8 a 15 per tagliare il rumore di fondo
+    _motionActive = (_motionIntensity > 15 && _motionSpeed > 1.2f);
 }
 
 void OpticalFlowDetector::_calculateCentroid() {
@@ -492,8 +542,8 @@ void OpticalFlowDetector::setSensitivity(uint8_t sensitivity) {
 
     // Sensitivity alta -> confidence threshold più basso e meno blocchi richiesti.
     // Manteniamo soglie globali di motion stabili per non introdurre rumore.
-    _minConfidence = (uint8_t)map(sensitivity, 0, 255, 80, 25);
-    _minActiveBlocks = (uint8_t)map(sensitivity, 0, 255, 8, 2);
+    _minConfidence = (uint8_t)map(sensitivity, 0, 255, 80, 30);
+    _minActiveBlocks = (uint8_t)map(sensitivity, 0, 255, 10, 4);
 
     Serial.printf("[OPTICAL FLOW] Sensitivity updated: %u (minConf: %u, minBlocks: %u)\n",
                   _sensitivity, _minConfidence, _minActiveBlocks);
