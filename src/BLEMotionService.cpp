@@ -141,16 +141,15 @@ void BLEMotionService::notifyEvent(const String& eventType, bool includeGesture)
         doc["gestureTimestamp"] = 0;
     }
 
-    String output;
-    serializeJson(doc, output);
-
-    _pCharEvents->setValue(output.c_str());
+    char buffer[512];
+    size_t n = serializeJson(doc, buffer, sizeof(buffer));
+    _pCharEvents->setValue((uint8_t*)buffer, n);
     _pCharEvents->notify();
 
     _lastEventTime = now;
 
     Serial.printf("[MOTION BLE] Event notified: %s (len=%u)\n",
-                  eventType.c_str(), (unsigned)output.length());
+                  eventType.c_str(), (unsigned)n);
     logMotionStats("notify sent");
 }
 
@@ -224,99 +223,36 @@ String BLEMotionService::_getStatusJson() {
     JsonDocument doc;
     OpticalFlowDetector::Metrics metrics = _motion->getMetrics();
 
-    auto rotateDirectionCW = [](OpticalFlowDetector::Direction dir, uint16_t degrees) -> OpticalFlowDetector::Direction {
-        switch (degrees % 360) {
-            case 0:
-                return dir;
-            case 90:
-                switch (dir) {
-                    case OpticalFlowDetector::Direction::UP:         return OpticalFlowDetector::Direction::RIGHT;
-                    case OpticalFlowDetector::Direction::UP_RIGHT:   return OpticalFlowDetector::Direction::DOWN_RIGHT;
-                    case OpticalFlowDetector::Direction::RIGHT:      return OpticalFlowDetector::Direction::DOWN;
-                    case OpticalFlowDetector::Direction::DOWN_RIGHT: return OpticalFlowDetector::Direction::DOWN_LEFT;
-                    case OpticalFlowDetector::Direction::DOWN:       return OpticalFlowDetector::Direction::LEFT;
-                    case OpticalFlowDetector::Direction::DOWN_LEFT:  return OpticalFlowDetector::Direction::UP_LEFT;
-                    case OpticalFlowDetector::Direction::LEFT:       return OpticalFlowDetector::Direction::UP;
-                    case OpticalFlowDetector::Direction::UP_LEFT:    return OpticalFlowDetector::Direction::UP_RIGHT;
-                    default: return dir;
-                }
-            case 180:
-                switch (dir) {
-                    case OpticalFlowDetector::Direction::UP:         return OpticalFlowDetector::Direction::DOWN;
-                    case OpticalFlowDetector::Direction::UP_RIGHT:   return OpticalFlowDetector::Direction::DOWN_LEFT;
-                    case OpticalFlowDetector::Direction::RIGHT:      return OpticalFlowDetector::Direction::LEFT;
-                    case OpticalFlowDetector::Direction::DOWN_RIGHT: return OpticalFlowDetector::Direction::UP_LEFT;
-                    case OpticalFlowDetector::Direction::DOWN:       return OpticalFlowDetector::Direction::UP;
-                    case OpticalFlowDetector::Direction::DOWN_LEFT:  return OpticalFlowDetector::Direction::UP_RIGHT;
-                    case OpticalFlowDetector::Direction::LEFT:       return OpticalFlowDetector::Direction::RIGHT;
-                    case OpticalFlowDetector::Direction::UP_LEFT:    return OpticalFlowDetector::Direction::DOWN_RIGHT;
-                    default: return dir;
-                }
-            case 270:
-                switch (dir) {
-                    case OpticalFlowDetector::Direction::UP:         return OpticalFlowDetector::Direction::LEFT;
-                    case OpticalFlowDetector::Direction::UP_RIGHT:   return OpticalFlowDetector::Direction::UP_LEFT;
-                    case OpticalFlowDetector::Direction::RIGHT:      return OpticalFlowDetector::Direction::UP;
-                    case OpticalFlowDetector::Direction::DOWN_RIGHT: return OpticalFlowDetector::Direction::UP_RIGHT;
-                    case OpticalFlowDetector::Direction::DOWN:       return OpticalFlowDetector::Direction::RIGHT;
-                    case OpticalFlowDetector::Direction::DOWN_LEFT:  return OpticalFlowDetector::Direction::DOWN_RIGHT;
-                    case OpticalFlowDetector::Direction::LEFT:       return OpticalFlowDetector::Direction::DOWN;
-                    case OpticalFlowDetector::Direction::UP_LEFT:    return OpticalFlowDetector::Direction::DOWN_LEFT;
-                    default: return dir;
-                }
-            default:
-                return dir;
+    auto rotateDirection90CW = [](OpticalFlowDetector::Direction dir) -> OpticalFlowDetector::Direction {
+        switch (dir) {
+            case OpticalFlowDetector::Direction::UP:         return OpticalFlowDetector::Direction::RIGHT;
+            case OpticalFlowDetector::Direction::UP_RIGHT:   return OpticalFlowDetector::Direction::DOWN_RIGHT;
+            case OpticalFlowDetector::Direction::RIGHT:      return OpticalFlowDetector::Direction::DOWN;
+            case OpticalFlowDetector::Direction::DOWN_RIGHT: return OpticalFlowDetector::Direction::DOWN_LEFT;
+            case OpticalFlowDetector::Direction::DOWN:       return OpticalFlowDetector::Direction::LEFT;
+            case OpticalFlowDetector::Direction::DOWN_LEFT:  return OpticalFlowDetector::Direction::UP_LEFT;
+            case OpticalFlowDetector::Direction::LEFT:       return OpticalFlowDetector::Direction::UP;
+            case OpticalFlowDetector::Direction::UP_LEFT:    return OpticalFlowDetector::Direction::UP_RIGHT;
+            default: return dir;
         }
     };
 
-    auto rotateTagCW = [](char tag, uint16_t degrees) -> char {
-        switch (degrees % 360) {
-            case 0:
-                return tag;
-            case 90:
-                switch (tag) {
-                    case '^': return '>';
-                    case '>': return 'v';
-                    case 'v': return '<';
-                    case '<': return '^';
-                    case 'A': return 'C'; // up-right -> down-right
-                    case 'C': return 'D'; // down-right -> down-left
-                    case 'D': return 'B'; // down-left -> up-left
-                    case 'B': return 'A'; // up-left -> up-right
-                    default: return tag;
-                }
-            case 180:
-                switch (tag) {
-                    case '^': return 'v';
-                    case '>': return '<';
-                    case 'v': return '^';
-                    case '<': return '>';
-                    case 'A': return 'D'; // up-right -> down-left
-                    case 'C': return 'B'; // down-right -> up-left
-                    case 'D': return 'A'; // down-left -> up-right
-                    case 'B': return 'C'; // up-left -> down-right
-                    default: return tag;
-                }
-            case 270:
-                switch (tag) {
-                    case '^': return '<';
-                    case '>': return '^';
-                    case 'v': return '>';
-                    case '<': return 'v';
-                    case 'A': return 'B'; // up-right -> up-left
-                    case 'C': return 'A'; // down-right -> up-right
-                    case 'D': return 'C'; // down-left -> down-right
-                    case 'B': return 'D'; // up-left -> down-left
-                    default: return tag;
-                }
-            default:
-                return tag;
+    auto rotateTag90CW = [](char tag) -> char {
+        switch (tag) {
+            case '^': return '>';
+            case '>': return 'v';
+            case 'v': return '<';
+            case '<': return '^';
+            case 'A': return 'C'; // up-right -> down-right
+            case 'C': return 'D'; // down-right -> down-left
+            case 'D': return 'B'; // down-left -> up-left
+            case 'B': return 'A'; // up-left -> up-right
+            default: return tag;
         }
     };
 
     doc["enabled"] = _motionEnabled;
     doc["motionDetected"] = _wasMotionActive;
-    doc["quality"] = _motion->getQuality();
     doc["intensity"] = metrics.currentIntensity;
     doc["avgBrightness"] = metrics.avgBrightness;
     doc["flashIntensity"] = metrics.flashIntensity;
@@ -327,7 +263,7 @@ String BLEMotionService::_getStatusJson() {
 
     // NUOVI campi optical flow
     // Rotate for display to match gesture reference (main.cpp rotates motion direction before gesture processing)
-    doc["direction"] = OpticalFlowDetector::directionToString(rotateDirectionCW(metrics.dominantDirection, 180));
+    doc["direction"] = OpticalFlowDetector::directionToString(rotateDirection90CW(metrics.dominantDirection));
     doc["speed"] = round(metrics.avgSpeed * 10.0f) / 10.0f;  // 1 decimal
     doc["confidence"] = round(metrics.avgConfidence * 100.0f);  // 0-100%
     doc["activeBlocks"] = metrics.avgActiveBlocks;
@@ -347,19 +283,21 @@ String BLEMotionService::_getStatusJson() {
         doc["gestureTimestamp"] = 0;
     }
 
-    // 6x6 grid tags for quick visualization via BLE
+    // 8x6 grid tags for quick visualization via BLE
     doc["gridRows"] = OpticalFlowDetector::GRID_ROWS;
     doc["gridCols"] = OpticalFlowDetector::GRID_COLS;
     doc["blockSize"] = OpticalFlowDetector::BLOCK_SIZE;
     JsonArray gridArray = doc["grid"].to<JsonArray>();
+    
+    char rowBuf[OpticalFlowDetector::GRID_COLS + 1];
+    rowBuf[OpticalFlowDetector::GRID_COLS] = '\0';
+
     for (uint8_t row = 0; row < OpticalFlowDetector::GRID_ROWS; row++) {
-        String rowStr;
-        rowStr.reserve(OpticalFlowDetector::GRID_COLS);
         for (uint8_t col = 0; col < OpticalFlowDetector::GRID_COLS; col++) {
             const char tag = _motion->getBlockDirectionTag(row, col);
-            rowStr += rotateTagCW(tag, 180);
+            rowBuf[col] = rotateTag90CW(tag);
         }
-        gridArray.add(rowStr);
+        gridArray.add(rowBuf);
     }
 
     // NON includere trajectory nello status (troppo grande per BLE notification)
@@ -374,15 +312,7 @@ String BLEMotionService::_getConfigJson() {
     JsonDocument doc;
 
     doc["enabled"] = _motionEnabled;
-    doc["quality"] = _motion->getQuality();
-    doc["motionIntensityMin"] = _motion->getMotionIntensityThreshold();
-    doc["motionSpeedMin"] = _motion->getMotionSpeedThreshold();
-    if (_processor) {
-        const MotionProcessor::Config& cfg = _processor->getConfig();
-        doc["gestureIgnitionIntensity"] = cfg.ignitionIntensityThreshold;
-        doc["gestureRetractIntensity"] = cfg.retractIntensityThreshold;
-        doc["gestureClashIntensity"] = cfg.clashIntensityThreshold;
-    }
+    doc["sensitivity"] = _motion->getSensitivity();
 
     String output;
     serializeJson(doc, output);
@@ -406,32 +336,14 @@ void BLEMotionService::_executeCommand(const String& command) {
         _wasShakeDetected = false;
         Serial.println("[MOTION BLE] ✓ Motion detector reset");
 
-    } else if (command.startsWith("quality ")) {
-        // Comando: "quality 128"
-        int quality = command.substring(8).toInt();
-        if (quality >= 0 && quality <= 255) {
-            _motion->setQuality((uint8_t)quality);
-            Serial.printf("[MOTION BLE] ✓ Quality set: %d\n", quality);
+    } else if (command.startsWith("sensitivity ")) {
+        // Comando: "sensitivity 128"
+        int sensitivity = command.substring(12).toInt();
+        if (sensitivity >= 0 && sensitivity <= 255) {
+            _motion->setSensitivity((uint8_t)sensitivity);
+            Serial.printf("[MOTION BLE] ✓ Sensitivity set: %d\n", sensitivity);
         } else {
-            Serial.printf("[MOTION BLE] ✗ Invalid quality: %d (must be 0-255)\n", quality);
-        }
-
-    } else if (command.startsWith("motionmin ")) {
-        int minIntensity = command.substring(10).toInt();
-        if (minIntensity >= 0 && minIntensity <= 255) {
-            _motion->setMotionIntensityThreshold((uint8_t)minIntensity);
-            Serial.printf("[MOTION BLE] ✓ Motion intensity min set: %d\n", minIntensity);
-        } else {
-            Serial.printf("[MOTION BLE] ✗ Invalid motionmin: %d (must be 0-255)\n", minIntensity);
-        }
-
-    } else if (command.startsWith("speedmin ")) {
-        float minSpeed = command.substring(9).toFloat();
-        if (minSpeed >= 0.0f && minSpeed <= 20.0f) {
-            _motion->setMotionSpeedThreshold(minSpeed);
-            Serial.printf("[MOTION BLE] ✓ Motion speed min set: %.2f\n", minSpeed);
-        } else {
-            Serial.printf("[MOTION BLE] ✗ Invalid speedmin: %.2f (must be 0-20)\n", minSpeed);
+            Serial.printf("[MOTION BLE] ✗ Invalid sensitivity: %d (must be 0-255)\n", sensitivity);
         }
 
     } else {
@@ -461,8 +373,7 @@ void BLEMotionService::ConfigCallbacks::onWrite(BLECharacteristic* pCharacterist
     std::string value = pCharacteristic->getValue();
     if (value.length() == 0) return;
 
-    // Parse JSON payload: {"enabled": bool, "quality": 0-255,
-    // "motionIntensityMin": 0-255, "motionSpeedMin": 0-20}
+    // Parse JSON payload: {"enabled": bool, "sensitivity": 0-255}
     JsonDocument doc;
     DeserializationError error = deserializeJson(doc, value.c_str());
 
@@ -472,48 +383,13 @@ void BLEMotionService::ConfigCallbacks::onWrite(BLECharacteristic* pCharacterist
     }
 
     bool enabled = doc["enabled"] | _service->_motionEnabled;
-    const bool hasQuality = doc.containsKey("quality");
-    const bool hasMotionIntensity = doc.containsKey("motionIntensityMin");
-    const bool hasMotionSpeed = doc.containsKey("motionSpeedMin");
-    const bool hasIgnitionIntensity = doc.containsKey("gestureIgnitionIntensity");
-    const bool hasRetractIntensity = doc.containsKey("gestureRetractIntensity");
-    const bool hasClashIntensity = doc.containsKey("gestureClashIntensity");
+    uint8_t sensitivity = doc["sensitivity"] | _service->_motion->getSensitivity();
 
-    uint8_t quality = doc["quality"] | _service->_motion->getQuality();
-    uint8_t motionIntensityMin = doc["motionIntensityMin"] | _service->_motion->getMotionIntensityThreshold();
-    float motionSpeedMin = doc["motionSpeedMin"] | _service->_motion->getMotionSpeedThreshold();
-
-    Serial.printf("[MOTION BLE] Config update: enabled=%s, quality=%u, motionMin=%u, speedMin=%.2f\n",
-                  enabled ? "true" : "false", quality, motionIntensityMin, motionSpeedMin);
+    Serial.printf("[MOTION BLE] Config update: enabled=%s, sensitivity=%u\n",
+                  enabled ? "true" : "false", sensitivity);
 
     _service->_motionEnabled = enabled;
-    if (hasQuality) {
-        _service->_motion->setQuality(quality);
-    }
-    if (hasMotionIntensity) {
-        _service->_motion->setMotionIntensityThreshold(motionIntensityMin);
-    }
-    if (hasMotionSpeed) {
-        _service->_motion->setMotionSpeedThreshold(motionSpeedMin);
-    }
-    if (_service->_processor &&
-        (hasIgnitionIntensity || hasRetractIntensity || hasClashIntensity)) {
-        MotionProcessor::Config cfg = _service->_processor->getConfig();
-        if (hasIgnitionIntensity) {
-            cfg.ignitionIntensityThreshold = (uint8_t)constrain((int)doc["gestureIgnitionIntensity"], 0, 255);
-        }
-        if (hasRetractIntensity) {
-            cfg.retractIntensityThreshold = (uint8_t)constrain((int)doc["gestureRetractIntensity"], 0, 255);
-        }
-        if (hasClashIntensity) {
-            cfg.clashIntensityThreshold = (uint8_t)constrain((int)doc["gestureClashIntensity"], 0, 255);
-        }
-        _service->_processor->setConfig(cfg);
-        Serial.printf("[MOTION BLE] Gesture intensity update: ignition=%u retract=%u clash=%u\n",
-                      cfg.ignitionIntensityThreshold,
-                      cfg.retractIntensityThreshold,
-                      cfg.clashIntensityThreshold);
-    }
+    _service->_motion->setSensitivity(sensitivity);
 
     // Aggiorna characteristic con nuovo stato
     String response = _service->_getConfigJson();
