@@ -415,54 +415,43 @@ class OpticalFlowCanvas(Static):
         height = self.size.height or 40
 
         # Reserve space for borders/padding (riduciamo per massimizzare lo spazio)
-        # Horizontal: ~6 chars (border + padding)
-        usable_width = max(20, width - 6)
-        # Vertical: ~4 lines (border minimo)
-        usable_height = max(5, height - 4)
+        # Horizontal: ~2 chars (border + padding)
+        usable_width = max(10, width - 2)
+        # Vertical: ~2 lines (border minimo)
+        usable_height = max(4, height - 2)
 
         # I caratteri terminale sono più alti che larghi
         # Per proporzioni visive corrette: h_gap deve essere maggiore di v_gap
         # Tipicamente i caratteri hanno aspect ratio height/width ~ 2.0-2.5
         # Ma per compensare la spaziatura visiva usiamo un valore più alto
-        CHAR_ASPECT_RATIO = 3.5
+        CHAR_ASPECT_RATIO = 2.2
 
-        # Calcola il gap massimo possibile per ogni dimensione
+        # Calcola gap per riempire un'area QUADRATA basata sul lato più corto
         if grid_cols > 1:
             max_h_gap = (usable_width - grid_cols) // (grid_cols - 1)
         else:
-            max_h_gap = 1
+            max_h_gap = usable_width
 
         if grid_rows_count > 1:
             max_v_gap = (usable_height - grid_rows_count) // (grid_rows_count - 1)
         else:
-            max_v_gap = 1
+            max_v_gap = usable_height
 
-        # Calcola quale dimensione è più limitante considerando l'aspect ratio
-        # Se usiamo tutto lo spazio verticale, quanto h_gap avremmo bisogno?
-        needed_h_gap_for_max_v = int(max_v_gap * CHAR_ASPECT_RATIO)
+        # Usa tutta la larghezza disponibile e deriva la spaziatura verticale da quella orizzontale
+        h_gap = max(1, max_h_gap)
+        desired_cell_height = (1 + h_gap) / CHAR_ASPECT_RATIO
+        v_gap = max(0, int(round(desired_cell_height - 1)))
 
-        # Se usiamo tutto lo spazio orizzontale, quanto v_gap avremmo bisogno?
-        needed_v_gap_for_max_h = int(max_h_gap / CHAR_ASPECT_RATIO)
-
-        # Scegli l'opzione che massimizza l'uso dello spazio mantenendo le proporzioni
-        if needed_h_gap_for_max_v <= max_h_gap:
-            # Possiamo usare tutto lo spazio verticale
-            v_gap = max_v_gap
-            h_gap = needed_h_gap_for_max_v
-        else:
-            # Limitati dallo spazio orizzontale
-            h_gap = max_h_gap
-            v_gap = needed_v_gap_for_max_h
-
-        # Assicurati che non siano zero
-        v_gap = max(1, v_gap)
-        h_gap = max(1, h_gap)
+        # Clamp ai massimi disponibili in verticale
+        v_gap = min(v_gap, max_v_gap)
 
         cell_gap = " " * h_gap
-        row_gap = "\n" * v_gap if v_gap > 0 else ""
+        row_gap = "\n"
 
         grid_lines: List[str] = []
-        for i, row_str in enumerate(normalized_rows):
+        spacer_len = max(1, grid_cols + (grid_cols - 1) * h_gap)
+        spacer_line = " " * spacer_len
+        for idx, row_str in enumerate(normalized_rows):
             colored_cells = []
             for char in row_str:
                 color = symbol_colors.get(char, 'white')
@@ -471,14 +460,14 @@ class OpticalFlowCanvas(Static):
                 colored_cells.append(f"[{color}]{char}[/]")
             row_line = cell_gap.join(colored_cells)
             grid_lines.append(row_line)
-
-            # Aggiungi gap verticale tra le righe (ma non dopo l'ultima)
-            if i < len(normalized_rows) - 1 and v_gap > 0:
+            if idx < len(normalized_rows) - 1:
                 for _ in range(v_gap):
-                    grid_lines.append("")
+                    grid_lines.append(spacer_line)
 
-        grid_markup = "\n".join(grid_lines)
+        grid_markup = row_gap.join(grid_lines)
         grid_text = Text.from_markup(grid_markup)
+        grid_text.no_wrap = True
+        grid_text.overflow = "ignore"
 
         legend = Table.grid(expand=True, padding=0)
         legend.add_column(justify="left")
@@ -924,7 +913,7 @@ class SaberDashboard(App):
     #optical_flow {
         width: 100%;
         height: auto;
-        min-height: 15;
+        min-height: 22;
         margin: 0;
         padding: 1;
         border: round purple;
@@ -933,6 +922,7 @@ class SaberDashboard(App):
     #optical_canvas {
         width: 100%;
         height: auto;
+        min-height: 16;
         margin: 0;
         padding: 0;
     }
