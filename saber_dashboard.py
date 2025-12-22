@@ -437,13 +437,17 @@ class OpticalFlowCanvas(Static):
         else:
             max_v_gap = usable_height
 
-        # Usa tutta la larghezza disponibile e deriva la spaziatura verticale da quella orizzontale
-        h_gap = max(1, max_h_gap)
-        desired_cell_height = (1 + h_gap) / CHAR_ASPECT_RATIO
-        v_gap = max(0, int(round(desired_cell_height - 1)))
-
-        # Clamp ai massimi disponibili in verticale
-        v_gap = min(v_gap, max_v_gap)
+        # Usa lo spazio disponibile su entrambi gli assi e rispetta l'aspect ratio
+        h_gap_candidate = max(1, max_h_gap)
+        v_gap_candidate = max(0, max_v_gap)
+        v_gap_from_h = int(round((1 + h_gap_candidate) / CHAR_ASPECT_RATIO - 1))
+        if v_gap_from_h <= v_gap_candidate:
+            h_gap = h_gap_candidate
+            v_gap = max(0, v_gap_from_h)
+        else:
+            v_gap = v_gap_candidate
+            h_gap = int(round((1 + v_gap) * CHAR_ASPECT_RATIO - 1))
+            h_gap = max(1, min(h_gap, max_h_gap))
 
         cell_gap = " " * h_gap
         row_gap = "\n"
