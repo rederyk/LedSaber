@@ -69,10 +69,9 @@ MotionProcessor::GestureType MotionProcessor::_detectGesture(
 
     const bool clashOnCooldown = (timestamp < _clashCooldownEnd);
 
-    auto dirIsDownWide = [](OpticalFlowDetector::Direction dir) {
+    auto dirIsDown = [](OpticalFlowDetector::Direction dir) {
         using D = OpticalFlowDetector::Direction;
-        return (dir == D::DOWN || dir == D::DOWN_LEFT || dir == D::DOWN_RIGHT ||
-                dir == D::LEFT || dir == D::RIGHT);
+        return (dir == D::DOWN);
     };
     auto dirIsLeftRight = [](OpticalFlowDetector::Direction dir) {
         using D = OpticalFlowDetector::Direction;
@@ -96,7 +95,7 @@ MotionProcessor::GestureType MotionProcessor::_detectGesture(
         return GestureType::CLASH;
     }
 
-    if (dirIsDownWide(direction) &&
+    if (dirIsDown(direction) &&
         intensity >= retractIntensityThreshold)
     {
         _gestureCooldown = true;
