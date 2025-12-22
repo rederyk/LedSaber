@@ -4,7 +4,6 @@
 MotionProcessor::MotionProcessor() :
     _lastDirection(OpticalFlowDetector::Direction::NONE),
     _directionStartTime(0),
-    _lastFrameTime(0),
     _gestureCooldown(false),
     _gestureCooldownEnd(0),
     _clashCooldownEnd(0),
@@ -50,22 +49,14 @@ MotionProcessor::GestureType MotionProcessor::_detectGesture(
     uint32_t timestamp)
 {
     _lastGestureConfidence = 0;
+    (void)speed;
 
     auto max16 = [](uint16_t a, uint16_t b) { return (a > b) ? a : b; };
 
-    float normalizedSpeed = speed;
-    if (_lastFrameTime > 0 && timestamp > _lastFrameTime) {
-        const float dtMs = (float)(timestamp - _lastFrameTime);
-        normalizedSpeed = speed * (1000.0f / dtMs);
-    }
-    _lastFrameTime = timestamp;
-
     // Per-gesture thresholds (configurable via BLE)
     const uint8_t retractIntensityThreshold = _config.retractIntensityThreshold;
-    const float retractSpeedMax = _config.retractSpeedMax; // Slow movement = retract
 
     const uint8_t clashIntensityThreshold = _config.clashIntensityThreshold;
-    const float clashSpeedMin = _config.clashSpeedMin;   // Fast movement = clash
     const uint16_t clashCooldown = max16(_config.clashCooldownMs, (uint16_t)400);
 
     // Cooldown management: prevent gesture spam
@@ -90,7 +81,6 @@ MotionProcessor::GestureType MotionProcessor::_detectGesture(
 
     // "Cerchio a spicchi": giu' lento = retract, sinistra/destra veloce = clash
     if (dirIsLeftRight(direction) &&
-        normalizedSpeed >= clashSpeedMin &&
         intensity >= clashIntensityThreshold &&
         !clashOnCooldown)
     {
@@ -107,7 +97,6 @@ MotionProcessor::GestureType MotionProcessor::_detectGesture(
     }
 
     if (dirIsDownWide(direction) &&
-        normalizedSpeed <= retractSpeedMax &&
         intensity >= retractIntensityThreshold)
     {
         _gestureCooldown = true;
@@ -200,7 +189,6 @@ void MotionProcessor::_calculatePerturbationGrid(
 void MotionProcessor::reset() {
     _lastDirection = OpticalFlowDetector::Direction::NONE;
     _directionStartTime = 0;
-    _lastFrameTime = 0;
     _gestureCooldown = false;
     _gestureCooldownEnd = 0;
     _clashCooldownEnd = 0;

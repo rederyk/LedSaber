@@ -24,7 +24,7 @@
  * - STATUS (Read, Notify): Stato motion detector (intensità, movimento)
  * - CONTROL (Write): Comandi (enable, disable, reset, calibrate)
  * - EVENTS (Notify): Eventi motion (shake_detected, motion_started, motion_ended)
- * - CONFIG (Read/Write): Configurazione (quality, motionIntensityMin, motionSpeedMin, gesture intensities, gesture speeds)
+ * - CONFIG (Read/Write): Configurazione (quality, motionIntensityMin, motionSpeedMin, gesture intensities)
  */
 class BLEMotionService {
 public:

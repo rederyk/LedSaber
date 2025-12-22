@@ -1285,7 +1285,7 @@ class SaberDashboard(App):
             # === MOTION COMMANDS ===
             elif cmd == "motion":
                 if not args:
-                    self._log("Usage: motion <enable|disable|status|config|quality N|motionmin N|speedmin N|ignitionmin N|retractmin N|clashmin N|retractspeedmax N|clashspeedmin N>", "red")
+                    self._log("Usage: motion <enable|disable|status|config|quality N|motionmin N|speedmin N|ignitionmin N|retractmin N|clashmin N>", "red")
                     return
 
                 subcmd = args[0].lower()
@@ -1316,9 +1316,7 @@ class SaberDashboard(App):
                             f"speedMin={config.get('motionSpeedMin')} "
                             f"ignition={config.get('gestureIgnitionIntensity')} "
                             f"retract={config.get('gestureRetractIntensity')} "
-                            f"clash={config.get('gestureClashIntensity')} "
-                            f"retractSpeedMax={config.get('gestureRetractSpeedMax')} "
-                            f"clashSpeedMin={config.get('gestureClashSpeedMin')}",
+                            f"clash={config.get('gestureClashIntensity')}",
                             "cyan"
                         )
                     else:
@@ -1375,24 +1373,6 @@ class SaberDashboard(App):
                     self._set_motion_config_field("gestureClashIntensity", value)
                     self._log(f"Clash intensity min set: {value}", "green")
 
-                elif subcmd == "retractspeedmax":
-                    if len(args) < 2:
-                        self._log("Usage: motion retractspeedmax <0-20>", "red")
-                        return
-                    value = float(args[1])
-                    await self.client.set_motion_config(gesture_retract_speed_max=value)
-                    self._set_motion_config_field("gestureRetractSpeedMax", value)
-                    self._log(f"Retract speed max set: {value:.2f}", "green")
-
-                elif subcmd == "clashspeedmin":
-                    if len(args) < 2:
-                        self._log("Usage: motion clashspeedmin <0-20>", "red")
-                        return
-                    value = float(args[1])
-                    await self.client.set_motion_config(gesture_clash_speed_min=value)
-                    self._set_motion_config_field("gestureClashSpeedMin", value)
-                    self._log(f"Clash speed min set: {value:.2f}", "green")
-
                 else:
                     self._log(f"Unknown motion command: {subcmd}", "red")
 
@@ -1428,7 +1408,7 @@ class SaberDashboard(App):
             elif cmd == "help":
                 self._log("Commands: scan, connect, disconnect, color, effect, brightness, on, off", "cyan")
                 self._log("          chrono <hour_theme> <second_theme> - Set chrono themes (0-3 for hours, 0-5 for seconds)", "cyan")
-                self._log("          cam <init|start|stop|status>, motion <enable|disable|status|config|quality N|motionmin N|speedmin N|ignitionmin N|retractmin N|clashmin N|retractspeedmax N|clashspeedmin N>", "cyan")
+                self._log("          cam <init|start|stop|status>, motion <enable|disable|status|config|quality N|motionmin N|speedmin N|ignitionmin N|retractmin N|clashmin N>", "cyan")
                 self._log("          ignition, retract, reboot, sleep, effects", "cyan")
                 self._log("Shortcuts: Ctrl+S=scan, Ctrl+D=disconnect, F2=cam init, F3=start, F4=stop, F5=motion toggle", "cyan")
                 self._log("           F6=cycle hour theme, F7=cycle second theme, F8=ignition, F9=retract", "cyan")
@@ -1642,8 +1622,6 @@ class SaberDashboard(App):
                 "gestureIgnitionIntensity",
                 "gestureRetractIntensity",
                 "gestureClashIntensity",
-                "gestureRetractSpeedMax",
-                "gestureClashSpeedMin",
             ):
                 if key in self.motion_config:
                     merged[key] = self.motion_config[key]

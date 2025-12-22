@@ -36,18 +36,7 @@ Queste soglie agiscono sul detector, non sulle gesture.
 - gestureClashIntensity: intensita minima per CLASH.
 - gestureIgnitionIntensity: presente ma non usata per l'auto-ignition attuale.
 
-### Soglie gesture (velocita)
-
-- gestureRetractSpeedMax: velocita massima per RETRACT (movimento lento).
-- gestureClashSpeedMin: velocita minima per CLASH (movimento veloce).
-  Nota: queste soglie usano velocita normalizzata in px/secondo.
-
 ## Comandi BLE / CLI
-
-Valori tipici in px/secondo (0..20).
-
-- motion retractspeedmax <0-20>
-- motion clashspeedmin <0-20>
 
 Per le intensita (0..255):
 
@@ -63,9 +52,6 @@ Per le intensita (0..255):
 2) Taratura gesture:
    - Aumenta gestureRetractIntensity se il retract scatta troppo facile.
    - Aumenta gestureClashIntensity se il clash scatta troppo facile.
-   - Abbassa gestureRetractSpeedMax per rendere il retract piu "lento".
-   - Alza gestureClashSpeedMin per rendere il clash piu "rapido".
-
 3) Verifica:
    - Movimenti lenti verso il basso -> RETRACT.
    - Movimenti rapidi a sinistra/destra -> CLASH.
@@ -75,15 +61,11 @@ Per le intensita (0..255):
 
 Setup base consigliato:
 
-- retractspeedmax 1.6
-- clashspeedmin 2.5
 - retractmin 18
 - clashmin 14
 
 Se il clash e troppo sensibile:
-- alza clashspeedmin a 3.0 o 3.5
 - alza clashmin a 18-22
 
 Se il retract scatta troppo facilmente:
-- abbassa retractspeedmax a 1.0-1.2
-- alza retractmin a 20-25
+-- alza retractmin a 20-25
