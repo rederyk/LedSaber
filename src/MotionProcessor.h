@@ -43,17 +43,34 @@ public:
         uint16_t gestureCooldownMs;    // Cooldown after major gesture (default: 800ms)
         uint16_t clashCooldownMs;      // Specific cooldown for clash spam control
 
+        // 4-axis gesture detection (no diagonals)
+        // Interpreta i vettori per-blocco e produce una "direzione dominante" robusta nel tempo.
+        uint8_t axisMinBlocks;         // Min blocchi coerenti su un asse
+        uint8_t axisMinTotalWeight;    // Min "energia" totale per considerare swipe (0-255, scala interna)
+        uint8_t axisMinDominance;      // Dominanza best vs second (x/10, es: 16 = 1.6x)
+        uint8_t axisEmaAlpha;          // 0-255 (255 = no smoothing)
+        uint8_t axisOnFraction;        // % 0-100: quota asse per aggancio
+        uint8_t axisOffFraction;       // % 0-100: quota asse per rilascio (isteresi)
+        uint16_t swingDurationMs;      // Durata minima per LEFT/RIGHT (più corta)
+
         bool perturbationEnabled;
         uint8_t perturbationScale;     // Perturbation multiplier 0-255 (default: 255)
 
         Config() :
             gesturesEnabled(true),
-            gestureThreshold(12),   // Più sensibile (5fps + mano vicina alla camera)
+            gestureThreshold(11),   // Più sensibile (5fps + mano vicina alla camera)
             gestureDurationMs(80),  // Più reattivo
             clashDeltaThreshold(60), // Aumentato da 15 a 60 per ridurre falsi positivi
-            clashWindowMs(400),     // ~2.2 frame @ 5.6fps per catturare veri clash
+            clashWindowMs(600),     // ~2.2 frame @ 5.6fps per catturare veri clash
             gestureCooldownMs(800), // Meno "bloccante" del vecchio 2s
-            clashCooldownMs(900),   // Clash dedicato per evitare raffiche
+            clashCooldownMs(5000),   // Clash dedicato per evitare raffiche
+            axisMinBlocks(2),
+            axisMinTotalWeight(18),
+            axisMinDominance(16),
+            axisEmaAlpha(110),
+            axisOnFraction(62),
+            axisOffFraction(50),
+            swingDurationMs(55),
             perturbationEnabled(true),
             perturbationScale(255) {}  // 100% = effetto massimo
     };
@@ -95,6 +112,9 @@ public:
 private:
     Config _config;
 
+    enum class Axis : uint8_t { NONE = 0, UP, DOWN, LEFT, RIGHT };
+    enum class Rotation : uint8_t { ROT_0 = 0, ROT_90_CW = 1, ROT_180 = 2, ROT_90_CCW = 3 };
+
     // Gesture detection state
     uint32_t _lastMotionTime;
     uint8_t _lastIntensity;
@@ -105,13 +125,25 @@ private:
     uint32_t _clashCooldownEnd;
     uint8_t _lastGestureConfidence;
 
+    // 4-axis temporal state
+    Rotation _deducedRotation;
+    bool _deducedRotationValid;
+    Axis _trackedAxis;
+    uint32_t _axisStartTime;
+    uint16_t _axisEmaWeightUp;
+    uint16_t _axisEmaWeightDown;
+    uint16_t _axisEmaWeightLeft;
+    uint16_t _axisEmaWeightRight;
+    uint16_t _axisEmaWeightTotal;
+
     /**
      * @brief Detect gesture from motion data
      */
     GestureType _detectGesture(uint8_t intensity,
                                OpticalFlowDetector::Direction direction,
                                float speed,
-                               uint32_t timestamp);
+                               uint32_t timestamp,
+                               const OpticalFlowDetector& detector);
 
     /**
      * @brief Calculate perturbation grid from optical flow blocks

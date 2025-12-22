@@ -224,6 +224,34 @@ String BLEMotionService::_getStatusJson() {
     JsonDocument doc;
     OpticalFlowDetector::Metrics metrics = _motion->getMetrics();
 
+    auto rotateDirection90CW = [](OpticalFlowDetector::Direction dir) -> OpticalFlowDetector::Direction {
+        switch (dir) {
+            case OpticalFlowDetector::Direction::UP:         return OpticalFlowDetector::Direction::RIGHT;
+            case OpticalFlowDetector::Direction::UP_RIGHT:   return OpticalFlowDetector::Direction::DOWN_RIGHT;
+            case OpticalFlowDetector::Direction::RIGHT:      return OpticalFlowDetector::Direction::DOWN;
+            case OpticalFlowDetector::Direction::DOWN_RIGHT: return OpticalFlowDetector::Direction::DOWN_LEFT;
+            case OpticalFlowDetector::Direction::DOWN:       return OpticalFlowDetector::Direction::LEFT;
+            case OpticalFlowDetector::Direction::DOWN_LEFT:  return OpticalFlowDetector::Direction::UP_LEFT;
+            case OpticalFlowDetector::Direction::LEFT:       return OpticalFlowDetector::Direction::UP;
+            case OpticalFlowDetector::Direction::UP_LEFT:    return OpticalFlowDetector::Direction::UP_RIGHT;
+            default: return dir;
+        }
+    };
+
+    auto rotateTag90CW = [](char tag) -> char {
+        switch (tag) {
+            case '^': return '>';
+            case '>': return 'v';
+            case 'v': return '<';
+            case '<': return '^';
+            case 'A': return 'C'; // up-right -> down-right
+            case 'C': return 'D'; // down-right -> down-left
+            case 'D': return 'B'; // down-left -> up-left
+            case 'B': return 'A'; // up-left -> up-right
+            default: return tag;
+        }
+    };
+
     doc["enabled"] = _motionEnabled;
     doc["motionDetected"] = _wasMotionActive;
     doc["intensity"] = metrics.currentIntensity;
@@ -235,7 +263,8 @@ String BLEMotionService::_getStatusJson() {
     doc["motionFrames"] = metrics.motionFrameCount;
 
     // NUOVI campi optical flow
-    doc["direction"] = OpticalFlowDetector::directionToString(metrics.dominantDirection);
+    // Rotate for display to match gesture reference (main.cpp rotates motion direction before gesture processing)
+    doc["direction"] = OpticalFlowDetector::directionToString(rotateDirection90CW(metrics.dominantDirection));
     doc["speed"] = round(metrics.avgSpeed * 10.0f) / 10.0f;  // 1 decimal
     doc["confidence"] = round(metrics.avgConfidence * 100.0f);  // 0-100%
     doc["activeBlocks"] = metrics.avgActiveBlocks;
@@ -264,7 +293,8 @@ String BLEMotionService::_getStatusJson() {
         String rowStr;
         rowStr.reserve(OpticalFlowDetector::GRID_COLS);
         for (uint8_t col = 0; col < OpticalFlowDetector::GRID_COLS; col++) {
-            rowStr += _motion->getBlockDirectionTag(row, col);
+            const char tag = _motion->getBlockDirectionTag(row, col);
+            rowStr += rotateTag90CW(tag);
         }
         gridArray.add(rowStr);
     }
