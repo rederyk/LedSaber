@@ -10,12 +10,14 @@ per le gesture, con esempi pratici su come tararli.
 3) Subsampling 2x verso 240x240.
 4) Optical flow a griglia 6x6 (block size 40).
 5) Estrazione direzione dominante, velocita media e intensita (0-255).
-6) MotionProcessor classifica le gesture in base a direzione e intensita.
+6) MotionProcessor classifica le gesture usando un angolo medio in gradi
+   calcolato dai vettori per-blocco (pesi normalizzati per FPS), poi applica
+   soglie di intensita.
 
 ## Regole gesture attuali
 
-- RETRACT: direzione "down" ampia (DOWN/DOWN_LEFT/DOWN_RIGHT + LEFT/RIGHT).
-- CLASH: direzione "left/right" (LEFT/RIGHT/UP_LEFT/UP_RIGHT).
+- RETRACT: settore "down" in gradi (centrato a 90°).
+- CLASH: settori "left/right" in gradi (centrati a 180° e 0°).
 - IGNITION: gestito lato LED quando la lama e spenta (auto-ignition su direzione != none).
 
 Nota: la durata non e usata per le gesture (filtriamo solo per direzione
@@ -53,8 +55,8 @@ Per le intensita (0..255):
    - Aumenta gestureRetractIntensity se il retract scatta troppo facile.
    - Aumenta gestureClashIntensity se il clash scatta troppo facile.
 3) Verifica:
-   - Movimenti in "down ampia" -> RETRACT.
-   - Movimenti in "left/right" -> CLASH.
+   - Movimenti nel settore "down" -> RETRACT.
+   - Movimenti nei settori "left/right" -> CLASH.
    - Niente gesture su movimenti casuali o micro-vibrazioni.
 
 ## Esempi pratici

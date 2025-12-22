@@ -102,6 +102,7 @@ private:
     // Gesture detection state
     OpticalFlowDetector::Direction _lastDirection;
     uint32_t _directionStartTime;
+    uint32_t _lastFrameTime;
     bool _gestureCooldown;
     uint32_t _gestureCooldownEnd;
     uint32_t _clashCooldownEnd;
@@ -113,7 +114,8 @@ private:
     GestureType _detectGesture(uint8_t intensity,
                                OpticalFlowDetector::Direction direction,
                                float speed,
-                               uint32_t timestamp);
+                               uint32_t timestamp,
+                               const OpticalFlowDetector& detector);
 
     /**
      * @brief Calculate perturbation grid from optical flow blocks

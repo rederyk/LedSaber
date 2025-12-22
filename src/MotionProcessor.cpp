@@ -4,6 +4,7 @@
 MotionProcessor::MotionProcessor() :
     _lastDirection(OpticalFlowDetector::Direction::NONE),
     _directionStartTime(0),
+    _lastFrameTime(0),
     _gestureCooldown(false),
     _gestureCooldownEnd(0),
     _clashCooldownEnd(0),
@@ -35,7 +36,7 @@ MotionProcessor::ProcessedMotion MotionProcessor::process(
 
     // Detect gestures
     if (_config.gesturesEnabled) {
-        result.gesture = _detectGesture(motionIntensity, direction, speed, timestamp);
+        result.gesture = _detectGesture(motionIntensity, direction, speed, timestamp, detector);
         result.gestureConfidence = (result.gesture != GestureType::NONE) ? _lastGestureConfidence : 0;
     }
 
@@ -46,7 +47,8 @@ MotionProcessor::GestureType MotionProcessor::_detectGesture(
     uint8_t intensity,
     OpticalFlowDetector::Direction direction,
     float speed,
-    uint32_t timestamp)
+    uint32_t timestamp,
+    const OpticalFlowDetector& detector)
 {
     _lastGestureConfidence = 0;
     (void)speed;
@@ -69,17 +71,68 @@ MotionProcessor::GestureType MotionProcessor::_detectGesture(
 
     const bool clashOnCooldown = (timestamp < _clashCooldownEnd);
 
-    auto dirIsDown = [](OpticalFlowDetector::Direction dir) {
-        using D = OpticalFlowDetector::Direction;
-        return (dir == D::DOWN);
-    };
-    auto dirIsLeftRight = [](OpticalFlowDetector::Direction dir) {
-        using D = OpticalFlowDetector::Direction;
-        return (dir == D::LEFT || dir == D::RIGHT || dir == D::UP_LEFT || dir == D::UP_RIGHT);
+    int32_t sumDx = 0;
+    int32_t sumDy = 0;
+    int32_t sumW = 0;
+    float weightScale = 1.0f;
+    if (_lastFrameTime > 0 && timestamp > _lastFrameTime) {
+        const float dtMs = (float)(timestamp - _lastFrameTime);
+        weightScale = 1000.0f / dtMs;
+        if (weightScale < 0.25f) weightScale = 0.25f;
+        if (weightScale > 4.0f) weightScale = 4.0f;
+    }
+    _lastFrameTime = timestamp;
+    for (uint8_t row = 0; row < OpticalFlowDetector::GRID_ROWS; row++) {
+        for (uint8_t col = 0; col < OpticalFlowDetector::GRID_COLS; col++) {
+            int8_t dx = 0;
+            int8_t dy = 0;
+            uint8_t conf = 0;
+            if (!detector.getBlockVector(row, col, &dx, &dy, &conf)) {
+                continue;
+            }
+            const int mag = abs((int)dx) + abs((int)dy);
+            if (mag == 0 || conf == 0) {
+                continue;
+            }
+            const float magScaled = (float)mag * weightScale;
+            const int32_t w = (int32_t)(magScaled * (float)conf);
+            sumDx += (int32_t)dx * w;
+            sumDy += (int32_t)dy * w;
+            sumW += w;
+        }
+    }
+
+    if (sumW == 0) {
+        _lastDirection = direction;
+        return GestureType::NONE;
+    }
+
+    const float avgDx = (float)sumDx / (float)sumW;
+    const float avgDy = (float)sumDy / (float)sumW;
+
+    float angleDeg = atan2f(avgDy, avgDx) * 180.0f / PI;
+    if (angleDeg < 0.0f) {
+        angleDeg += 360.0f;
+    }
+
+    static constexpr float DOWN_CENTER_DEG = 90.0f;
+    static constexpr float DOWN_HALF_WIDTH_DEG = 60.0f;
+    static constexpr float LEFT_CENTER_DEG = 180.0f;
+    static constexpr float RIGHT_CENTER_DEG = 0.0f;
+    static constexpr float LR_HALF_WIDTH_DEG = 60.0f;
+
+    auto inSector = [](float angle, float center, float halfWidth) -> bool {
+        float diff = fabsf(angle - center);
+        if (diff > 180.0f) diff = 360.0f - diff;
+        return diff <= halfWidth;
     };
 
+    const bool isDown = inSector(angleDeg, DOWN_CENTER_DEG, DOWN_HALF_WIDTH_DEG);
+    const bool isLeft = inSector(angleDeg, LEFT_CENTER_DEG, LR_HALF_WIDTH_DEG);
+    const bool isRight = inSector(angleDeg, RIGHT_CENTER_DEG, LR_HALF_WIDTH_DEG);
+
     // "Cerchio a spicchi": giu' lento = retract, sinistra/destra veloce = clash
-    if (dirIsLeftRight(direction) &&
+    if ((isLeft || isRight) &&
         intensity >= clashIntensityThreshold &&
         !clashOnCooldown)
     {
@@ -95,7 +148,7 @@ MotionProcessor::GestureType MotionProcessor::_detectGesture(
         return GestureType::CLASH;
     }
 
-    if (dirIsDown(direction) &&
+    if (isDown &&
         intensity >= retractIntensityThreshold)
     {
         _gestureCooldown = true;
@@ -188,6 +241,7 @@ void MotionProcessor::_calculatePerturbationGrid(
 void MotionProcessor::reset() {
     _lastDirection = OpticalFlowDetector::Direction::NONE;
     _directionStartTime = 0;
+    _lastFrameTime = 0;
     _gestureCooldown = false;
     _gestureCooldownEnd = 0;
     _clashCooldownEnd = 0;
