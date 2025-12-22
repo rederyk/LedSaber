@@ -24,6 +24,7 @@ LedSaber e' un firmware Arduino per ESP32-CAM che pilota una striscia WS2812B (n
 - PC: PlatformIO (VSCode) per build/flash USB.
 - BLE su PC: stack Bluetooth funzionante (es. Linux con BlueZ).
 - Python 3 per dashboard e strumenti BLE (dipendenze: `textual`, `rich`, `bleak`).
+- TODO fw compilato con guida per diversi os, primo flash usb e aggiornamento via BLE.
 
 ## 3. Funzioni firmware e architettura
 
