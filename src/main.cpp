@@ -753,6 +753,15 @@ void loop() {
             if (allowScrollPulse && logicalLedsToFill > 0) {
                 const uint32_t pulsePeriodMs = 350;
                 uint32_t elapsed = now - lastProgressChangeMs;
+
+                // Calcola fattore di dissolvenza se il pulse ha raggiunto la fine
+                float fadeFactor = 1.0f;
+                if (elapsed > pulsePeriodMs) {
+                    float fadeProgress = (float)(elapsed - pulsePeriodMs) / (float)(pulseWindowMs - pulsePeriodMs);
+                    if (fadeProgress > 1.0f) fadeProgress = 1.0f;
+                    fadeFactor = 1.0f - fadeProgress;
+                }
+
                 float pulsePhase = (float)elapsed / (float)pulsePeriodMs;
                 if (pulsePhase > 1.0f) pulsePhase = 1.0f;
                 float pulsePos = pulsePhase * (float)max((uint16_t)1, (uint16_t)(logicalLedsToFill - 1));
@@ -765,7 +774,7 @@ void loop() {
                     float dist = fabsf((float)i - pulsePos);
                     if (dist <= pulseSpan && pulseSpan > 0) {
                         float t = 1.0f - (dist / (float)pulseSpan);
-                        uint8_t greenBoost = (uint8_t)(t * 220.0f);
+                        uint8_t greenBoost = (uint8_t)(t * 220.0f * fadeFactor);
                         uint16_t led1 = i;
                         uint16_t led2 = (NUM_LEDS - 1) - i;
                         leds[led1] += CRGB(0, greenBoost, 0);
@@ -779,6 +788,7 @@ void loop() {
                     float t = (pulsePhase - 0.85f) / 0.15f;
                     if (t < 0.0f) t = 0.0f;
                     if (t > 1.0f) t = 1.0f;
+                    t *= fadeFactor; // Dissolvenza (ritrazione) dell'estensione
                     uint16_t maxExtra = min((uint16_t)6, (uint16_t)(foldPoint - logicalLedsToFill));
                     uint16_t extra = (uint16_t)(t * (float)maxExtra);
                     for (uint16_t i = logicalLedsToFill; i < logicalLedsToFill + extra; i++) {
@@ -913,10 +923,16 @@ static void CameraCaptureTask(void* pvParameters) {
     (void)pvParameters;
 
     bool motionInitialized = false;
+    // Limita FPS a 3 (periodo di ~333ms)
+    const TickType_t xFrequency = pdMS_TO_TICKS(333);
+    TickType_t xLastWakeTime = xTaskGetTickCount();
 
     for (;;) {
         // Attende un segnale d'avvio
         ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+
+        // Reset del timer all'avvio dello streaming
+        xLastWakeTime = xTaskGetTickCount();
 
         while (gCameraTaskShouldRun) {
             if (!cameraManager.isInitialized() || !bleCameraService.isCameraActive()) {
@@ -932,7 +948,7 @@ static void CameraCaptureTask(void* pvParameters) {
             }
 
             if (!motionInitialized && frameLength > 0) {
-                // Usa 120x120 da crop centrale 240x240 (QVGA) con subsampling 2x
+                // Usa 120x120 da crop centrale 480x480 (VGA) con subsampling 4x
                 if (motionDetector.begin(120, 120)) {
                     motionInitialized = true;
                     Serial.println("[CAM TASK] Motion detector initialized");
@@ -974,8 +990,8 @@ static void CameraCaptureTask(void* pvParameters) {
                 break;
             }
 
-            // Minimo delay per evitare watchdog timeout e permettere altre task
-            vTaskDelay(pdMS_TO_TICKS(1));
+            // Limita FPS a 3 usando vTaskDelayUntil per mantenere una frequenza costante
+            vTaskDelayUntil(&xLastWakeTime, xFrequency);
         }
     }
 }
