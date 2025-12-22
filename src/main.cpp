@@ -683,6 +683,7 @@ void loop() {
         // Aggiorna a intervalli regolari per animazioni senza stressare FastLED.show()
         static uint8_t lastOtaProgress = 255;
         static uint32_t lastOtaRenderMs = 0;
+        static uint32_t lastProgressChangeMs = 0;
         static constexpr uint32_t OTA_RENDER_INTERVAL_MS = 30;
         uint8_t currentProgress = otaManager.getProgress();
         const bool progressChanged = (currentProgress != lastOtaProgress);
@@ -691,6 +692,7 @@ void loop() {
         if (progressChanged || renderDue) {
             if (progressChanged) {
                 lastOtaProgress = currentProgress;
+                lastProgressChangeMs = now;
             }
             lastOtaRenderMs = now;
 
@@ -717,6 +719,10 @@ void loop() {
             // Riempimento progressivo simmetrico dalla base (rispetta fold point)
             fill_solid(leds, NUM_LEDS, CRGB::Black);
 
+            const bool isReceiving = (state == OTAState::RECEIVING);
+            const uint32_t pulseWindowMs = 500;
+            const bool allowScrollPulse = isReceiving && (now - lastProgressChangeMs) <= pulseWindowMs;
+
             for (uint16_t i = 0; i < logicalLedsToFill; i++) {
                 // Accende LED simmetrici (base verso punta su entrambi i lati)
                 uint16_t led1 = i;
@@ -725,10 +731,28 @@ void loop() {
                 leds[led2] = color;
             }
 
-            // Pulse verde che corre nella barra durante il trasferimento
-            if (state == OTAState::RECEIVING && logicalLedsToFill > 0) {
-                const uint32_t pulsePeriodMs = 1200;
-                float pulsePhase = (float)(now % pulsePeriodMs) / (float)pulsePeriodMs;
+            if (isReceiving) {
+                // Pulse base fermo: respira alla base quando il progresso non cambia.
+                if (!allowScrollPulse) {
+                    const uint32_t basePulsePeriodMs = 900;
+                    uint8_t basePulse = sin8((now % basePulsePeriodMs) * 255 / basePulsePeriodMs);
+                    uint8_t baseBrightness = scale8(basePulse, 160);
+                    uint16_t baseSpan = max((uint16_t)3, (uint16_t)(foldPoint / 24));
+                    CRGB basePulseColor = color;
+                    basePulseColor.nscale8_video(baseBrightness);
+                    for (uint16_t i = 0; i < baseSpan; i++) {
+                        uint16_t led1 = i;
+                        uint16_t led2 = (NUM_LEDS - 1) - i;
+                        leds[led1] = basePulseColor;
+                        leds[led2] = basePulseColor;
+                    }
+                }
+            }
+
+            // Pulse verde che corre nella barra solo quando la barra blu si aggiorna
+            if (allowScrollPulse && logicalLedsToFill > 0) {
+                const uint32_t pulsePeriodMs = 350;
+                float pulsePhase = (float)((now - lastProgressChangeMs) % pulsePeriodMs) / (float)pulsePeriodMs;
                 float pulsePos = pulsePhase * (float)max((uint16_t)1, (uint16_t)(logicalLedsToFill - 1));
                 uint16_t pulseSpan = max((uint16_t)4, (uint16_t)(foldPoint / 20));
                 if (pulseSpan > logicalLedsToFill) {
