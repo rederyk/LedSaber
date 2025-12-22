@@ -780,9 +780,6 @@ void LedEffectEngine::renderDualPulse(const LedState& state, const uint8_t pertu
     static constexpr float MIN_VELOCITY_FOR_COLLAPSE = 0.05f; // Velocità minima per il collasso
     static constexpr float BALL_RENDERING_RADIUS = 6.0f;      // Raggio di rendering della palla
 
-    // FIXED BASE SPEED (independent of state.speed parameter)
-    const float FIXED_BASE_SPEED = 0.14f;  // pixel/ms (Aumentata per dinamicità)
-
     // First run initialization
     if (!initialized || now < 500) {
         // Posizioni iniziali simmetriche (1/4 e 3/4 della lama)

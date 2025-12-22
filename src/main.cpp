@@ -672,7 +672,6 @@ void loop() {
     otaManager.update();
 
     StatusLedManager& ledManager = StatusLedManager::getInstance();
-   // todo usare colore progressivo viola blu verde in base al progresso della barra
     // Se OTA in corso: blocca LED strip e mostra status OTA
     if (otaManager.isOTAInProgress()) {
         if (!ledManager.isMode(StatusLedManager::Mode::OTA_BLINK)) {
@@ -681,12 +680,19 @@ void loop() {
         ledManager.updateOtaBlink();  // Blink veloce per indicare OTA
 
         // Visualizza progresso OTA sulla striscia LED
-        // Aggiorna solo se progresso è cambiato (riduce overhead FastLED.show())
-        static uint8_t lastOtaProgress = 0;
+        // Aggiorna a intervalli regolari per animazioni senza stressare FastLED.show()
+        static uint8_t lastOtaProgress = 255;
+        static uint32_t lastOtaRenderMs = 0;
+        static constexpr uint32_t OTA_RENDER_INTERVAL_MS = 30;
         uint8_t currentProgress = otaManager.getProgress();
+        const bool progressChanged = (currentProgress != lastOtaProgress);
+        const bool renderDue = (now - lastOtaRenderMs) >= OTA_RENDER_INTERVAL_MS;
 
-        if (currentProgress != lastOtaProgress) {
-            lastOtaProgress = currentProgress;
+        if (progressChanged || renderDue) {
+            if (progressChanged) {
+                lastOtaProgress = currentProgress;
+            }
+            lastOtaRenderMs = now;
 
             // Calcola numero LED logici da accendere (rispetta fold point)
             uint16_t foldPoint = ledState.foldPoint;
@@ -719,12 +725,53 @@ void loop() {
                 leds[led2] = color;
             }
 
-            // Show solo quando cambia % (max 100 chiamate invece di migliaia)
-            FastLED.setBrightness(60);  // Luminosità media per visibilità
+            // Pulse verde che corre nella barra durante il trasferimento
+            if (state == OTAState::RECEIVING && logicalLedsToFill > 0) {
+                const uint32_t pulsePeriodMs = 1200;
+                float pulsePhase = (float)(now % pulsePeriodMs) / (float)pulsePeriodMs;
+                float pulsePos = pulsePhase * (float)max((uint16_t)1, (uint16_t)(logicalLedsToFill - 1));
+                uint16_t pulseSpan = max((uint16_t)4, (uint16_t)(foldPoint / 20));
+                if (pulseSpan > logicalLedsToFill) {
+                    pulseSpan = logicalLedsToFill;
+                }
+
+                for (uint16_t i = 0; i < logicalLedsToFill; i++) {
+                    float dist = fabsf((float)i - pulsePos);
+                    if (dist <= pulseSpan && pulseSpan > 0) {
+                        float t = 1.0f - (dist / (float)pulseSpan);
+                        uint8_t greenBoost = (uint8_t)(t * 220.0f);
+                        uint16_t led1 = i;
+                        uint16_t led2 = (NUM_LEDS - 1) - i;
+                        leds[led1] += CRGB(0, greenBoost, 0);
+                        leds[led2] += CRGB(0, greenBoost, 0);
+                    }
+                }
+
+                // Culmina con un breve allungamento della barra blu quando il pulse arriva in punta
+                if (foldPoint > logicalLedsToFill && pulseSpan > 0) {
+                    float edge = (float)(logicalLedsToFill - 1);
+                    float t = (pulsePos - (edge - (float)pulseSpan)) / (float)pulseSpan;
+                    if (t < 0.0f) t = 0.0f;
+                    if (t > 1.0f) t = 1.0f;
+                    uint16_t maxExtra = min((uint16_t)6, (uint16_t)(foldPoint - logicalLedsToFill));
+                    uint16_t extra = (uint16_t)(t * (float)maxExtra);
+                    for (uint16_t i = logicalLedsToFill; i < logicalLedsToFill + extra; i++) {
+                        uint16_t led1 = i;
+                        uint16_t led2 = (NUM_LEDS - 1) - i;
+                        leds[led1] = color;
+                        leds[led2] = color;
+                    }
+                }
+            }
+
+            // Show a frame rate limitato per evitare overhead OTA
+            FastLED.setBrightness(80);  // Più vivace ma ancora sicuro
             FastLED.show();
 
-            Serial.printf("[OTA LED] Progress: %u%% | Logical LEDs: %u/%u | Physical LEDs: %u | State: %d\n",
-                currentProgress, logicalLedsToFill, foldPoint, logicalLedsToFill * 2, (int)state);
+            if (progressChanged) {
+                Serial.printf("[OTA LED] Progress: %u%% | Logical LEDs: %u/%u | Physical LEDs: %u | State: %d\n",
+                    currentProgress, logicalLedsToFill, foldPoint, logicalLedsToFill * 2, (int)state);
+            }
         }
     } else {
         // Funzionamento normale
