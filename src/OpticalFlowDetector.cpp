@@ -13,11 +13,11 @@ OpticalFlowDetector::OpticalFlowDetector()
     , _searchStep(5)         // Step largo: 5×5=25 posizioni (uguale a prima, ma range maggiore)
     , _minConfidence(30)     // Aumentato per filtrare vettori deboli
     , _minActiveBlocks(4)    // Aumentato: richiede più coerenza spaziale (almeno 4 blocchi)
-    , _quality(160)      // Default: bilanciato (meno rumore)
+    , _quality(120)      // Default: più rigoroso per ridurre rumore
     , _directionMagnitudeThreshold(2.0f)
     , _minCentroidWeight(100.0f)
-    , _motionIntensityThreshold(15)
-    , _motionSpeedThreshold(1.2f)
+    , _motionIntensityThreshold(22)
+    , _motionSpeedThreshold(1.6f)
     , _hasPreviousFrame(false)
     , _motionActive(false)
     , _motionIntensity(0)
@@ -32,6 +32,7 @@ OpticalFlowDetector::OpticalFlowDetector()
     , _flashIntensity(150)
     , _avgBrightness(0)
     , _frameDiffAvg(0)
+    , _frameDiffThreshold(2)
     , _lastMotionTime(0)
     , _totalFramesProcessed(0)
     , _motionFrameCount(0)
@@ -59,7 +60,7 @@ static void computeEdgeImage(const uint8_t* src, uint8_t* dst, uint16_t width, u
     // Pulisci il buffer (bordi a 0)
     memset(dst, 0, width * height);
     
-    const int threshold = 50; // SOGLIA RUMORE: Aumentata per evitare falsi positivi da rumore sensore
+    const int threshold = 60; // SOGLIA RUMORE: più alta per ridurre falsi positivi a QVGA
     
     // Calcola gradiente per ogni pixel (esclusi i bordi estremi)
     for (uint16_t y = 0; y < height - 1; y++) {
@@ -142,8 +143,9 @@ bool OpticalFlowDetector::processFrame(const uint8_t* frameBuffer, size_t frameL
     }
 
     bool isVGA = (frameLength == 640 * 480);
-    if (frameLength != _frameSize && !isVGA) {
-        Serial.printf("[OPTICAL FLOW ERROR] Frame size mismatch! Expected %u (or VGA input), got %u\n",
+    bool isQVGA = (frameLength == 320 * 240);
+    if (frameLength != _frameSize && !isVGA && !isQVGA) {
+        Serial.printf("[OPTICAL FLOW ERROR] Frame size mismatch! Expected %u (or VGA/QVGA input), got %u\n",
                       _frameSize, frameLength);
         return false;
     }
@@ -172,9 +174,30 @@ bool OpticalFlowDetector::processFrame(const uint8_t* frameBuffer, size_t frameL
             offsetX = 80;
             offsetY = 0;
             step = 2;
+        } else if (_frameWidth == 120 && _frameHeight == 120) {
+            // CROP 480x480 CENTRALE -> Subsample a 120x120
+            // Offset X = (640 - 480) / 2 = 80
+            offsetX = 80;
+            offsetY = 0;
+            step = 4;
         } else if (_frameWidth == 320 && _frameHeight == 240) {
             // QVGA standard (subsample intero frame)
             offsetX = 0;
+            offsetY = 0;
+            step = 2;
+        }
+    } else if (isQVGA) {
+        srcFullWidth = 320;
+        if (_frameWidth == 240 && _frameHeight == 240) {
+            // CROP 240x240 CENTRALE da QVGA
+            // Offset X = (320 - 240) / 2 = 40
+            offsetX = 40;
+            offsetY = 0;
+            step = 1;
+        } else if (_frameWidth == 120 && _frameHeight == 120) {
+            // CROP 240x240 CENTRALE da QVGA -> Subsample a 120x120
+            // Offset X = (320 - 240) / 2 = 40
+            offsetX = 40;
             offsetY = 0;
             step = 2;
         }
@@ -417,7 +440,10 @@ void OpticalFlowDetector::_calculateGlobalMotion() {
 
     // Soglie globali (stabili, poco rumore)
     // Aumentata soglia intensità da 8 a 15 per tagliare il rumore di fondo
-    _motionActive = (_motionIntensity > _motionIntensityThreshold && _motionSpeed > _motionSpeedThreshold);
+    const bool passesFrameDiff = (_frameDiffAvg >= _frameDiffThreshold);
+    _motionActive = (passesFrameDiff &&
+                     _motionIntensity > _motionIntensityThreshold &&
+                     _motionSpeed > _motionSpeedThreshold);
 }
 
 void OpticalFlowDetector::_calculateCentroid() {

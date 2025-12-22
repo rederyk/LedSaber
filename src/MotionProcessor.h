@@ -61,10 +61,10 @@ public:
 
         Config() :
             gesturesEnabled(true),
-            gestureThreshold(10),   // Più sensibile (5fps + mano vicina alla camera)
-            ignitionIntensityThreshold(13),
-            retractIntensityThreshold(12),
-            clashIntensityThreshold(12),
+            gestureThreshold(14),   // Più robusto contro rumore a QVGA
+            ignitionIntensityThreshold(18),
+            retractIntensityThreshold(18),
+            clashIntensityThreshold(14),
             gestureDurationMs(70),  // Più reattivo
             clashDeltaThreshold(60), // Aumentato da 15 a 60 per ridurre falsi positivi
             clashWindowMs(600),     // ~2.2 frame @ 5.6fps per catturare veri clash

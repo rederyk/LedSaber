@@ -90,7 +90,7 @@ bool CameraManager::begin(uint8_t flashPin) {
 
     // Formato immagine: QVGA grayscale per prestazioni
     config.pixel_format = PIXFORMAT_GRAYSCALE;  // 1 byte/pixel
-    config.frame_size = FRAMESIZE_VGA;          // 640x480 (High Res)
+    config.frame_size = FRAMESIZE_QVGA;         // 320x240 (Low Res, +FPS)
     config.jpeg_quality = 12;                    // Non usato per grayscale
     config.fb_count = 2;                         // Double buffering
     config.fb_location = CAMERA_FB_IN_PSRAM;     // Usa PSRAM per buffer
