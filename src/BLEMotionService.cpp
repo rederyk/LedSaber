@@ -382,6 +382,7 @@ String BLEMotionService::_getConfigJson() {
         doc["gestureIgnitionIntensity"] = cfg.ignitionIntensityThreshold;
         doc["gestureRetractIntensity"] = cfg.retractIntensityThreshold;
         doc["gestureClashIntensity"] = cfg.clashIntensityThreshold;
+        doc["debugLogs"] = cfg.debugLogsEnabled;
     }
 
     String output;
@@ -464,7 +465,7 @@ void BLEMotionService::ConfigCallbacks::onWrite(BLECharacteristic* pCharacterist
     // Parse JSON payload: {"enabled": bool, "quality": 0-255,
     // "motionIntensityMin": 0-255, "motionSpeedMin": 0-20,
     // "gestureIgnitionIntensity": 0-255, "gestureRetractIntensity": 0-255,
-    // "gestureClashIntensity": 0-255}
+    // "gestureClashIntensity": 0-255, "debugLogs": bool}
     JsonDocument doc;
     DeserializationError error = deserializeJson(doc, value.c_str());
 
@@ -480,6 +481,7 @@ void BLEMotionService::ConfigCallbacks::onWrite(BLECharacteristic* pCharacterist
     const bool hasIgnitionIntensity = doc.containsKey("gestureIgnitionIntensity");
     const bool hasRetractIntensity = doc.containsKey("gestureRetractIntensity");
     const bool hasClashIntensity = doc.containsKey("gestureClashIntensity");
+    const bool hasDebugLogs = doc.containsKey("debugLogs");
 
     uint8_t quality = doc["quality"] | _service->_motion->getQuality();
     uint8_t motionIntensityMin = doc["motionIntensityMin"] | _service->_motion->getMotionIntensityThreshold();
@@ -499,7 +501,7 @@ void BLEMotionService::ConfigCallbacks::onWrite(BLECharacteristic* pCharacterist
         _service->_motion->setMotionSpeedThreshold(motionSpeedMin);
     }
     if (_service->_processor &&
-        (hasIgnitionIntensity || hasRetractIntensity || hasClashIntensity)) {
+        (hasIgnitionIntensity || hasRetractIntensity || hasClashIntensity || hasDebugLogs)) {
         MotionProcessor::Config cfg = _service->_processor->getConfig();
         if (hasIgnitionIntensity) {
             cfg.ignitionIntensityThreshold = (uint8_t)constrain((int)doc["gestureIgnitionIntensity"], 0, 255);
@@ -509,6 +511,9 @@ void BLEMotionService::ConfigCallbacks::onWrite(BLECharacteristic* pCharacterist
         }
         if (hasClashIntensity) {
             cfg.clashIntensityThreshold = (uint8_t)constrain((int)doc["gestureClashIntensity"], 0, 255);
+        }
+        if (hasDebugLogs) {
+            cfg.debugLogsEnabled = (bool)doc["debugLogs"];
         }
         _service->_processor->setConfig(cfg);
         Serial.printf("[MOTION BLE] Gesture update: ignition=%u retract=%u clash=%u\n",

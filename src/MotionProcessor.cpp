@@ -158,7 +158,9 @@ MotionProcessor::GestureType MotionProcessor::_detectGesture(
         _gestureCooldownEnd = timestamp + appliedCooldown;
         _clashCooldownEnd = timestamp + clashCooldown;
         _lastGestureConfidence = 70;
-        Serial.println("[MOTION] CLASH detected (direction: left/right, fast).");
+        if (_config.debugLogsEnabled) {
+            Serial.println("[MOTION] CLASH detected (direction: left/right, fast).");
+        }
         _lastDirection = direction;
         return GestureType::CLASH;
     }
@@ -169,7 +171,9 @@ MotionProcessor::GestureType MotionProcessor::_detectGesture(
         _gestureCooldown = true;
         _gestureCooldownEnd = timestamp + _config.gestureCooldownMs;
         _lastGestureConfidence = 80;
-        Serial.println("[MOTION] RETRACT detected (direction: down, slow).");
+        if (_config.debugLogsEnabled) {
+            Serial.println("[MOTION] RETRACT detected (direction: down, slow).");
+        }
         _lastDirection = direction;
         return GestureType::RETRACT;
     }
@@ -246,10 +250,12 @@ void MotionProcessor::_calculatePerturbationGrid(
                 perturbationGrid[row][col] = value;
 
                 // Debug periodico (ogni 100 frame con motion)
-                static uint32_t debugCounter = 0;
-                if (magnitude > 0.5f && (debugCounter++ % 100) == 0) {
-                    Serial.printf("[PERTURB] row=%d col=%d mag=%.1f conf=%d → value=%d\n",
-                                 row, col, magnitude, confidence, value);
+                if (_config.debugLogsEnabled) {
+                    static uint32_t debugCounter = 0;
+                    if (magnitude > 0.5f && (debugCounter++ % 100) == 0) {
+                        Serial.printf("[PERTURB] row=%d col=%d mag=%.1f conf=%d -> value=%d\n",
+                                     row, col, magnitude, confidence, value);
+                    }
                 }
             } else {
                 perturbationGrid[row][col] = 0;

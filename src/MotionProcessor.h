@@ -46,6 +46,7 @@ public:
 
         bool perturbationEnabled;
         uint8_t perturbationScale;     // Perturbation multiplier 0-255 (default: 255)
+        bool debugLogsEnabled;         // Enable motion debug logs (default: false)
 
         Config() :
             gesturesEnabled(true),
@@ -59,7 +60,8 @@ public:
             gestureCooldownMs(800), // Meno "bloccante" del vecchio 2s
             clashCooldownMs(5000),   // Clash dedicato per evitare raffiche
             perturbationEnabled(true),
-            perturbationScale(255) {}  // 100% = effetto massimo
+            perturbationScale(255),
+            debugLogsEnabled(false) {}
     };
 
     MotionProcessor();
