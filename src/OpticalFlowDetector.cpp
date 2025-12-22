@@ -8,6 +8,7 @@ OpticalFlowDetector::OpticalFlowDetector()
     , _frameHeight(0)
     , _frameSize(0)
     , _previousFrame(nullptr)
+    , _edgeFrame(nullptr)
     , _searchRange(10)       // Compromesso: copre ~25px movimento (era 6, tentato 12)
     , _searchStep(5)         // Step largo: 5×5=25 posizioni (uguale a prima, ma range maggiore)
     , _minConfidence(30)     // Aumentato per filtrare vettori deboli
@@ -44,6 +45,10 @@ OpticalFlowDetector::~OpticalFlowDetector() {
     if (_previousFrame) {
         heap_caps_free(_previousFrame);
         _previousFrame = nullptr;
+    }
+    if (_edgeFrame) {
+        heap_caps_free(_edgeFrame);
+        _edgeFrame = nullptr;
     }
     _initialized = false;
 }
@@ -97,14 +102,24 @@ bool OpticalFlowDetector::begin(uint16_t frameWidth, uint16_t frameHeight) {
                   GRID_COLS, GRID_ROWS, TOTAL_BLOCKS);
     Serial.printf("[OPTICAL FLOW] Block size: %dx%d pixels\n", BLOCK_SIZE, BLOCK_SIZE);
 
-    // Alloca buffer in PSRAM per frame precedente
+    // Alloca buffer in PSRAM per frame precedente e mappa bordi
     _previousFrame = (uint8_t*)heap_caps_malloc(_frameSize, MALLOC_CAP_SPIRAM);
-    if (!_previousFrame) {
-        Serial.println("[OPTICAL FLOW ERROR] Failed to allocate frame buffer!");
+    _edgeFrame = (uint8_t*)heap_caps_malloc(_frameSize, MALLOC_CAP_SPIRAM);
+    if (!_previousFrame || !_edgeFrame) {
+        Serial.println("[OPTICAL FLOW ERROR] Failed to allocate frame buffers!");
+        if (_previousFrame) {
+            heap_caps_free(_previousFrame);
+            _previousFrame = nullptr;
+        }
+        if (_edgeFrame) {
+            heap_caps_free(_edgeFrame);
+            _edgeFrame = nullptr;
+        }
         return false;
     }
 
     memset(_previousFrame, 0, _frameSize);
+    memset(_edgeFrame, 0, _frameSize);
     _initialized = true;
     _hasPreviousFrame = false;
 
@@ -136,10 +151,10 @@ bool OpticalFlowDetector::processFrame(const uint8_t* frameBuffer, size_t frameL
     unsigned long startTime = millis();
     _totalFramesProcessed++;
 
-    // 1. Alloca buffer temporaneo per i bordi (in PSRAM per velocità/spazio)
-    uint8_t* edgeFrame = (uint8_t*)heap_caps_malloc(_frameSize, MALLOC_CAP_SPIRAM);
+    // 1. Usa buffer bordi riutilizzabile
+    uint8_t* edgeFrame = _edgeFrame;
     if (!edgeFrame) {
-        Serial.println("[OPTICAL FLOW ERROR] Failed to allocate edge buffer!");
+        Serial.println("[OPTICAL FLOW ERROR] Edge buffer not allocated!");
         return false;
     }
 
@@ -179,7 +194,6 @@ bool OpticalFlowDetector::processFrame(const uint8_t* frameBuffer, size_t frameL
         _motionConfidence = 0.0f;
         _activeBlocks = 0;
         _frameDiffAvg = 0;
-        heap_caps_free(edgeFrame);
         return false;
     }
 
@@ -219,9 +233,6 @@ bool OpticalFlowDetector::processFrame(const uint8_t* frameBuffer, size_t frameL
     // Copia frame corrente in previous
     // Salviamo i bordi per il prossimo confronto
     memcpy(_previousFrame, edgeFrame, _frameSize);
-
-    // Libera memoria temporanea
-    heap_caps_free(edgeFrame);
 
     // Aggiorna metriche timing
     unsigned long computeTime = millis() - startTime;

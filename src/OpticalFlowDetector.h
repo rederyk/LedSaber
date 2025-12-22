@@ -240,6 +240,7 @@ private:
 
     // Frame buffers
     uint8_t* _previousFrame;    // PSRAM allocated
+    uint8_t* _edgeFrame;        // Reused edge buffer (PSRAM)
     bool _hasPreviousFrame;
 
     // Motion vectors grid
