@@ -13,11 +13,11 @@ OpticalFlowDetector::OpticalFlowDetector()
     , _searchStep(5)         // Step largo: 5×5=25 posizioni (uguale a prima, ma range maggiore)
     , _minConfidence(30)     // Aumentato per filtrare vettori deboli
     , _minActiveBlocks(4)    // Aumentato: richiede più coerenza spaziale (almeno 4 blocchi)
-    , _quality(120)      // Default: più rigoroso per ridurre rumore
+    , _quality(160)      // Default: bilanciato (meno rumore)
     , _directionMagnitudeThreshold(2.0f)
     , _minCentroidWeight(100.0f)
-    , _motionIntensityThreshold(22)
-    , _motionSpeedThreshold(1.6f)
+    , _motionIntensityThreshold(15)
+    , _motionSpeedThreshold(1.2f)
     , _hasPreviousFrame(false)
     , _motionActive(false)
     , _motionIntensity(0)
@@ -32,7 +32,6 @@ OpticalFlowDetector::OpticalFlowDetector()
     , _flashIntensity(150)
     , _avgBrightness(0)
     , _frameDiffAvg(0)
-    , _frameDiffThreshold(2)
     , _lastMotionTime(0)
     , _totalFramesProcessed(0)
     , _motionFrameCount(0)
@@ -60,50 +59,23 @@ static void computeEdgeImage(const uint8_t* src, uint8_t* dst, uint16_t width, u
     // Pulisci il buffer (bordi a 0)
     memset(dst, 0, width * height);
     
-    const int threshold = 60; // SOGLIA RUMORE: più alta per ridurre falsi positivi a QVGA
+    const int threshold = 50; // SOGLIA RUMORE: Aumentata per evitare falsi positivi da rumore sensore
     
     // Calcola gradiente per ogni pixel (esclusi i bordi estremi)
     for (uint16_t y = 0; y < height - 1; y++) {
         int srcY = offsetY + y * step;
         const uint8_t* rowPtr = src + srcY * srcFullWidth + offsetX;
         
-        // Per step > 1 (subsampling), usiamo media 2x2 per ridurre rumore
-        // Per step = 1, usiamo pixel singolo
-        const bool useAverage = (step > 1);
-        
-        // Puntatori per media 2x2 (riga corrente e successiva)
-        const uint8_t* rowPtrNext = useAverage ? (src + (srcY + 1) * srcFullWidth + offsetX) : nullptr;
-        
-        // Puntatori per il blocco verticale (y + step)
-        const uint8_t* nextBlockPtr = src + (srcY + step) * srcFullWidth + offsetX;
-        const uint8_t* nextBlockPtrNext = useAverage ? (src + (srcY + step + 1) * srcFullWidth + offsetX) : nullptr;
+        const uint8_t* nextRowPtr = src + (srcY + step) * srcFullWidth + offsetX;
         
         uint8_t* dstPtr = dst + y * width;
         
         for (uint16_t x = 0; x < width - 1; x++) {
             int srcX = x * step;
             
-            int val00, val10, val01;
-            
-            if (useAverage) {
-                // Media 2x2 per il pixel corrente (x, y)
-                val00 = (rowPtr[srcX] + rowPtr[srcX+1] + rowPtrNext[srcX] + rowPtrNext[srcX+1]) >> 2;
-                
-                // Media 2x2 per il vicino orizzontale (x+step, y)
-                val10 = (rowPtr[srcX+step] + rowPtr[srcX+step+1] + rowPtrNext[srcX+step] + rowPtrNext[srcX+step+1]) >> 2;
-                
-                // Media 2x2 per il vicino verticale (x, y+step)
-                val01 = (nextBlockPtr[srcX] + nextBlockPtr[srcX+1] + nextBlockPtrNext[srcX] + nextBlockPtrNext[srcX+1]) >> 2;
-            } else {
-                // Pixel singolo
-                val00 = rowPtr[srcX];
-                val10 = rowPtr[srcX+step];
-                val01 = nextBlockPtr[srcX];
-            }
-            
             // Gradiente semplice (Manhattan): |dx| + |dy|
-            int dx = abs(val00 - val10);
-            int dy = abs(val00 - val01);
+            int dx = abs((int)rowPtr[srcX] - (int)rowPtr[srcX + step]);
+            int dy = abs((int)rowPtr[srcX] - (int)nextRowPtr[srcX]);
             int mag = dx + dy;
             
             // Applica soglia e amplifica i bordi reali
@@ -173,9 +145,8 @@ bool OpticalFlowDetector::processFrame(const uint8_t* frameBuffer, size_t frameL
     }
 
     bool isVGA = (frameLength == 640 * 480);
-    bool isQVGA = (frameLength == 320 * 240);
-    if (frameLength != _frameSize && !isVGA && !isQVGA) {
-        Serial.printf("[OPTICAL FLOW ERROR] Frame size mismatch! Expected %u (or VGA/QVGA input), got %u\n",
+    if (frameLength != _frameSize && !isVGA) {
+        Serial.printf("[OPTICAL FLOW ERROR] Frame size mismatch! Expected %u (or VGA input), got %u\n",
                       _frameSize, frameLength);
         return false;
     }
@@ -204,30 +175,9 @@ bool OpticalFlowDetector::processFrame(const uint8_t* frameBuffer, size_t frameL
             offsetX = 80;
             offsetY = 0;
             step = 2;
-        } else if (_frameWidth == 120 && _frameHeight == 120) {
-            // CROP 480x480 CENTRALE -> Subsample a 120x120
-            // Offset X = (640 - 480) / 2 = 80
-            offsetX = 80;
-            offsetY = 0;
-            step = 4;
         } else if (_frameWidth == 320 && _frameHeight == 240) {
             // QVGA standard (subsample intero frame)
             offsetX = 0;
-            offsetY = 0;
-            step = 2;
-        }
-    } else if (isQVGA) {
-        srcFullWidth = 320;
-        if (_frameWidth == 240 && _frameHeight == 240) {
-            // CROP 240x240 CENTRALE da QVGA
-            // Offset X = (320 - 240) / 2 = 40
-            offsetX = 40;
-            offsetY = 0;
-            step = 1;
-        } else if (_frameWidth == 120 && _frameHeight == 120) {
-            // CROP 240x240 CENTRALE da QVGA -> Subsample a 120x120
-            // Offset X = (320 - 240) / 2 = 40
-            offsetX = 40;
             offsetY = 0;
             step = 2;
         }
@@ -411,8 +361,8 @@ void OpticalFlowDetector::_filterOutliers() {
             int8_t diffDx = abs(center.dx - medianDx);
             int8_t diffDy = abs(center.dy - medianDy);
 
-            // Threshold: 5px di deviazione (ridotto da 8 per filtrare meglio il rumore)
-            if (diffDx > 5 || diffDy > 5) {
+            // Threshold: 8px di deviazione
+            if (diffDx > 8 || diffDy > 8) {
                 center.valid = false;  // Mark come outlier
             }
         }
@@ -470,9 +420,7 @@ void OpticalFlowDetector::_calculateGlobalMotion() {
 
     // Soglie globali (stabili, poco rumore)
     // Aumentata soglia intensità da 8 a 15 per tagliare il rumore di fondo
-    const bool passesFrameDiff = (_frameDiffAvg >= _frameDiffThreshold);
-    _motionActive = (passesFrameDiff &&
-                     _motionIntensity > _motionIntensityThreshold &&
+    _motionActive = (_motionIntensity > _motionIntensityThreshold &&
                      _motionSpeed > _motionSpeedThreshold);
 }
 

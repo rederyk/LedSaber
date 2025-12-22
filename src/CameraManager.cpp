@@ -113,20 +113,20 @@ bool CameraManager::begin(uint8_t flashPin) {
         s->set_whitebal(s, 1);       // White balance auto
         s->set_awb_gain(s, 1);       // Auto white balance gain
         s->set_wb_mode(s, 0);        // White balance mode auto
-        s->set_exposure_ctrl(s, 1);  // Auto exposure ENABLED
-        s->set_aec2(s, 0);           // Disable DSP AEC2 to reduce noise pumping
-        s->set_ae_level(s, -1);      // Slightly lower exposure target to reduce noise
-        s->set_aec_value(s, 300);    // AEC value fisso: 0 to 1200 (fallback if AE off)
+        s->set_exposure_ctrl(s, 1);  // Auto exposure ENABLED for cleaner image
+        s->set_aec2(s, 1);           // AEC DSP ENABLED
+        s->set_ae_level(s, 0);       // AE level: -2 to 2
+        s->set_aec_value(s, 400);    // AEC value fisso: 0 to 1200 (era 300, aumentato per compensare)
         s->set_gain_ctrl(s, 1);      // Auto gain
         s->set_agc_gain(s, 0);       // AGC gain: 0 to 30
-        s->set_gainceiling(s, GAINCEILING_2X);  // Keep gain low to reduce noise
-        s->set_bpc(s, 1);            // Black pixel correction
+        s->set_gainceiling(s, (gainceiling_t)0);  // Gain ceiling
+        s->set_bpc(s, 0);            // Black pixel correction
         s->set_wpc(s, 1);            // White pixel correction
         s->set_raw_gma(s, 1);        // Gamma correction
         s->set_lenc(s, 1);           // Lens correction
         s->set_hmirror(s, 0);        // Horizontal mirror
         s->set_vflip(s, 0);          // Vertical flip
-        s->set_dcw(s, 1);            // DCW (Downsize EN) helps reduce noise at lower res
+        s->set_dcw(s, 0);            // DCW (Downsize EN)
         s->set_colorbar(s, 0);       // Color bar test pattern
     }
 

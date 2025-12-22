@@ -948,8 +948,8 @@ static void CameraCaptureTask(void* pvParameters) {
             }
 
             if (!motionInitialized && frameLength > 0) {
-                // Usa 120x120 da crop centrale 480x480 (VGA) con subsampling 4x
-                if (motionDetector.begin(120, 120)) {
+                // Usa 240x240 da crop centrale 480x480 (VGA) con subsampling 2x
+                if (motionDetector.begin(240, 240)) {
                     motionInitialized = true;
                     Serial.println("[CAM TASK] Motion detector initialized");
                 } else {

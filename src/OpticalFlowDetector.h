@@ -19,7 +19,7 @@
 class OpticalFlowDetector {
 public:
     // Configurazione griglia (condivisa con renderer/servizi BLE)
-    static constexpr uint8_t BLOCK_SIZE = 20;
+    static constexpr uint8_t BLOCK_SIZE = 40;
     static constexpr uint8_t GRID_COLS = 6;
     static constexpr uint8_t GRID_ROWS = 6;
     static constexpr uint8_t TOTAL_BLOCKS = GRID_COLS * GRID_ROWS;
@@ -72,12 +72,6 @@ public:
      * @brief Legge qualità corrente (0-255)
      */
     uint8_t getQuality() const { return _quality; }
-
-    /**
-     * @brief Alias compatibilità BLE: sensitivity == quality
-     */
-    void setSensitivity(uint8_t sensitivity) { setQuality(sensitivity); }
-    uint8_t getSensitivity() const { return _quality; }
 
     /**
      * @brief Soglie motion globale (per motionActive)
@@ -273,7 +267,6 @@ private:
     uint8_t _flashIntensity;
     uint8_t _avgBrightness;
     uint8_t _frameDiffAvg;
-    uint8_t _frameDiffThreshold;
 
     // Timing & metrics
     unsigned long _lastMotionTime;
