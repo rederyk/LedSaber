@@ -218,9 +218,9 @@ MotionProcessor::GestureType MotionProcessor::_detectGesture(
                 continue;
             }
 
-            // Only 4 axes: accept a vector only if one component clearly dominates the other.
-            // This rejects diagonals/noise.
-            static constexpr int DOM_RATIO_NUM = 2;
+            // Only 4 axes: collapse diagonals to the dominant component.
+            // If vertical and horizontal are close, pick the larger component.
+            static constexpr int DOM_RATIO_NUM = 1;
             static constexpr int DOM_RATIO_DEN = 1;
             const bool vertical = (absDy * DOM_RATIO_DEN) >= (absDx * DOM_RATIO_NUM);
             const bool horizontal = (absDx * DOM_RATIO_DEN) >= (absDy * DOM_RATIO_NUM);

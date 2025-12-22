@@ -224,31 +224,93 @@ String BLEMotionService::_getStatusJson() {
     JsonDocument doc;
     OpticalFlowDetector::Metrics metrics = _motion->getMetrics();
 
-    auto rotateDirection90CW = [](OpticalFlowDetector::Direction dir) -> OpticalFlowDetector::Direction {
-        switch (dir) {
-            case OpticalFlowDetector::Direction::UP:         return OpticalFlowDetector::Direction::RIGHT;
-            case OpticalFlowDetector::Direction::UP_RIGHT:   return OpticalFlowDetector::Direction::DOWN_RIGHT;
-            case OpticalFlowDetector::Direction::RIGHT:      return OpticalFlowDetector::Direction::DOWN;
-            case OpticalFlowDetector::Direction::DOWN_RIGHT: return OpticalFlowDetector::Direction::DOWN_LEFT;
-            case OpticalFlowDetector::Direction::DOWN:       return OpticalFlowDetector::Direction::LEFT;
-            case OpticalFlowDetector::Direction::DOWN_LEFT:  return OpticalFlowDetector::Direction::UP_LEFT;
-            case OpticalFlowDetector::Direction::LEFT:       return OpticalFlowDetector::Direction::UP;
-            case OpticalFlowDetector::Direction::UP_LEFT:    return OpticalFlowDetector::Direction::UP_RIGHT;
-            default: return dir;
+    auto rotateDirectionCW = [](OpticalFlowDetector::Direction dir, uint16_t degrees) -> OpticalFlowDetector::Direction {
+        switch (degrees % 360) {
+            case 0:
+                return dir;
+            case 90:
+                switch (dir) {
+                    case OpticalFlowDetector::Direction::UP:         return OpticalFlowDetector::Direction::RIGHT;
+                    case OpticalFlowDetector::Direction::UP_RIGHT:   return OpticalFlowDetector::Direction::DOWN_RIGHT;
+                    case OpticalFlowDetector::Direction::RIGHT:      return OpticalFlowDetector::Direction::DOWN;
+                    case OpticalFlowDetector::Direction::DOWN_RIGHT: return OpticalFlowDetector::Direction::DOWN_LEFT;
+                    case OpticalFlowDetector::Direction::DOWN:       return OpticalFlowDetector::Direction::LEFT;
+                    case OpticalFlowDetector::Direction::DOWN_LEFT:  return OpticalFlowDetector::Direction::UP_LEFT;
+                    case OpticalFlowDetector::Direction::LEFT:       return OpticalFlowDetector::Direction::UP;
+                    case OpticalFlowDetector::Direction::UP_LEFT:    return OpticalFlowDetector::Direction::UP_RIGHT;
+                    default: return dir;
+                }
+            case 180:
+                switch (dir) {
+                    case OpticalFlowDetector::Direction::UP:         return OpticalFlowDetector::Direction::DOWN;
+                    case OpticalFlowDetector::Direction::UP_RIGHT:   return OpticalFlowDetector::Direction::DOWN_LEFT;
+                    case OpticalFlowDetector::Direction::RIGHT:      return OpticalFlowDetector::Direction::LEFT;
+                    case OpticalFlowDetector::Direction::DOWN_RIGHT: return OpticalFlowDetector::Direction::UP_LEFT;
+                    case OpticalFlowDetector::Direction::DOWN:       return OpticalFlowDetector::Direction::UP;
+                    case OpticalFlowDetector::Direction::DOWN_LEFT:  return OpticalFlowDetector::Direction::UP_RIGHT;
+                    case OpticalFlowDetector::Direction::LEFT:       return OpticalFlowDetector::Direction::RIGHT;
+                    case OpticalFlowDetector::Direction::UP_LEFT:    return OpticalFlowDetector::Direction::DOWN_RIGHT;
+                    default: return dir;
+                }
+            case 270:
+                switch (dir) {
+                    case OpticalFlowDetector::Direction::UP:         return OpticalFlowDetector::Direction::LEFT;
+                    case OpticalFlowDetector::Direction::UP_RIGHT:   return OpticalFlowDetector::Direction::UP_LEFT;
+                    case OpticalFlowDetector::Direction::RIGHT:      return OpticalFlowDetector::Direction::UP;
+                    case OpticalFlowDetector::Direction::DOWN_RIGHT: return OpticalFlowDetector::Direction::UP_RIGHT;
+                    case OpticalFlowDetector::Direction::DOWN:       return OpticalFlowDetector::Direction::RIGHT;
+                    case OpticalFlowDetector::Direction::DOWN_LEFT:  return OpticalFlowDetector::Direction::DOWN_RIGHT;
+                    case OpticalFlowDetector::Direction::LEFT:       return OpticalFlowDetector::Direction::DOWN;
+                    case OpticalFlowDetector::Direction::UP_LEFT:    return OpticalFlowDetector::Direction::DOWN_LEFT;
+                    default: return dir;
+                }
+            default:
+                return dir;
         }
     };
 
-    auto rotateTag90CW = [](char tag) -> char {
-        switch (tag) {
-            case '^': return '>';
-            case '>': return 'v';
-            case 'v': return '<';
-            case '<': return '^';
-            case 'A': return 'C'; // up-right -> down-right
-            case 'C': return 'D'; // down-right -> down-left
-            case 'D': return 'B'; // down-left -> up-left
-            case 'B': return 'A'; // up-left -> up-right
-            default: return tag;
+    auto rotateTagCW = [](char tag, uint16_t degrees) -> char {
+        switch (degrees % 360) {
+            case 0:
+                return tag;
+            case 90:
+                switch (tag) {
+                    case '^': return '>';
+                    case '>': return 'v';
+                    case 'v': return '<';
+                    case '<': return '^';
+                    case 'A': return 'C'; // up-right -> down-right
+                    case 'C': return 'D'; // down-right -> down-left
+                    case 'D': return 'B'; // down-left -> up-left
+                    case 'B': return 'A'; // up-left -> up-right
+                    default: return tag;
+                }
+            case 180:
+                switch (tag) {
+                    case '^': return 'v';
+                    case '>': return '<';
+                    case 'v': return '^';
+                    case '<': return '>';
+                    case 'A': return 'D'; // up-right -> down-left
+                    case 'C': return 'B'; // down-right -> up-left
+                    case 'D': return 'A'; // down-left -> up-right
+                    case 'B': return 'C'; // up-left -> down-right
+                    default: return tag;
+                }
+            case 270:
+                switch (tag) {
+                    case '^': return '<';
+                    case '>': return '^';
+                    case 'v': return '>';
+                    case '<': return 'v';
+                    case 'A': return 'B'; // up-right -> up-left
+                    case 'C': return 'A'; // down-right -> up-right
+                    case 'D': return 'C'; // down-left -> down-right
+                    case 'B': return 'D'; // up-left -> down-left
+                    default: return tag;
+                }
+            default:
+                return tag;
         }
     };
 
@@ -265,7 +327,7 @@ String BLEMotionService::_getStatusJson() {
 
     // NUOVI campi optical flow
     // Rotate for display to match gesture reference (main.cpp rotates motion direction before gesture processing)
-    doc["direction"] = OpticalFlowDetector::directionToString(rotateDirection90CW(metrics.dominantDirection));
+    doc["direction"] = OpticalFlowDetector::directionToString(rotateDirectionCW(metrics.dominantDirection, 180));
     doc["speed"] = round(metrics.avgSpeed * 10.0f) / 10.0f;  // 1 decimal
     doc["confidence"] = round(metrics.avgConfidence * 100.0f);  // 0-100%
     doc["activeBlocks"] = metrics.avgActiveBlocks;
@@ -295,7 +357,7 @@ String BLEMotionService::_getStatusJson() {
         rowStr.reserve(OpticalFlowDetector::GRID_COLS);
         for (uint8_t col = 0; col < OpticalFlowDetector::GRID_COLS; col++) {
             const char tag = _motion->getBlockDirectionTag(row, col);
-            rowStr += rotateTag90CW(tag);
+            rowStr += rotateTagCW(tag, 180);
         }
         gridArray.add(rowStr);
     }

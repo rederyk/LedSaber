@@ -1592,8 +1592,13 @@ class InteractiveCLI:
             if is_first:
                 # Stato iniziale: mostra tutto compatto
                 print(f"\n{Colors.GREEN}✓ Motion stato iniziale ricevuto{Colors.RESET}")
-                print(f"  Enabled: {state.get('enabled', False)} | Intensity: {state.get('intensity', 0)} | Direction: {state.get('direction', 'none')}")
-                print(f"  Motion: {state.get('motionDetected', False)} | Shake: {state.get('shakeDetected', False)} | Frames: {state.get('totalFrames', 0)}/{state.get('motionFrames', 0)}")
+                print(f"  Enabled: {state.get('enabled', False)} | Motion: {state.get('motionDetected', False)} | Shake: {state.get('shakeDetected', False)}")
+                print(f"  Intensity: {state.get('intensity', 0)} | Direction: {state.get('direction', 'none')} | Speed: {state.get('speed', 0)}")
+                print(f"  Confidence: {state.get('confidence', 0)} | ActiveBlocks: {state.get('activeBlocks', 0)} | FrameDiff: {state.get('frameDiff', 0)}")
+                print(f"  ComputeMs: {state.get('computeTimeMs', 0)} | Frames: {state.get('totalFrames', 0)}/{state.get('motionFrames', 0)}")
+                gesture = state.get('gesture', 'none')
+                if gesture != 'none':
+                    print(f"  Gesture: {gesture} | GConf: {state.get('gestureConfidence', 0)} | GTs: {state.get('gestureTimestamp', 0)}")
 
                 # Mostra griglia optical flow se presente
                 grid_rows = state.get('grid', [])
@@ -1613,28 +1618,27 @@ class InteractiveCLI:
 
                 # Riga compatta con info chiave
                 status_parts = []
-                if 'enabled' in changes:
-                    status = "ENABLED" if changes['enabled']['new'] else "DISABLED"
-                    status_parts.append(f"Detection={status}")
-                if 'motionDetected' in changes:
-                    status = "YES" if changes['motionDetected']['new'] else "NO"
-                    status_parts.append(f"Motion={status}")
-                if 'intensity' in changes:
-                    status_parts.append(f"Int={changes['intensity']['new']}")
-                if 'direction' in changes:
-                    status_parts.append(f"Dir={changes['direction']['new']}")
-                if 'shakeDetected' in changes and changes['shakeDetected']['new']:
+                status = "ENABLED" if state.get('enabled', False) else "DISABLED"
+                status_parts.append(f"Detection={status}")
+                status_parts.append(f"Motion={'YES' if state.get('motionDetected', False) else 'NO'}")
+                status_parts.append(f"Int={state.get('intensity', 0)}")
+                status_parts.append(f"Dir={state.get('direction', 'none')}")
+                status_parts.append(f"Speed={state.get('speed', 0)}")
+                status_parts.append(f"Conf={state.get('confidence', 0)}")
+                status_parts.append(f"Blocks={state.get('activeBlocks', 0)}")
+                status_parts.append(f"Diff={state.get('frameDiff', 0)}")
+                if state.get('shakeDetected', False):
                     status_parts.append(f"{Colors.YELLOW}SHAKE!{Colors.RESET}")
 
                 if status_parts:
                     print(f"  {' | '.join(status_parts)}")
 
                 # Gesture detection (solo se rilevata con confidence alta)
-                if 'gesture' in changes:
-                    gesture = changes['gesture']['new']
-                    confidence = state.get('gestureConfidence', 0)
-                    if gesture != 'none' and confidence > 50:
-                        print(f"  {Colors.BOLD}{Colors.GREEN}⚔️  GESTURE: {gesture.upper()} ({confidence}%){Colors.RESET}")
+                gesture = state.get('gesture', 'none')
+                confidence = state.get('gestureConfidence', 0)
+                if gesture != 'none':
+                    print(f"  {Colors.BOLD}{Colors.GREEN}⚔️  GESTURE: {gesture.upper()} ({confidence}%){Colors.RESET}")
+                    print(f"  GestureTs: {state.get('gestureTimestamp', 0)}")
 
                 # Mostra griglia optical flow compatta
                 grid_rows = state.get('grid', [])
@@ -1672,6 +1676,10 @@ class InteractiveCLI:
             direction = event.get('direction', 'none')
             gesture = event.get('gesture', 'none')
             gesture_confidence = event.get('gestureConfidence', 0)
+            speed = event.get('speed', 0)
+            confidence = event.get('confidence', 0)
+            active_blocks = event.get('activeBlocks', 0)
+            frame_diff = event.get('frameDiff', 0)
 
             emoji = "🔔"
             if event_type == "shake_detected":
@@ -1688,6 +1696,7 @@ class InteractiveCLI:
             print(f"  Changed Pixels: {pixels}")
             if direction != 'none':
                 print(f"  Direction: {Colors.CYAN}{direction}{Colors.RESET}")
+            print(f"  Speed: {speed} | Conf: {confidence} | Blocks: {active_blocks} | Diff: {frame_diff}")
 
             if gesture != 'none' and gesture_confidence > 50:
                 print(f"  {Colors.BOLD}{Colors.GREEN}⚔️  GESTURE: {gesture.upper()} ({gesture_confidence}%){Colors.RESET}")

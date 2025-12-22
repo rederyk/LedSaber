@@ -61,22 +61,22 @@ public:
 
         Config() :
             gesturesEnabled(true),
-            gestureThreshold(11),   // Più sensibile (5fps + mano vicina alla camera)
-            ignitionIntensityThreshold(14),
-            retractIntensityThreshold(15),
+            gestureThreshold(10),   // Più sensibile (5fps + mano vicina alla camera)
+            ignitionIntensityThreshold(13),
+            retractIntensityThreshold(12),
             clashIntensityThreshold(12),
-            gestureDurationMs(80),  // Più reattivo
+            gestureDurationMs(70),  // Più reattivo
             clashDeltaThreshold(60), // Aumentato da 15 a 60 per ridurre falsi positivi
             clashWindowMs(600),     // ~2.2 frame @ 5.6fps per catturare veri clash
             gestureCooldownMs(800), // Meno "bloccante" del vecchio 2s
             clashCooldownMs(5000),   // Clash dedicato per evitare raffiche
             axisMinBlocks(2),
-            axisMinTotalWeight(18),
-            axisMinDominance(16),
+            axisMinTotalWeight(14),
+            axisMinDominance(12),
             axisEmaAlpha(110),
-            axisOnFraction(62),
-            axisOffFraction(50),
-            swingDurationMs(55),
+            axisOnFraction(55),
+            axisOffFraction(45),
+            swingDurationMs(50),
             perturbationEnabled(true),
             perturbationScale(255) {}  // 100% = effetto massimo
     };
