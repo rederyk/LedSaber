@@ -497,6 +497,19 @@ class LedSaberOTA {
 }
 ```
 
+#### **Motion Config (Read/Write)**
+```json
+{
+  "enabled": true,
+  "quality": 160,
+  "motionIntensityMin": 15,
+  "motionSpeedMin": 1.2,
+  "gestureIgnitionIntensity": 14,
+  "gestureRetractIntensity": 15,
+  "gestureClashIntensity": 12
+}
+```
+
 ---
 
 ## 🆕 Caratteristiche BLE NECESSARIE (NUOVE)

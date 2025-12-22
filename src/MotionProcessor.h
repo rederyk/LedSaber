@@ -36,7 +36,10 @@ public:
 
     struct Config {
         bool gesturesEnabled;
-        uint8_t gestureThreshold;      // Min intensity for gesture (default: 20)
+        uint8_t gestureThreshold;      // Min intensity base (legacy/swing)
+        uint8_t ignitionIntensityThreshold; // Min intensity for IGNITION
+        uint8_t retractIntensityThreshold;  // Min intensity for RETRACT
+        uint8_t clashIntensityThreshold;    // Min intensity for CLASH
         uint16_t gestureDurationMs;    // Min duration for sustained gestures (default: 100ms)
         uint8_t clashDeltaThreshold;   // Min delta for clash (default: 15)
         uint16_t clashWindowMs;        // Time window for clash delta (default: 350ms)
@@ -59,6 +62,9 @@ public:
         Config() :
             gesturesEnabled(true),
             gestureThreshold(11),   // Più sensibile (5fps + mano vicina alla camera)
+            ignitionIntensityThreshold(14),
+            retractIntensityThreshold(15),
+            clashIntensityThreshold(12),
             gestureDurationMs(80),  // Più reattivo
             clashDeltaThreshold(60), // Aumentato da 15 a 60 per ridurre falsi positivi
             clashWindowMs(600),     // ~2.2 frame @ 5.6fps per catturare veri clash

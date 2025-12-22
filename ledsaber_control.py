@@ -711,7 +711,10 @@ class LedSaberClient:
             return {}
 
     async def set_motion_config(self, enabled: bool = None, quality: int = None,
-                                motion_intensity_min: int = None, motion_speed_min: float = None):
+                                motion_intensity_min: int = None, motion_speed_min: float = None,
+                                gesture_ignition_intensity: int = None,
+                                gesture_retract_intensity: int = None,
+                                gesture_clash_intensity: int = None):
         """Imposta configurazione motion detector"""
         if not self.client or not self.client.is_connected:
             print(f"{Colors.RED}✗ Non connesso{Colors.RESET}")
@@ -726,6 +729,12 @@ class LedSaberClient:
             config["motionIntensityMin"] = max(0, min(255, int(motion_intensity_min)))
         if motion_speed_min is not None:
             config["motionSpeedMin"] = max(0.0, float(motion_speed_min))
+        if gesture_ignition_intensity is not None:
+            config["gestureIgnitionIntensity"] = max(0, min(255, int(gesture_ignition_intensity)))
+        if gesture_retract_intensity is not None:
+            config["gestureRetractIntensity"] = max(0, min(255, int(gesture_retract_intensity)))
+        if gesture_clash_intensity is not None:
+            config["gestureClashIntensity"] = max(0, min(255, int(gesture_clash_intensity)))
 
         if not config:
             print(f"{Colors.YELLOW}⚠ Nessun parametro per motion config{Colors.RESET}")
@@ -902,6 +911,9 @@ class InteractiveCLI:
   {Colors.MAGENTA}motion quality <0-255>{Colors.RESET} - Imposta qualità
   {Colors.MAGENTA}motion motionmin <0-255>{Colors.RESET}  - Soglia intensità motion attivo
   {Colors.MAGENTA}motion speedmin <0-20>{Colors.RESET}    - Soglia velocità (px/frame)
+  {Colors.MAGENTA}motion ignitionmin <0-255>{Colors.RESET} - Soglia intensità ignition gesture
+  {Colors.MAGENTA}motion retractmin <0-255>{Colors.RESET}  - Soglia intensità retract gesture
+  {Colors.MAGENTA}motion clashmin <0-255>{Colors.RESET}    - Soglia intensità clash gesture
   {Colors.MAGENTA}motion reset{Colors.RESET}         - Reset statistiche motion
 
   {Colors.BOLD}⚡ DEVICE CONTROL COMMANDS:{Colors.RESET}
@@ -1247,7 +1259,7 @@ class InteractiveCLI:
                 # Gestione comandi motion detection
                 if not args:
                     print(f"{Colors.RED}✗ Uso: motion <comando>{Colors.RESET}")
-                    print(f"{Colors.YELLOW}💡 Comandi: enable, disable, status, config, quality, motionmin, speedmin, reset{Colors.RESET}")
+                    print(f"{Colors.YELLOW}💡 Comandi: enable, disable, status, config, quality, motionmin, speedmin, ignitionmin, retractmin, clashmin, reset{Colors.RESET}")
                     return
 
                 subcmd = args[0].lower()
@@ -1311,6 +1323,12 @@ class InteractiveCLI:
                         print(f"  Quality: {config.get('quality', 128)}")
                         print(f"  MotionIntensityMin: {config.get('motionIntensityMin', 15)}")
                         print(f"  MotionSpeedMin: {config.get('motionSpeedMin', 1.2)}")
+                        if "gestureIgnitionIntensity" in config:
+                            print(f"  GestureIgnitionIntensity: {config.get('gestureIgnitionIntensity')}")
+                        if "gestureRetractIntensity" in config:
+                            print(f"  GestureRetractIntensity: {config.get('gestureRetractIntensity')}")
+                        if "gestureClashIntensity" in config:
+                            print(f"  GestureClashIntensity: {config.get('gestureClashIntensity')}")
                     else:
                         print(f"{Colors.YELLOW}⚠ Nessun dato disponibile{Colors.RESET}")
 
@@ -1362,6 +1380,51 @@ class InteractiveCLI:
                     except ValueError:
                         print(f"{Colors.RED}✗ Valore non valido{Colors.RESET}")
 
+                elif subcmd == "ignitionmin":
+                    if len(args) < 2:
+                        print(f"{Colors.RED}✗ Uso: motion ignitionmin <0-255>{Colors.RESET}")
+                        return
+                    try:
+                        value = int(args[1])
+                        if 0 <= value <= 255:
+                            await self.client.set_motion_config(gesture_ignition_intensity=value)
+                            await asyncio.sleep(0.5)
+                            print(f"{Colors.GREEN}✓ Ignition intensity min impostata: {value}{Colors.RESET}")
+                        else:
+                            print(f"{Colors.RED}✗ Valore deve essere tra 0 e 255{Colors.RESET}")
+                    except ValueError:
+                        print(f"{Colors.RED}✗ Valore non valido{Colors.RESET}")
+
+                elif subcmd == "retractmin":
+                    if len(args) < 2:
+                        print(f"{Colors.RED}✗ Uso: motion retractmin <0-255>{Colors.RESET}")
+                        return
+                    try:
+                        value = int(args[1])
+                        if 0 <= value <= 255:
+                            await self.client.set_motion_config(gesture_retract_intensity=value)
+                            await asyncio.sleep(0.5)
+                            print(f"{Colors.GREEN}✓ Retract intensity min impostata: {value}{Colors.RESET}")
+                        else:
+                            print(f"{Colors.RED}✗ Valore deve essere tra 0 e 255{Colors.RESET}")
+                    except ValueError:
+                        print(f"{Colors.RED}✗ Valore non valido{Colors.RESET}")
+
+                elif subcmd == "clashmin":
+                    if len(args) < 2:
+                        print(f"{Colors.RED}✗ Uso: motion clashmin <0-255>{Colors.RESET}")
+                        return
+                    try:
+                        value = int(args[1])
+                        if 0 <= value <= 255:
+                            await self.client.set_motion_config(gesture_clash_intensity=value)
+                            await asyncio.sleep(0.5)
+                            print(f"{Colors.GREEN}✓ Clash intensity min impostata: {value}{Colors.RESET}")
+                        else:
+                            print(f"{Colors.RED}✗ Valore deve essere tra 0 e 255{Colors.RESET}")
+                    except ValueError:
+                        print(f"{Colors.RED}✗ Valore non valido{Colors.RESET}")
+
                 elif subcmd == "reset":
                     await self.client.motion_send_command("reset")
                     await asyncio.sleep(0.5)
@@ -1369,7 +1432,7 @@ class InteractiveCLI:
 
                 else:
                     print(f"{Colors.RED}✗ Comando motion sconosciuto: {subcmd}{Colors.RESET}")
-                    print(f"{Colors.YELLOW}💡 Comandi: enable, disable, status, config, quality, motionmin, speedmin, reset{Colors.RESET}")
+                    print(f"{Colors.YELLOW}💡 Comandi: enable, disable, status, config, quality, motionmin, speedmin, ignitionmin, retractmin, clashmin, reset{Colors.RESET}")
 
             # ================================================================
             # DEVICE CONTROL COMMANDS

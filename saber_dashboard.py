@@ -223,6 +223,9 @@ class MotionStatusCard(Static):
         motion_detected = state.get('motionDetected', False)
         shake_detected = state.get('shakeDetected', False)
         quality = state.get('quality', 0)
+        gi = state.get('gestureIgnitionIntensity')
+        gr = state.get('gestureRetractIntensity')
+        gc = state.get('gestureClashIntensity')
 
         status_icon = "[green]◉ ENABLED[/]" if enabled else "[red]● DISABLED[/]"
         motion_icon = "[yellow]⚡[/]" if motion_detected else "[dim]○[/]"
@@ -234,13 +237,18 @@ class MotionStatusCard(Static):
         table.add_row(f"Qual:   [cyan]{quality}[/]")
         table.add_row(f"Motion: {motion_icon}")
         table.add_row(f"Shake: {shake_icon}")
+        if gi is not None or gr is not None or gc is not None:
+            gi_val = "?" if gi is None else f"{gi}"
+            gr_val = "?" if gr is None else f"{gr}"
+            gc_val = "?" if gc is None else f"{gc}"
+            table.add_row(f"G-I/R/C: [dim]{gi_val}/{gr_val}/{gc_val}[/]")
 
         return Panel(
             table,
             title="[bold magenta]⚡ STATUS[/]",
             border_style="magenta",
             box=box.ROUNDED,
-            height=7
+            height=8
         )
 
 
@@ -1029,6 +1037,8 @@ class SaberDashboard(App):
         self.stats_grid: Optional[Container] = None
         self.kpi_row: Optional[Container] = None
         self.main_scroll: Optional[VerticalScroll] = None
+        self.motion_config: Dict = {}
+        self.last_motion_state: Dict = {}
 
     def compose(self) -> ComposeResult:
         """Componi layout"""
@@ -1275,7 +1285,7 @@ class SaberDashboard(App):
             # === MOTION COMMANDS ===
             elif cmd == "motion":
                 if not args:
-                    self._log("Usage: motion <enable|disable|status|quality N|motionmin N|speedmin N>", "red")
+                    self._log("Usage: motion <enable|disable|status|config|quality N|motionmin N|speedmin N|ignitionmin N|retractmin N|clashmin N>", "red")
                     return
 
                 subcmd = args[0].lower()
@@ -1294,6 +1304,23 @@ class SaberDashboard(App):
                         self._log(f"Motion: enabled={status.get('enabled')} detected={status.get('motionDetected')} intensity={status.get('intensity')}", "cyan")
                     else:
                         self._log("No motion status available", "yellow")
+
+                elif subcmd == "config":
+                    config = await self.client.get_motion_config()
+                    if config:
+                        self._update_motion_config(config)
+                        self._log(
+                            "Motion config: "
+                            f"quality={config.get('quality')} "
+                            f"motionMin={config.get('motionIntensityMin')} "
+                            f"speedMin={config.get('motionSpeedMin')} "
+                            f"ignition={config.get('gestureIgnitionIntensity')} "
+                            f"retract={config.get('gestureRetractIntensity')} "
+                            f"clash={config.get('gestureClashIntensity')}",
+                            "cyan"
+                        )
+                    else:
+                        self._log("No motion config available", "yellow")
 
                 elif subcmd == "quality":
                     if len(args) < 2:
@@ -1318,6 +1345,33 @@ class SaberDashboard(App):
                     min_speed = float(args[1])
                     await self.client.motion_send_command(f"speedmin {min_speed}")
                     self._log(f"Motion speed min set: {min_speed:.2f}", "green")
+
+                elif subcmd == "ignitionmin":
+                    if len(args) < 2:
+                        self._log("Usage: motion ignitionmin <0-255>", "red")
+                        return
+                    value = int(args[1])
+                    await self.client.set_motion_config(gesture_ignition_intensity=value)
+                    self._set_motion_config_field("gestureIgnitionIntensity", value)
+                    self._log(f"Ignition intensity min set: {value}", "green")
+
+                elif subcmd == "retractmin":
+                    if len(args) < 2:
+                        self._log("Usage: motion retractmin <0-255>", "red")
+                        return
+                    value = int(args[1])
+                    await self.client.set_motion_config(gesture_retract_intensity=value)
+                    self._set_motion_config_field("gestureRetractIntensity", value)
+                    self._log(f"Retract intensity min set: {value}", "green")
+
+                elif subcmd == "clashmin":
+                    if len(args) < 2:
+                        self._log("Usage: motion clashmin <0-255>", "red")
+                        return
+                    value = int(args[1])
+                    await self.client.set_motion_config(gesture_clash_intensity=value)
+                    self._set_motion_config_field("gestureClashIntensity", value)
+                    self._log(f"Clash intensity min set: {value}", "green")
 
                 else:
                     self._log(f"Unknown motion command: {subcmd}", "red")
@@ -1354,7 +1408,7 @@ class SaberDashboard(App):
             elif cmd == "help":
                 self._log("Commands: scan, connect, disconnect, color, effect, brightness, on, off", "cyan")
                 self._log("          chrono <hour_theme> <second_theme> - Set chrono themes (0-3 for hours, 0-5 for seconds)", "cyan")
-                self._log("          cam <init|start|stop|status>, motion <enable|disable|status|quality N|motionmin N|speedmin N>", "cyan")
+                self._log("          cam <init|start|stop|status>, motion <enable|disable|status|config|quality N|motionmin N|speedmin N|ignitionmin N|retractmin N|clashmin N>", "cyan")
                 self._log("          ignition, retract, reboot, sleep, effects", "cyan")
                 self._log("Shortcuts: Ctrl+S=scan, Ctrl+D=disconnect, F2=cam init, F3=start, F4=stop, F5=motion toggle", "cyan")
                 self._log("           F6=cycle hour theme, F7=cycle second theme, F8=ignition, F9=retract", "cyan")
@@ -1452,6 +1506,24 @@ class SaberDashboard(App):
                 if self.device_info_card:
                     self.device_info_card.time_synced = False
 
+            # Leggi configurazione motion (include soglie gesture)
+            try:
+                config = await self.client.get_motion_config()
+                if config:
+                    self._update_motion_config(config)
+                    self._log(
+                        "Motion config loaded: "
+                        f"quality={config.get('quality')} "
+                        f"motionMin={config.get('motionIntensityMin')} "
+                        f"speedMin={config.get('motionSpeedMin')} "
+                        f"ignition={config.get('gestureIgnitionIntensity')} "
+                        f"retract={config.get('gestureRetractIntensity')} "
+                        f"clash={config.get('gestureClashIntensity')}",
+                        "cyan"
+                    )
+            except Exception as e:
+                self._log(f"Could not read motion config: {e}", "yellow")
+
             # Leggi stato iniziale
             state = await self.client.get_state()
             if state:
@@ -1498,10 +1570,12 @@ class SaberDashboard(App):
 
     def _on_motion_update(self, state: Dict, is_first: bool = False, changes: Dict = None):
         """Callback motion state"""
+        self.last_motion_state = state or {}
+        merged_state = self._merge_motion_state(self.last_motion_state)
         if self.motion_section:
-            self.motion_section.motion_state = state
+            self.motion_section.motion_state = merged_state
         if self.optical_widget:
-            self.optical_widget.motion_state = state
+            self.optical_widget.motion_state = merged_state
 
         if not is_first and changes:
             for key, change in changes.items():
@@ -1540,6 +1614,31 @@ class SaberDashboard(App):
         if gesture != 'none':
             base += f" gesture:{gesture}({gesture_conf}%)"
         self._log(base, "yellow")
+
+    def _merge_motion_state(self, state: Dict) -> Dict:
+        merged = dict(state or {})
+        if self.motion_config:
+            for key in (
+                "gestureIgnitionIntensity",
+                "gestureRetractIntensity",
+                "gestureClashIntensity",
+            ):
+                if key in self.motion_config:
+                    merged[key] = self.motion_config[key]
+        return merged
+
+    def _update_motion_config(self, config: Dict) -> None:
+        self.motion_config = config or {}
+        merged_state = self._merge_motion_state(self.last_motion_state)
+        if self.motion_section:
+            self.motion_section.motion_state = merged_state
+        if self.optical_widget:
+            self.optical_widget.motion_state = merged_state
+
+    def _set_motion_config_field(self, key: str, value) -> None:
+        config = dict(self.motion_config or {})
+        config[key] = value
+        self._update_motion_config(config)
 
     # ═══════════════════════════════════════════════════════════════════════
     # ACTIONS (KEYBOARD SHORTCUTS)

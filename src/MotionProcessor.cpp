@@ -64,16 +64,16 @@ MotionProcessor::GestureType MotionProcessor::_detectGesture(
 
     auto max16 = [](uint16_t a, uint16_t b) { return (a > b) ? a : b; };
 
-    // Per-gesture thresholds tuned for current optical flow noise/profile
-    const uint8_t ignitionIntensityThreshold = (uint8_t)max(14, (int)_config.gestureThreshold + 2);
+    // Per-gesture thresholds (configurable via BLE)
+    const uint8_t ignitionIntensityThreshold = _config.ignitionIntensityThreshold;
     const uint16_t ignitionDurationThreshold = max16((uint16_t)110, (uint16_t)(_config.gestureDurationMs + 30));
     const float ignitionSpeedThreshold = 0.60f;
 
-    const uint8_t retractIntensityThreshold = (uint8_t)max(14, (int)_config.gestureThreshold + 4);   // Cleaner gesture
+    const uint8_t retractIntensityThreshold = _config.retractIntensityThreshold;   // Cleaner gesture
     const uint16_t retractDurationThreshold = max16((uint16_t)120, (uint16_t)(_config.gestureDurationMs + 40));
     const float retractSpeedThreshold = 0.65f;
 
-    const uint8_t clashIntensityThreshold = (uint8_t)max(12, (int)_config.gestureThreshold);
+    const uint8_t clashIntensityThreshold = _config.clashIntensityThreshold;
     const uint16_t clashCooldown = max16(_config.clashCooldownMs, (uint16_t)500);
 
     // Cooldown management: prevent gesture spam

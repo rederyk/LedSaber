@@ -315,6 +315,12 @@ String BLEMotionService::_getConfigJson() {
     doc["quality"] = _motion->getQuality();
     doc["motionIntensityMin"] = _motion->getMotionIntensityThreshold();
     doc["motionSpeedMin"] = _motion->getMotionSpeedThreshold();
+    if (_processor) {
+        const MotionProcessor::Config& cfg = _processor->getConfig();
+        doc["gestureIgnitionIntensity"] = cfg.ignitionIntensityThreshold;
+        doc["gestureRetractIntensity"] = cfg.retractIntensityThreshold;
+        doc["gestureClashIntensity"] = cfg.clashIntensityThreshold;
+    }
 
     String output;
     serializeJson(doc, output);
@@ -407,6 +413,9 @@ void BLEMotionService::ConfigCallbacks::onWrite(BLECharacteristic* pCharacterist
     const bool hasQuality = doc.containsKey("quality");
     const bool hasMotionIntensity = doc.containsKey("motionIntensityMin");
     const bool hasMotionSpeed = doc.containsKey("motionSpeedMin");
+    const bool hasIgnitionIntensity = doc.containsKey("gestureIgnitionIntensity");
+    const bool hasRetractIntensity = doc.containsKey("gestureRetractIntensity");
+    const bool hasClashIntensity = doc.containsKey("gestureClashIntensity");
 
     uint8_t quality = doc["quality"] | _service->_motion->getQuality();
     uint8_t motionIntensityMin = doc["motionIntensityMin"] | _service->_motion->getMotionIntensityThreshold();
@@ -424,6 +433,24 @@ void BLEMotionService::ConfigCallbacks::onWrite(BLECharacteristic* pCharacterist
     }
     if (hasMotionSpeed) {
         _service->_motion->setMotionSpeedThreshold(motionSpeedMin);
+    }
+    if (_service->_processor &&
+        (hasIgnitionIntensity || hasRetractIntensity || hasClashIntensity)) {
+        MotionProcessor::Config cfg = _service->_processor->getConfig();
+        if (hasIgnitionIntensity) {
+            cfg.ignitionIntensityThreshold = (uint8_t)constrain((int)doc["gestureIgnitionIntensity"], 0, 255);
+        }
+        if (hasRetractIntensity) {
+            cfg.retractIntensityThreshold = (uint8_t)constrain((int)doc["gestureRetractIntensity"], 0, 255);
+        }
+        if (hasClashIntensity) {
+            cfg.clashIntensityThreshold = (uint8_t)constrain((int)doc["gestureClashIntensity"], 0, 255);
+        }
+        _service->_processor->setConfig(cfg);
+        Serial.printf("[MOTION BLE] Gesture intensity update: ignition=%u retract=%u clash=%u\n",
+                      cfg.ignitionIntensityThreshold,
+                      cfg.retractIntensityThreshold,
+                      cfg.clashIntensityThreshold);
     }
 
     // Aggiorna characteristic con nuovo stato
