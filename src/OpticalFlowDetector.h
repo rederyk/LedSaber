@@ -20,7 +20,7 @@ class OpticalFlowDetector {
 public:
     // Configurazione griglia (condivisa con renderer/servizi BLE)
     static constexpr uint8_t BLOCK_SIZE = 40;
-    static constexpr uint8_t GRID_COLS = 8;
+    static constexpr uint8_t GRID_COLS = 6;
     static constexpr uint8_t GRID_ROWS = 6;
     static constexpr uint8_t TOTAL_BLOCKS = GRID_COLS * GRID_ROWS;
 
@@ -33,11 +33,11 @@ public:
 
     /**
      * @brief Inizializza detector
-     * @param frameWidth Larghezza frame (default: 320)
+     * @param frameWidth Larghezza frame (default: 240)
      * @param frameHeight Altezza frame (default: 240)
      * @return true se successo
      */
-    bool begin(uint16_t frameWidth = 320, uint16_t frameHeight = 240);
+    bool begin(uint16_t frameWidth = 240, uint16_t frameHeight = 240);
 
     /**
      * @brief Processa frame per optical flow
@@ -120,7 +120,7 @@ public:
     /**
      * @brief Ottieni vettore movimento di un blocco specifico
      * @param row Riga blocco (0-5)
-     * @param col Colonna blocco (0-7)
+     * @param col Colonna blocco (0-5)
      * @param outDx Output: componente X vettore
      * @param outDy Output: componente Y vettore
      * @param outConfidence Output: confidence (0-255)

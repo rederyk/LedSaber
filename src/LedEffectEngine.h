@@ -178,17 +178,17 @@ private:
     // BASE EFFECT RENDERERS
     // ═══════════════════════════════════════════════════════════
 
-    void renderSolid(const LedState& state, const uint8_t perturbationGrid[6][8]);
-    void renderRainbow(const LedState& state, const uint8_t perturbationGrid[6][8]);
-    void renderBreathe(const LedState& state, const uint8_t perturbationGrid[6][8]);
-    void renderFlicker(const LedState& state, const uint8_t perturbationGrid[6][8]);
-    void renderUnstable(const LedState& state, const uint8_t perturbationGrid[6][8]);
-    void renderPulse(const LedState& state, const uint8_t perturbationGrid[6][8]);
-    void renderDualPulse(const LedState& state, const uint8_t perturbationGrid[6][8]);
-    void renderDualPulseSimple(const LedState& state, const uint8_t perturbationGrid[6][8]);
-    void renderRainbowBlade(const LedState& state, const uint8_t perturbationGrid[6][8]);
-    void renderRainbowEffect(const LedState& state, const uint8_t perturbationGrid[6][8], const MotionProcessor::ProcessedMotion* motion);
-    void renderChronoHybrid(const LedState& state, const uint8_t perturbationGrid[6][8], const MotionProcessor::ProcessedMotion* motion);
+    void renderSolid(const LedState& state, const uint8_t perturbationGrid[OpticalFlowDetector::GRID_ROWS][OpticalFlowDetector::GRID_COLS]);
+    void renderRainbow(const LedState& state, const uint8_t perturbationGrid[OpticalFlowDetector::GRID_ROWS][OpticalFlowDetector::GRID_COLS]);
+    void renderBreathe(const LedState& state, const uint8_t perturbationGrid[OpticalFlowDetector::GRID_ROWS][OpticalFlowDetector::GRID_COLS]);
+    void renderFlicker(const LedState& state, const uint8_t perturbationGrid[OpticalFlowDetector::GRID_ROWS][OpticalFlowDetector::GRID_COLS]);
+    void renderUnstable(const LedState& state, const uint8_t perturbationGrid[OpticalFlowDetector::GRID_ROWS][OpticalFlowDetector::GRID_COLS]);
+    void renderPulse(const LedState& state, const uint8_t perturbationGrid[OpticalFlowDetector::GRID_ROWS][OpticalFlowDetector::GRID_COLS]);
+    void renderDualPulse(const LedState& state, const uint8_t perturbationGrid[OpticalFlowDetector::GRID_ROWS][OpticalFlowDetector::GRID_COLS]);
+    void renderDualPulseSimple(const LedState& state, const uint8_t perturbationGrid[OpticalFlowDetector::GRID_ROWS][OpticalFlowDetector::GRID_COLS]);
+    void renderRainbowBlade(const LedState& state, const uint8_t perturbationGrid[OpticalFlowDetector::GRID_ROWS][OpticalFlowDetector::GRID_COLS]);
+    void renderRainbowEffect(const LedState& state, const uint8_t perturbationGrid[OpticalFlowDetector::GRID_ROWS][OpticalFlowDetector::GRID_COLS], const MotionProcessor::ProcessedMotion* motion);
+    void renderChronoHybrid(const LedState& state, const uint8_t perturbationGrid[OpticalFlowDetector::GRID_ROWS][OpticalFlowDetector::GRID_COLS], const MotionProcessor::ProcessedMotion* motion);
 
     // ═══════════════════════════════════════════════════════════
     // CHRONO THEME RENDERERS (modular)

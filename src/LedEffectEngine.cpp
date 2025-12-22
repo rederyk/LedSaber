@@ -2,6 +2,8 @@
 #include <esp_sleep.h>
 
 static constexpr uint8_t MAX_SAFE_BRIGHTNESS = 255;
+static constexpr uint8_t GRID_ROWS = OpticalFlowDetector::GRID_ROWS;
+static constexpr uint8_t GRID_COLS = OpticalFlowDetector::GRID_COLS;
 
 LedEffectEngine::LedEffectEngine(CRGB* leds, uint16_t numLeds) :
     _leds(leds),
@@ -235,7 +237,7 @@ void LedEffectEngine::setLedPair(uint16_t logicalIndex, uint16_t foldPoint, CRGB
 // BASE EFFECT RENDERERS
 // ═══════════════════════════════════════════════════════════
 
-void LedEffectEngine::renderSolid(const LedState& state, const uint8_t perturbationGrid[6][8]) {
+void LedEffectEngine::renderSolid(const LedState& state, const uint8_t perturbationGrid[GRID_ROWS][GRID_COLS]) {
     CRGB baseColor = CRGB(state.r, state.g, state.b);
 
     if (perturbationGrid == nullptr) {
@@ -248,7 +250,7 @@ void LedEffectEngine::renderSolid(const LedState& state, const uint8_t perturbat
     uint8_t safeBrightness = min(state.brightness, MAX_SAFE_BRIGHTNESS);
 
     for (uint16_t i = 0; i < state.foldPoint; i++) {
-        uint8_t col = map(i, 0, state.foldPoint - 1, 0, 7);
+        uint8_t col = map(i, 0, state.foldPoint - 1, 0, GRID_COLS - 1);
 
         // Sample multiple rows for fuller effect
         uint8_t maxPerturbation = 0;
@@ -277,7 +279,7 @@ void LedEffectEngine::renderSolid(const LedState& state, const uint8_t perturbat
     // Note: Brightness scaling already applied, will be set globally in render()
 }
 
-void LedEffectEngine::renderRainbow(const LedState& state, const uint8_t perturbationGrid[6][8]) {
+void LedEffectEngine::renderRainbow(const LedState& state, const uint8_t perturbationGrid[GRID_ROWS][GRID_COLS]) {
     uint8_t step = map(state.speed, 1, 255, 1, 15);
     if (step == 0) step = 1;
 
@@ -291,7 +293,7 @@ void LedEffectEngine::renderRainbow(const LedState& state, const uint8_t perturb
 
             // Map physical LED to grid column
             uint16_t logicalPos = (i < _numLeds / 2) ? i : (_numLeds - 1 - i);
-            uint8_t col = map(logicalPos, 0, state.foldPoint - 1, 0, 7);
+            uint8_t col = map(logicalPos, 0, state.foldPoint - 1, 0, GRID_COLS - 1);
 
             // Average perturbation
             uint16_t perturbSum = 0;
@@ -317,7 +319,7 @@ void LedEffectEngine::renderRainbow(const LedState& state, const uint8_t perturb
     _hue += step;
 }
 
-void LedEffectEngine::renderBreathe(const LedState& state, const uint8_t perturbationGrid[6][8]) {
+void LedEffectEngine::renderBreathe(const LedState& state, const uint8_t perturbationGrid[GRID_ROWS][GRID_COLS]) {
     uint8_t breath = beatsin8(state.speed, 0, 255);
     uint8_t safeBrightness = min(state.brightness, MAX_SAFE_BRIGHTNESS);
 
@@ -330,7 +332,7 @@ void LedEffectEngine::renderBreathe(const LedState& state, const uint8_t perturb
         CRGB baseColor = CRGB(state.r, state.g, state.b);
 
         for (uint16_t i = 0; i < state.foldPoint; i++) {
-            uint8_t col = map(i, 0, state.foldPoint - 1, 0, 7);
+            uint8_t col = map(i, 0, state.foldPoint - 1, 0, GRID_COLS - 1);
 
             // Sample perturbation
             uint16_t perturbSum = 0;
@@ -357,7 +359,7 @@ void LedEffectEngine::renderBreathe(const LedState& state, const uint8_t perturb
     }
 }
 
-void LedEffectEngine::renderFlicker(const LedState& state, const uint8_t perturbationGrid[6][8]) {
+void LedEffectEngine::renderFlicker(const LedState& state, const uint8_t perturbationGrid[GRID_ROWS][GRID_COLS]) {
     CRGB baseColor = CRGB(state.r, state.g, state.b);
     uint8_t safeBrightness = min(state.brightness, MAX_SAFE_BRIGHTNESS);
     uint8_t flickerIntensity = state.speed;
@@ -367,7 +369,7 @@ void LedEffectEngine::renderFlicker(const LedState& state, const uint8_t perturb
 
         // KYLO REN STYLE: Motion perturbations VIOLENTLY disturb the blade
         if (perturbationGrid != nullptr) {
-            uint8_t col = map(i, 0, state.foldPoint - 1, 0, 7);
+            uint8_t col = map(i, 0, state.foldPoint - 1, 0, GRID_COLS - 1);
 
             // Sample multiple rows to create wider perturbation effect
             uint8_t perturbSum = 0;
@@ -398,7 +400,7 @@ void LedEffectEngine::renderFlicker(const LedState& state, const uint8_t perturb
     // Note: Brightness scaling already applied, will be set globally in render()
 }
 
-void LedEffectEngine::renderUnstable(const LedState& state, const uint8_t perturbationGrid[6][8]) {
+void LedEffectEngine::renderUnstable(const LedState& state, const uint8_t perturbationGrid[GRID_ROWS][GRID_COLS]) {
     CRGB baseColor = CRGB(state.r, state.g, state.b);
     uint8_t safeBrightness = min(state.brightness, MAX_SAFE_BRIGHTNESS);
     uint16_t maxIndex = min((uint16_t)state.foldPoint, (uint16_t)72);
@@ -413,15 +415,15 @@ void LedEffectEngine::renderUnstable(const LedState& state, const uint8_t pertur
 
     if (perturbationGrid != nullptr) {
         // MOTION CREATES PLASMA CHAOS: perturbation triggers eruptions
-        for (uint8_t col = 0; col < 8; col++) {
+        for (uint8_t col = 0; col < GRID_COLS; col++) {
             uint8_t maxPerturbation = 0;
-            for (uint8_t row = 0; row < 6; row++) {
+            for (uint8_t row = 0; row < GRID_ROWS; row++) {
                 maxPerturbation = max(maxPerturbation, perturbationGrid[row][col]);
             }
 
             // Motion-triggered eruptions: MORE AGGRESSIVE
             if (maxPerturbation > 30) {
-                uint16_t pos = map(col, 0, 7, 0, maxIndex - 1);
+                uint16_t pos = map(col, 0, GRID_COLS - 1, 0, maxIndex - 1);
 
                 // High motion = EXPLOSIVE sparks
                 uint8_t eruptionChance = sparkChance + scale8(maxPerturbation, 200);  // Increased from 150
@@ -467,7 +469,7 @@ void LedEffectEngine::renderUnstable(const LedState& state, const uint8_t pertur
     // Note: Brightness scaling already applied, will be set globally in render()
 }
 
-void LedEffectEngine::renderPulse(const LedState& state, const uint8_t perturbationGrid[6][8]) {
+void LedEffectEngine::renderPulse(const LedState& state, const uint8_t perturbationGrid[GRID_ROWS][GRID_COLS]) {
     // --- Costanti per l'effetto Pulse ---
     static constexpr uint8_t PERTURBATION_THRESHOLD = 3;
     static constexpr float ACCELERATION_COEFFICIENT = 3.0f;
@@ -489,8 +491,8 @@ void LedEffectEngine::renderPulse(const LedState& state, const uint8_t perturbat
     if (perturbationGrid != nullptr) {
         uint16_t totalPerturb = 0;
         uint8_t samples = 0;
-        for (uint8_t row = 1; row <= 4; row++) {
-            for (uint8_t col = 0; col < 8; col++) {
+        for (uint8_t row = 1; row + 1 < GRID_ROWS; row++) {
+            for (uint8_t col = 0; col < GRID_COLS; col++) {
                 totalPerturb += perturbationGrid[row][col];
                 samples++;
             }
@@ -717,7 +719,7 @@ void LedEffectEngine::renderPulse(const LedState& state, const uint8_t perturbat
     // Note: Brightness scaling already applied, will be set globally in render()
 }
 
-void LedEffectEngine::renderDualPulse(const LedState& state, const uint8_t perturbationGrid[6][8]) {
+void LedEffectEngine::renderDualPulse(const LedState& state, const uint8_t perturbationGrid[GRID_ROWS][GRID_COLS]) {
     const unsigned long now = millis();
 
     // ═══════════════════════════════════════════════════════════
@@ -827,8 +829,8 @@ void LedEffectEngine::renderDualPulse(const LedState& state, const uint8_t pertu
         // Calcola perturbazione media su tutta la lama
         uint16_t totalPerturb = 0;
         uint8_t samples = 0;
-        for (uint8_t row = 1; row <= 4; row++) {
-            for (uint8_t col = 0; col < 8; col++) {
+        for (uint8_t row = 1; row + 1 < GRID_ROWS; row++) {
+            for (uint8_t col = 0; col < GRID_COLS; col++) {
                 totalPerturb += perturbationGrid[row][col];
                 samples++;
             }
@@ -1635,7 +1637,7 @@ void LedEffectEngine::renderDualPulse(const LedState& state, const uint8_t pertu
     }
 }
 
-void LedEffectEngine::renderDualPulseSimple(const LedState& state, const uint8_t perturbationGrid[6][8]) {
+void LedEffectEngine::renderDualPulseSimple(const LedState& state, const uint8_t perturbationGrid[GRID_ROWS][GRID_COLS]) {
     const unsigned long now = millis();
 
     // Dual Pulse Simple:
@@ -1708,14 +1710,14 @@ void LedEffectEngine::renderDualPulseSimple(const LedState& state, const uint8_t
     if (perturbationGrid != nullptr) {
         auto sampleBallPerturb = [&](float pos) -> uint8_t {
             uint16_t idx = (uint16_t)constrain((int)lroundf(pos), 0, (int)state.foldPoint - 1);
-            uint8_t col = (uint8_t)map(idx, 0, state.foldPoint - 1, 0, 7);
+            uint8_t col = (uint8_t)map(idx, 0, state.foldPoint - 1, 0, GRID_COLS - 1);
 
             uint16_t sum = 0;
             uint8_t samples = 0;
             for (int8_t dc = -1; dc <= 1; dc++) {
                 int8_t c = (int8_t)col + dc;
-                if (c < 0 || c > 7) continue;
-                for (uint8_t row = 1; row <= 4; row++) {
+                if (c < 0 || c >= GRID_COLS) continue;
+                for (uint8_t row = 1; row + 1 < GRID_ROWS; row++) {
                     sum += perturbationGrid[row][(uint8_t)c];
                     samples++;
                 }
@@ -1966,7 +1968,7 @@ void LedEffectEngine::renderDualPulseSimple(const LedState& state, const uint8_t
     }
 }
 
-void LedEffectEngine::renderRainbowBlade(const LedState& state, const uint8_t perturbationGrid[6][8]) {
+void LedEffectEngine::renderRainbowBlade(const LedState& state, const uint8_t perturbationGrid[GRID_ROWS][GRID_COLS]) {
     uint8_t hueStep = map(state.speed, 1, 255, 1, 15);
     if (hueStep == 0) hueStep = 1;
 
@@ -1977,7 +1979,7 @@ void LedEffectEngine::renderRainbowBlade(const LedState& state, const uint8_t pe
 
         // CHROMATIC ABERRATION: motion creates color shifts and sparkles
         if (perturbationGrid != nullptr) {
-            uint8_t col = map(i, 0, state.foldPoint - 1, 0, 7);
+            uint8_t col = map(i, 0, state.foldPoint - 1, 0, GRID_COLS - 1);
 
             // Sample perturbation
             uint16_t perturbSum = 0;
@@ -2009,7 +2011,7 @@ void LedEffectEngine::renderRainbowBlade(const LedState& state, const uint8_t pe
     _rainbowHue += hueStep;
 }
 
-void LedEffectEngine::renderRainbowEffect(const LedState& state, const uint8_t perturbationGrid[6][8], const MotionProcessor::ProcessedMotion* motion) {
+void LedEffectEngine::renderRainbowEffect(const LedState& state, const uint8_t perturbationGrid[GRID_ROWS][GRID_COLS], const MotionProcessor::ProcessedMotion* motion) {
     CRGB whiteBase = CRGB(255, 255, 255);  // Lama bianca come base
     uint8_t safeBrightness = min(state.brightness, MAX_SAFE_BRIGHTNESS);
 
@@ -2018,7 +2020,7 @@ void LedEffectEngine::renderRainbowEffect(const LedState& state, const uint8_t p
 
         // RAINBOW PERTURBATIONS: motion adds colors based on direction
         if (perturbationGrid != nullptr && motion != nullptr) {
-            uint8_t col = map(i, 0, state.foldPoint - 1, 0, 7);
+            uint8_t col = map(i, 0, state.foldPoint - 1, 0, GRID_COLS - 1);
 
             // Sample perturbation in this column
             uint16_t perturbSum = 0;
@@ -2377,7 +2379,7 @@ void LedEffectEngine::handleGestureTriggers(MotionProcessor::GestureType gesture
 // CHRONO HYBRID EFFECT - Orologio ibrido con motion reactive
 // ═══════════════════════════════════════════════════════════
 
-void LedEffectEngine::renderChronoHybrid(const LedState& state, const uint8_t perturbationGrid[6][8], const MotionProcessor::ProcessedMotion* motion) {
+void LedEffectEngine::renderChronoHybrid(const LedState& state, const uint8_t perturbationGrid[GRID_ROWS][GRID_COLS], const MotionProcessor::ProcessedMotion* motion) {
     const unsigned long now = millis();
 
     // ═══ STEP 1: CALCOLO TEMPO REALE ═══

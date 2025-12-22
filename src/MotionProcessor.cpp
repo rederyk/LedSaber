@@ -477,10 +477,10 @@ bool MotionProcessor::_isSustainedDirection(
 
 void MotionProcessor::_calculatePerturbationGrid(
     const OpticalFlowDetector& detector,
-    uint8_t perturbationGrid[6][8])
+    uint8_t perturbationGrid[OpticalFlowDetector::GRID_ROWS][OpticalFlowDetector::GRID_COLS])
 {
-    for (uint8_t row = 0; row < 6; row++) {
-        for (uint8_t col = 0; col < 8; col++) {
+    for (uint8_t row = 0; row < OpticalFlowDetector::GRID_ROWS; row++) {
+        for (uint8_t col = 0; col < OpticalFlowDetector::GRID_COLS; col++) {
             int8_t dx, dy;
             uint8_t confidence;
 

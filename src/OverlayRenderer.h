@@ -28,7 +28,7 @@ public:
 private:
     // Configurazione griglia (deve corrispondere a OpticalFlowDetector)
     static constexpr uint8_t BLOCK_SIZE = 40;
-    static constexpr uint8_t GRID_COLS = 8;
+    static constexpr uint8_t GRID_COLS = 6;
     static constexpr uint8_t GRID_ROWS = 6;
     static constexpr uint16_t FRAME_WIDTH = 320;
     static constexpr uint16_t FRAME_HEIGHT = 240;

@@ -284,7 +284,7 @@ String BLEMotionService::_getStatusJson() {
         doc["gestureTimestamp"] = 0;
     }
 
-    // 8x6 grid tags for quick visualization via BLE
+    // 6x6 grid tags for quick visualization via BLE
     doc["gridRows"] = OpticalFlowDetector::GRID_ROWS;
     doc["gridCols"] = OpticalFlowDetector::GRID_COLS;
     doc["blockSize"] = OpticalFlowDetector::BLOCK_SIZE;

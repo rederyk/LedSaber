@@ -30,8 +30,8 @@ public:
         float speed;                   // px/frame
         uint32_t timestamp;
 
-        // Localized perturbation data (8x6 grid matching optical flow)
-        uint8_t perturbationGrid[6][8];  // Per-block perturbation intensity
+        // Localized perturbation data (6x6 grid matching optical flow)
+        uint8_t perturbationGrid[OpticalFlowDetector::GRID_ROWS][OpticalFlowDetector::GRID_COLS];
     };
 
     struct Config {
@@ -149,7 +149,7 @@ private:
      * @brief Calculate perturbation grid from optical flow blocks
      */
     void _calculatePerturbationGrid(const OpticalFlowDetector& detector,
-                                    uint8_t perturbationGrid[6][8]);
+                                    uint8_t perturbationGrid[OpticalFlowDetector::GRID_ROWS][OpticalFlowDetector::GRID_COLS]);
 
     /**
      * @brief Check if direction is sustained
