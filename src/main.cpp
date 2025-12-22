@@ -970,7 +970,7 @@ static void CameraCaptureTask(void* pvParameters) {
                 result.motionDetected = motionDetected;
                 result.flashIntensity = motionDetector.getRecommendedFlashIntensity();
                 result.motionIntensity = motionDetector.getMotionIntensity();
-                result.direction = rotateCW(motionDetector.getMotionDirection(), 180);
+                result.direction = rotateCW(motionDetector.getMotionDirection(), 0);
                 result.timestamp = millis();
                 result.processedMotion = motionProcessor.process(
                     result.motionIntensity,

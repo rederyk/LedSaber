@@ -70,18 +70,14 @@ void LedEffectEngine::render(const LedState& state, const MotionProcessor::Proce
         return;
     }
 
-    // Auto-IGNITION when blade is off: require an explicit IGNITION gesture
+    // Auto-IGNITION when blade is off: any direction ("spicchio") triggers ignition
     if (!state.bladeEnabled && motion != nullptr) {
         const unsigned long AUTO_IGNITION_DEBOUNCE_MS = 600;
-        const uint8_t AUTO_IGNITION_MIN_CONFIDENCE = 30;
-        const float AUTO_IGNITION_MIN_SPEED = 1.2f;
-        if (motion->gesture == MotionProcessor::GestureType::IGNITION &&
-            motion->gestureConfidence >= AUTO_IGNITION_MIN_CONFIDENCE &&
-            motion->speed >= AUTO_IGNITION_MIN_SPEED &&
+        if (motion->direction != OpticalFlowDetector::Direction::NONE &&
             (now - _bladeOffTimestamp) >= AUTO_IGNITION_DEBOUNCE_MS)
         {
-            Serial.printf("[LED] Auto ignition gesture (conf=%u) while blade off. OffTime: %lu, Now: %lu\n",
-                motion->gestureConfidence, _bladeOffTimestamp, now);
+            Serial.printf("[LED] Auto ignition on motion while blade off. OffTime: %lu, Now: %lu\n",
+                _bladeOffTimestamp, now);
             powerOn();
         }
     }
@@ -2363,11 +2359,6 @@ void LedEffectEngine::handleGestureTriggers(MotionProcessor::GestureType gesture
             _clashBrightness = 255;
             _lastClashTrigger = now;
             Serial.println("[LED] CLASH effect triggered by gesture!");
-            break;
-
-        case MotionProcessor::GestureType::SWING:
-            // SWING doesn't override mode, just enhances current effect
-            // (perturbations already applied in base rendering)
             break;
 
         default:
