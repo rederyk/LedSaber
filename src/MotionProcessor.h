@@ -51,17 +51,17 @@ public:
 
         Config() :
             gesturesEnabled(true),
-            gestureThreshold(14),   // Più robusto contro rumore a QVGA
-            ignitionIntensityThreshold(18),
-            retractIntensityThreshold(18),
+            gestureThreshold(12),   // Più robusto contro rumore a QVGA
+            ignitionIntensityThreshold(10),
+            retractIntensityThreshold(8),
             clashIntensityThreshold(14),
             gestureDurationMs(70),  // Più reattivo
             clashDeltaThreshold(60), // Aumentato da 15 a 60 per ridurre falsi positivi
             clashWindowMs(600),     // ~2.2 frame @ 5.6fps per catturare veri clash
             gestureCooldownMs(800), // Meno "bloccante" del vecchio 2s
             clashCooldownMs(5000),   // Clash dedicato per evitare raffiche
-            retractSpeedMax(1.6f),
-            clashSpeedMin(2.5f),
+            retractSpeedMax(3.2f),
+            clashSpeedMin(3.5f),
             perturbationEnabled(true),
             perturbationScale(255) {}  // 100% = effetto massimo
     };
