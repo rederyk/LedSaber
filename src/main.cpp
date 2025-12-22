@@ -899,7 +899,8 @@ static void CameraCaptureTask(void* pvParameters) {
             }
 
             if (!motionInitialized && frameLength > 0) {
-                if (motionDetector.begin(320, 240)) {
+                // Usa 240x240 per crop quadrato 480x480 (subsampled x2)
+                if (motionDetector.begin(240, 240)) {
                     motionInitialized = true;
                     Serial.println("[CAM TASK] Motion detector initialized");
                 } else {

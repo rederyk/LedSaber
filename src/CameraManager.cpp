@@ -90,7 +90,7 @@ bool CameraManager::begin(uint8_t flashPin) {
 
     // Formato immagine: QVGA grayscale per prestazioni
     config.pixel_format = PIXFORMAT_GRAYSCALE;  // 1 byte/pixel
-    config.frame_size = FRAMESIZE_QVGA;         // 320x240
+    config.frame_size = FRAMESIZE_VGA;          // 640x480 (High Res)
     config.jpeg_quality = 12;                    // Non usato per grayscale
     config.fb_count = 2;                         // Double buffering
     config.fb_location = CAMERA_FB_IN_PSRAM;     // Usa PSRAM per buffer
@@ -113,8 +113,8 @@ bool CameraManager::begin(uint8_t flashPin) {
         s->set_whitebal(s, 1);       // White balance auto
         s->set_awb_gain(s, 1);       // Auto white balance gain
         s->set_wb_mode(s, 0);        // White balance mode auto
-        s->set_exposure_ctrl(s, 0);  // Auto exposure DISABLED (era 1, rallenta FPS)
-        s->set_aec2(s, 0);           // AEC DSP
+        s->set_exposure_ctrl(s, 1);  // Auto exposure ENABLED for cleaner image
+        s->set_aec2(s, 1);           // AEC DSP ENABLED
         s->set_ae_level(s, 0);       // AE level: -2 to 2
         s->set_aec_value(s, 400);    // AEC value fisso: 0 to 1200 (era 300, aumentato per compensare)
         s->set_gain_ctrl(s, 1);      // Auto gain

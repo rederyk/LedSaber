@@ -1283,7 +1283,7 @@ class InteractiveCLI:
                             print(f"    {zones[3]:3d} {zones[4]:3d} {zones[5]:3d}")
                             print(f"    {zones[6]:3d} {zones[7]:3d} {zones[8]:3d}")
 
-                        # Mostra griglia optical flow 40px (8x6)
+                        # Mostra griglia optical flow 40px (6x6)
                         grid_rows = status.get('grid', [])
                         if grid_rows:
                             grid_cols = status.get('gridCols', len(grid_rows[0]) if grid_rows else 0)

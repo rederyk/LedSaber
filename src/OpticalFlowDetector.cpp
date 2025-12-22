@@ -48,7 +48,7 @@ OpticalFlowDetector::~OpticalFlowDetector() {
 
 // Helper statico per calcolare la mappa dei bordi (Gradient Magnitude)
 // Questo evidenzia solo i contorni e ignora le aree piatte/uniformi
-static void computeEdgeImage(const uint8_t* src, uint8_t* dst, uint16_t width, uint16_t height) {
+static void computeEdgeImage(const uint8_t* src, uint8_t* dst, uint16_t width, uint16_t height, int srcFullWidth, int offsetX, int offsetY, int step) {
     // Pulisci il buffer (bordi a 0)
     memset(dst, 0, width * height);
     
@@ -56,14 +56,16 @@ static void computeEdgeImage(const uint8_t* src, uint8_t* dst, uint16_t width, u
     
     // Calcola gradiente per ogni pixel (esclusi i bordi estremi)
     for (uint16_t y = 0; y < height - 1; y++) {
-        const uint8_t* rowPtr = src + y * width;
-        const uint8_t* nextRowPtr = src + (y + 1) * width;
+        int srcY = offsetY + y * step;
+        const uint8_t* rowPtr = src + srcY * srcFullWidth + offsetX;
+        const uint8_t* nextRowPtr = src + (srcY + step) * srcFullWidth + offsetX;
         uint8_t* dstPtr = dst + y * width;
         
         for (uint16_t x = 0; x < width - 1; x++) {
+            int srcX = x * step;
             // Gradiente semplice (Manhattan): |dx| + |dy|
-            int dx = abs((int)rowPtr[x] - (int)rowPtr[x+1]);
-            int dy = abs((int)rowPtr[x] - (int)nextRowPtr[x]);
+            int dx = abs((int)rowPtr[srcX] - (int)rowPtr[srcX+step]);
+            int dy = abs((int)rowPtr[srcX] - (int)nextRowPtr[srcX]);
             int mag = dx + dy;
             
             // Applica soglia e amplifica i bordi reali
@@ -122,8 +124,9 @@ bool OpticalFlowDetector::processFrame(const uint8_t* frameBuffer, size_t frameL
         return false;
     }
 
-    if (frameLength != _frameSize) {
-        Serial.printf("[OPTICAL FLOW ERROR] Frame size mismatch! Expected %u, got %u\n",
+    bool isVGA = (frameLength == 640 * 480);
+    if (frameLength != _frameSize && !isVGA) {
+        Serial.printf("[OPTICAL FLOW ERROR] Frame size mismatch! Expected %u (or VGA input), got %u\n",
                       _frameSize, frameLength);
         return false;
     }
@@ -138,8 +141,30 @@ bool OpticalFlowDetector::processFrame(const uint8_t* frameBuffer, size_t frameL
         return false;
     }
 
+    // Configurazione Crop/Scale
+    int srcFullWidth = _frameWidth;
+    int offsetX = 0;
+    int offsetY = 0;
+    int step = 1;
+
+    if (isVGA) {
+        srcFullWidth = 640;
+        if (_frameWidth == 240 && _frameHeight == 240) {
+            // CROP 480x480 CENTRALE -> Subsample a 240x240
+            // Offset X = (640 - 480) / 2 = 80
+            offsetX = 80;
+            offsetY = 0;
+            step = 2;
+        } else if (_frameWidth == 320 && _frameHeight == 240) {
+            // QVGA standard (subsample intero frame)
+            offsetX = 0;
+            offsetY = 0;
+            step = 2;
+        }
+    }
+
     // 2. Calcola i bordi dal frame grezzo
-    computeEdgeImage(frameBuffer, edgeFrame, _frameWidth, _frameHeight);
+    computeEdgeImage(frameBuffer, edgeFrame, _frameWidth, _frameHeight, srcFullWidth, offsetX, offsetY, step);
 
     // Primo frame: inizializza previous e non rilevare motion
     if (!_hasPreviousFrame) {
