@@ -1,6 +1,21 @@
 #include "MotionProcessor.h"
 #include <cmath>
 
+namespace {
+const uint8_t* gammaLut07() {
+    static uint8_t lut[256];
+    static bool init = false;
+    if (!init) {
+        for (int i = 0; i < 256; ++i) {
+            const float x = (float)i / 255.0f;
+            lut[i] = (uint8_t)lroundf(powf(x, 0.7f) * 255.0f);
+        }
+        init = true;
+    }
+    return lut;
+}
+}
+
 MotionProcessor::MotionProcessor() :
     _lastDirection(OpticalFlowDetector::Direction::NONE),
     _directionStartTime(0),
@@ -195,6 +210,11 @@ void MotionProcessor::_calculatePerturbationGrid(
     const OpticalFlowDetector& detector,
     uint8_t perturbationGrid[OpticalFlowDetector::GRID_ROWS][OpticalFlowDetector::GRID_COLS])
 {
+    const uint8_t* gamma = gammaLut07();
+    const float inv255 = 1.0f / 255.0f;
+    const float confWeight = 0.2f * inv255;
+    const float scale = _config.perturbationScale * inv255;
+
     for (uint8_t row = 0; row < OpticalFlowDetector::GRID_ROWS; row++) {
         for (uint8_t col = 0; col < OpticalFlowDetector::GRID_COLS; col++) {
             int8_t dx, dy;
@@ -212,17 +232,17 @@ void MotionProcessor::_calculatePerturbationGrid(
 
                 // Apply confidence weighting (but boost it)
                 // Confidence è spesso basso con optical flow grossolano
-                float confidenceBoost = (confidence / 255.0f) * 0.2f + 0.5f;  // Min 50%
+                float confidenceBoost = (confidence * confWeight) + 0.5f;  // Min 50%
                 normalized *= confidenceBoost;
 
                 // Apply config scale (default 128 = 50%, ma lo applichiamo su range già amplificato)
-                normalized *= (_config.perturbationScale / 255.0f);
+                normalized *= scale;
 
                 // AGGRESSIVE BOOST: Quadratic scaling for dramatic effect
                 // x^0.7 = softer curve, più valori medi/alti
-                normalized = powf(normalized, 0.7f);
-
-                uint8_t value = (uint8_t)(normalized * 255.0f);
+                uint16_t idx = (uint16_t)(normalized * 255.0f + 0.5f);
+                if (idx > 255) idx = 255;
+                uint8_t value = gamma[idx];
                 perturbationGrid[row][col] = value;
 
                 // Debug periodico (ogni 100 frame con motion)

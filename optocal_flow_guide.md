@@ -71,3 +71,37 @@ Se il clash e troppo sensibile:
 
 Se il retract scatta troppo facilmente:
 - alza retractmin a 20-25
+
+## Setting avanzati optical flow (finestra e algoritmo)
+
+Questi parametri non sono esposti via BLE: vanno cambiati in codice
+(`src/OpticalFlowDetector.cpp` e `src/OpticalFlowDetector.h`).
+
+### Finestra/griglia
+
+- BLOCK_SIZE: dimensione del blocco (default 40). Piu piccolo = piu dettaglio, piu CPU.
+- GRID_ROWS/GRID_COLS: griglia 6x6 fissa a 240x240.
+
+### Search window (SAD)
+
+- _searchRange: raggio ricerca in pixel (default 10). Piu alto = cattura movimenti piu grandi, ma piu lento.
+- _searchStep: passo campionamento (default 5). Piu basso = piu preciso, piu lento.
+
+### Edge threshold
+
+- computeEdgeImage threshold: soglia gradiente (default 50).
+  Alzala per ridurre rumore, abbassala per aumentare sensibilita ai bordi deboli.
+
+### Altre soglie interne
+
+- _directionMagnitudeThreshold (default 2.0): sotto questa magnitudine la direzione e NONE.
+- _minCentroidWeight (default 100.0): peso minimo per considerare il centroide valido.
+
+### Quality (via BLE)
+
+- quality mappa _minConfidence e _minActiveBlocks (vedi setQuality).
+  Quality piu alta = piu permissivo, piu rumoroso.
+
+### Motion thresholds (via BLE)
+
+- motionIntensityMin e motionSpeedMin: soglie globali per motion active.
