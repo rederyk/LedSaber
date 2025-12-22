@@ -752,7 +752,9 @@ void loop() {
             // Pulse verde che corre nella barra solo quando la barra blu si aggiorna
             if (allowScrollPulse && logicalLedsToFill > 0) {
                 const uint32_t pulsePeriodMs = 350;
-                float pulsePhase = (float)((now - lastProgressChangeMs) % pulsePeriodMs) / (float)pulsePeriodMs;
+                uint32_t elapsed = now - lastProgressChangeMs;
+                float pulsePhase = (float)elapsed / (float)pulsePeriodMs;
+                if (pulsePhase > 1.0f) pulsePhase = 1.0f;
                 float pulsePos = pulsePhase * (float)max((uint16_t)1, (uint16_t)(logicalLedsToFill - 1));
                 uint16_t pulseSpan = max((uint16_t)4, (uint16_t)(foldPoint / 20));
                 if (pulseSpan > logicalLedsToFill) {

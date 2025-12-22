@@ -66,14 +66,44 @@ static void computeEdgeImage(const uint8_t* src, uint8_t* dst, uint16_t width, u
     for (uint16_t y = 0; y < height - 1; y++) {
         int srcY = offsetY + y * step;
         const uint8_t* rowPtr = src + srcY * srcFullWidth + offsetX;
-        const uint8_t* nextRowPtr = src + (srcY + step) * srcFullWidth + offsetX;
+        
+        // Per step > 1 (subsampling), usiamo media 2x2 per ridurre rumore
+        // Per step = 1, usiamo pixel singolo
+        const bool useAverage = (step > 1);
+        
+        // Puntatori per media 2x2 (riga corrente e successiva)
+        const uint8_t* rowPtrNext = useAverage ? (src + (srcY + 1) * srcFullWidth + offsetX) : nullptr;
+        
+        // Puntatori per il blocco verticale (y + step)
+        const uint8_t* nextBlockPtr = src + (srcY + step) * srcFullWidth + offsetX;
+        const uint8_t* nextBlockPtrNext = useAverage ? (src + (srcY + step + 1) * srcFullWidth + offsetX) : nullptr;
+        
         uint8_t* dstPtr = dst + y * width;
         
         for (uint16_t x = 0; x < width - 1; x++) {
             int srcX = x * step;
+            
+            int val00, val10, val01;
+            
+            if (useAverage) {
+                // Media 2x2 per il pixel corrente (x, y)
+                val00 = (rowPtr[srcX] + rowPtr[srcX+1] + rowPtrNext[srcX] + rowPtrNext[srcX+1]) >> 2;
+                
+                // Media 2x2 per il vicino orizzontale (x+step, y)
+                val10 = (rowPtr[srcX+step] + rowPtr[srcX+step+1] + rowPtrNext[srcX+step] + rowPtrNext[srcX+step+1]) >> 2;
+                
+                // Media 2x2 per il vicino verticale (x, y+step)
+                val01 = (nextBlockPtr[srcX] + nextBlockPtr[srcX+1] + nextBlockPtrNext[srcX] + nextBlockPtrNext[srcX+1]) >> 2;
+            } else {
+                // Pixel singolo
+                val00 = rowPtr[srcX];
+                val10 = rowPtr[srcX+step];
+                val01 = nextBlockPtr[srcX];
+            }
+            
             // Gradiente semplice (Manhattan): |dx| + |dy|
-            int dx = abs((int)rowPtr[srcX] - (int)rowPtr[srcX+step]);
-            int dy = abs((int)rowPtr[srcX] - (int)nextRowPtr[srcX]);
+            int dx = abs(val00 - val10);
+            int dy = abs(val00 - val01);
             int mag = dx + dy;
             
             // Applica soglia e amplifica i bordi reali
@@ -381,8 +411,8 @@ void OpticalFlowDetector::_filterOutliers() {
             int8_t diffDx = abs(center.dx - medianDx);
             int8_t diffDy = abs(center.dy - medianDy);
 
-            // Threshold: 8px di deviazione
-            if (diffDx > 8 || diffDy > 8) {
+            // Threshold: 5px di deviazione (ridotto da 8 per filtrare meglio il rumore)
+            if (diffDx > 5 || diffDy > 5) {
                 center.valid = false;  // Mark come outlier
             }
         }
