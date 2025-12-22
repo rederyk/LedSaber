@@ -40,10 +40,11 @@ Queste soglie agiscono sul detector, non sulle gesture.
 
 - gestureRetractSpeedMax: velocita massima per RETRACT (movimento lento).
 - gestureClashSpeedMin: velocita minima per CLASH (movimento veloce).
+  Nota: queste soglie usano velocita normalizzata in px/secondo.
 
 ## Comandi BLE / CLI
 
-Valori tipici in px/frame (0..20).
+Valori tipici in px/secondo (0..20).
 
 - motion retractspeedmax <0-20>
 - motion clashspeedmin <0-20>

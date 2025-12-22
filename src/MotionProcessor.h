@@ -106,6 +106,7 @@ private:
     // Gesture detection state
     OpticalFlowDetector::Direction _lastDirection;
     uint32_t _directionStartTime;
+    uint32_t _lastFrameTime;
     bool _gestureCooldown;
     uint32_t _gestureCooldownEnd;
     uint32_t _clashCooldownEnd;
