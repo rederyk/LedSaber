@@ -775,8 +775,8 @@ void loop() {
 
                 // Culmina con un breve allungamento della barra blu quando il pulse arriva in punta
                 if (foldPoint > logicalLedsToFill && pulseSpan > 0) {
-                    float edge = (float)(logicalLedsToFill - 1);
-                    float t = (pulsePos - (edge - (float)pulseSpan)) / (float)pulseSpan;
+                    // Usa pulsePhase per determinare l'estensione: inizia solo nell'ultimo 15% del viaggio
+                    float t = (pulsePhase - 0.85f) / 0.15f;
                     if (t < 0.0f) t = 0.0f;
                     if (t > 1.0f) t = 1.0f;
                     uint16_t maxExtra = min((uint16_t)6, (uint16_t)(foldPoint - logicalLedsToFill));
