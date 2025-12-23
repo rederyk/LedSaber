@@ -50,6 +50,11 @@ public:
      */
     bool isCameraActive() const { return _cameraActive; }
 
+    /**
+     * @brief Imposta stato cattura continua camera
+     */
+    void setCameraActive(bool active);
+
 private:
     CameraManager* _camera;
     BLEService* _pService;

@@ -24,6 +24,7 @@ private:
         uint8_t foldPoint = 72;  // Punto di piegatura LED (default = metà)
         bool autoIgnitionOnBoot = true;
         uint32_t autoIgnitionDelayMs = 2000;
+        bool motionOnBoot = false;
     };
     DefaultConfig defaults;
 

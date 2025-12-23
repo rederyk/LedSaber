@@ -71,6 +71,16 @@ void BLECameraService::updateMetrics() {
     _pCharMetrics->setValue(metricsJson.c_str());
 }
 
+void BLECameraService::setCameraActive(bool active) {
+    if (_cameraActive == active) {
+        return;
+    }
+
+    _cameraActive = active;
+    Serial.printf("[CAM BLE] Continuous capture %s\n", active ? "started" : "stopped");
+    notifyStatus();
+}
+
 String BLECameraService::_getStatusJson() {
     JsonDocument doc;
 

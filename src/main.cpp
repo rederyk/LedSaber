@@ -82,6 +82,7 @@ static bool gAutoIgnitionScheduled = false;
 static uint32_t gAutoIgnitionAtMs = 0;
 
 static void CameraCaptureTask(void* pvParameters);
+static void applyBootMotionConfig();
 
 // ============================================================================
 // CALLBACKS GLOBALI DEL SERVER BLE
@@ -569,6 +570,8 @@ void setup() {
         Serial.println("[MAIN] ✓ CameraCaptureTask created on core 0");
     }
 
+    applyBootMotionConfig();
+
     Serial.printf("Free heap: %u bytes\n", ESP.getFreeHeap());
     Serial.println("*** THE FORCE IS IN YOU ***");
 
@@ -601,6 +604,29 @@ void setup() {
     }
 }
 
+static void applyBootMotionConfig() {
+    if (!ledState.motionOnBoot) {
+        return;
+    }
+
+    Serial.println("[BOOT] Motion on boot requested");
+    bool cameraReady = cameraManager.isInitialized();
+    if (!cameraReady) {
+        cameraReady = cameraManager.begin(4);
+        if (!cameraReady) {
+            Serial.println("[BOOT] Camera init failed on boot");
+        }
+    }
+
+    if (cameraReady) {
+        bleCameraService.setCameraActive(true);
+        Serial.println("[BOOT] Camera streaming enabled on boot");
+    }
+
+    bleMotionService.setMotionEnabled(true);
+    Serial.println("[BOOT] Motion detection enabled on boot");
+}
+
 void loop() {
     static unsigned long lastBleNotify = 0;
     static unsigned long lastLoopDebug = 0;
@@ -608,10 +634,33 @@ void loop() {
     static unsigned long lastCameraUpdate = 0;
     static unsigned long lastCameraTaskInitWarning = 0;
     static unsigned long lastMotionStatusNotify = 0;
+    static bool lastMotionEnabled = false;
     const unsigned long now = millis();
 
     const bool bleConnected = bleController.isConnected();
     const bool cameraActive = bleCameraService.isCameraActive();
+    const bool motionEnabled = bleMotionService.isMotionEnabled();
+
+    if (motionEnabled != lastMotionEnabled) {
+        lastMotionEnabled = motionEnabled;
+        ledState.motionOnBoot = motionEnabled;
+        bleController.setConfigDirty(true);
+
+        if (motionEnabled) {
+            if (!cameraManager.isInitialized()) {
+                if (cameraManager.begin(4)) {
+                    Serial.println("[MAIN] Camera initialized for motion");
+                } else {
+                    Serial.println("[MAIN] Camera init failed for motion enable");
+                }
+            }
+            bleCameraService.setCameraActive(true);
+            Serial.println("[MAIN] Motion enabled -> camera streaming on");
+        } else {
+            bleCameraService.setCameraActive(false);
+            Serial.println("[MAIN] Motion disabled -> camera streaming off");
+        }
+    }
 
     if (gAutoIgnitionScheduled && (int32_t)(now - gAutoIgnitionAtMs) >= 0) {
         gAutoIgnitionScheduled = false;

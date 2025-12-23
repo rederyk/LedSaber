@@ -89,12 +89,15 @@ MotionProcessor::GestureType MotionProcessor::_detectGesture(
     int32_t sumDx = 0;
     int32_t sumDy = 0;
     int32_t sumW = 0;
-    float weightScale = 1.0f;
+    uint16_t weightScaleQ8 = 256; // 1.0 in Q8
     if (_lastFrameTime > 0 && timestamp > _lastFrameTime) {
-        const float dtMs = (float)(timestamp - _lastFrameTime);
-        weightScale = 1000.0f / dtMs;
-        if (weightScale < 0.25f) weightScale = 0.25f;
-        if (weightScale > 4.0f) weightScale = 4.0f;
+        const uint32_t dtMs = timestamp - _lastFrameTime;
+        if (dtMs > 0) {
+            uint32_t scaled = (1000UL << 8) / dtMs;
+            if (scaled < 64) scaled = 64;      // 0.25 in Q8
+            if (scaled > 1024) scaled = 1024;  // 4.0 in Q8
+            weightScaleQ8 = (uint16_t)scaled;
+        }
     }
     _lastFrameTime = timestamp;
     for (uint8_t row = 0; row < OpticalFlowDetector::GRID_ROWS; row++) {
@@ -109,8 +112,8 @@ MotionProcessor::GestureType MotionProcessor::_detectGesture(
             if (mag == 0 || conf == 0) {
                 continue;
             }
-            const float magScaled = (float)mag * weightScale;
-            const int32_t w = (int32_t)(magScaled * (float)conf);
+            const int32_t temp = (int32_t)mag * (int32_t)conf * (int32_t)weightScaleQ8;
+            const int32_t w = (temp + 128) >> 8;
             sumDx += (int32_t)dx * w;
             sumDy += (int32_t)dy * w;
             sumW += w;
@@ -122,31 +125,33 @@ MotionProcessor::GestureType MotionProcessor::_detectGesture(
         return GestureType::NONE;
     }
 
-    const float avgDx = (float)sumDx / (float)sumW;
-    const float avgDy = (float)sumDy / (float)sumW;
-
-    float angleDeg = atan2f(avgDy, avgDx) * 180.0f / PI;
-    if (angleDeg < 0.0f) {
-        angleDeg += 360.0f;
+    int32_t absDx = (sumDx < 0) ? -sumDx : sumDx;
+    int32_t absDy = (sumDy < 0) ? -sumDy : sumDy;
+    const int32_t maxAbs = (absDx > absDy) ? absDx : absDy;
+    if (maxAbs > 0) {
+        const int32_t limit = 4800000; // keeps multiplications in 32-bit
+        if (maxAbs > limit) {
+            uint8_t shift = 0;
+            int32_t scaled = maxAbs;
+            while (scaled > limit && shift < 16) {
+                scaled >>= 1;
+                ++shift;
+            }
+            absDx >>= shift;
+            absDy >>= shift;
+        }
     }
+    static constexpr int32_t TAN_DOWN_HALF_Q8 = 443; // tan(60 deg) * 256
+    static constexpr int32_t TAN_LR_HALF_Q8 = 215;   // tan(40 deg) * 256
 
-    static constexpr float DOWN_CENTER_DEG = 90.0f;
-    static constexpr float DOWN_HALF_WIDTH_DEG = 60.0f;
-    static constexpr float LEFT_CENTER_DEG = 180.0f;
-    static constexpr float RIGHT_CENTER_DEG = 0.0f;
-    static constexpr float LR_HALF_WIDTH_DEG = 60.0f;
+    const bool isDown = (sumDy > 0) &&
+        ((absDx << 8) <= (TAN_DOWN_HALF_Q8 * absDy));
+    const bool isLeft = (sumDx < 0) &&
+        ((absDy << 8) <= (TAN_LR_HALF_Q8 * absDx));
+    const bool isRight = (sumDx > 0) &&
+        ((absDy << 8) <= (TAN_LR_HALF_Q8 * absDx));
 
-    auto inSector = [](float angle, float center, float halfWidth) -> bool {
-        float diff = fabsf(angle - center);
-        if (diff > 180.0f) diff = 360.0f - diff;
-        return diff <= halfWidth;
-    };
-
-    const bool isDown = inSector(angleDeg, DOWN_CENTER_DEG, DOWN_HALF_WIDTH_DEG);
-    const bool isLeft = inSector(angleDeg, LEFT_CENTER_DEG, LR_HALF_WIDTH_DEG);
-    const bool isRight = inSector(angleDeg, RIGHT_CENTER_DEG, LR_HALF_WIDTH_DEG);
-
-    // "Cerchio a spicchi": giu' lento = retract, sinistra/destra veloce = clash
+    // "Cerchio a spicchi": giu' lento? = retract, sinistra/destra veloce ?= clash
     if ((isLeft || isRight) &&
         intensity >= clashIntensityThreshold &&
         !clashOnCooldown)

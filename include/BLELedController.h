@@ -39,6 +39,7 @@ struct LedState {
     // Boot behavior
     bool autoIgnitionOnBoot = false;   // Se true, accende la lama automaticamente dopo un delay
     uint32_t autoIgnitionDelayMs = 5000; // Delay accensione automatica (ms)
+    bool motionOnBoot = false;        // Se true, abilita motion e avvia camera all'avvio
 
     // Time sync data (ChronoSaber)
     uint32_t epochBase = 0;      // Unix timestamp di riferimento

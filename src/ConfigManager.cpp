@@ -70,6 +70,7 @@ bool ConfigManager::loadConfig() {
     ledState->foldPoint = doc["foldPoint"] | defaults.foldPoint;
     ledState->autoIgnitionOnBoot = doc["autoIgnitionOnBoot"] | defaults.autoIgnitionOnBoot;
     ledState->autoIgnitionDelayMs = doc["autoIgnitionDelayMs"] | defaults.autoIgnitionDelayMs;
+    ledState->motionOnBoot = doc["motionOnBoot"] | defaults.motionOnBoot;
 
     // Valida i valori caricati
     if (ledState->brightness > 255) ledState->brightness = 255;
@@ -145,6 +146,10 @@ bool ConfigManager::saveConfig() {
         doc["autoIgnitionDelayMs"] = ledState->autoIgnitionDelayMs;
         modifiedCount++;
     }
+    if (ledState->motionOnBoot != defaults.motionOnBoot) {
+        doc["motionOnBoot"] = ledState->motionOnBoot;
+        modifiedCount++;
+    }
 
     // Se tutti i valori sono uguali ai default, elimina il file config
     if (modifiedCount == 0) {
@@ -192,6 +197,7 @@ void ConfigManager::resetToDefaults() {
     ledState->foldPoint = defaults.foldPoint;
     ledState->autoIgnitionOnBoot = defaults.autoIgnitionOnBoot;
     ledState->autoIgnitionDelayMs = defaults.autoIgnitionDelayMs;
+    ledState->motionOnBoot = defaults.motionOnBoot;
 
     if (LittleFS.exists(CONFIG_FILE)) {
         LittleFS.remove(CONFIG_FILE);
@@ -247,4 +253,5 @@ void ConfigManager::createDefaultConfig() {
     ledState->foldPoint = defaults.foldPoint;
     ledState->autoIgnitionOnBoot = defaults.autoIgnitionOnBoot;
     ledState->autoIgnitionDelayMs = defaults.autoIgnitionDelayMs;
+    ledState->motionOnBoot = defaults.motionOnBoot;
 }
