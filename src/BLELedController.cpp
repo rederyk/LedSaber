@@ -306,6 +306,7 @@ public:
     {"id":"dual_pulse","name":"Dual Pulse","params":["speed"],"icon":"⚔️"},
     {"id":"dual_pulse_simple","name":"Dual Pulse Simple","params":["speed"],"icon":"⚔️"},
     {"id":"rainbow_blade","name":"Rainbow Blade","params":["speed"],"icon":"🌟"},
+    {"id":"storm_lightning","name":"Storm Lightning","params":["speed"],"icon":"⛈️"},
     {"id":"chrono_hybrid","name":"Chrono Clock","params":["chronoHourTheme","chronoSecondTheme"],"themes":{"hour":["Classic","Neon","Plasma","Digital","Inferno","Storm"],"second":["Classic","Spiral","Fire","Lightning","Particle","Quantum"]},"icon":"🕐"}
   ]
 })";

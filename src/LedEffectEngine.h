@@ -188,6 +188,7 @@ private:
     void renderDualPulseSimple(const LedState& state, const uint8_t perturbationGrid[OpticalFlowDetector::GRID_ROWS][OpticalFlowDetector::GRID_COLS]);
     void renderRainbowBlade(const LedState& state, const uint8_t perturbationGrid[OpticalFlowDetector::GRID_ROWS][OpticalFlowDetector::GRID_COLS]);
     void renderRainbowEffect(const LedState& state, const uint8_t perturbationGrid[OpticalFlowDetector::GRID_ROWS][OpticalFlowDetector::GRID_COLS], const MotionProcessor::ProcessedMotion* motion);
+    void renderStormLightning(const LedState& state, const uint8_t perturbationGrid[OpticalFlowDetector::GRID_ROWS][OpticalFlowDetector::GRID_COLS]);
     void renderChronoHybrid(const LedState& state, const uint8_t perturbationGrid[OpticalFlowDetector::GRID_ROWS][OpticalFlowDetector::GRID_COLS], const MotionProcessor::ProcessedMotion* motion);
 
     // ═══════════════════════════════════════════════════════════

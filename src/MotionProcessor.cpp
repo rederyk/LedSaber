@@ -141,7 +141,7 @@ MotionProcessor::GestureType MotionProcessor::_detectGesture(
             absDy >>= shift;
         }
     }
-    static constexpr int32_t TAN_DOWN_HALF_Q8 = 443; // tan(60 deg) * 256
+    static constexpr int32_t TAN_DOWN_HALF_Q8 = 256; // tan(45 deg) * 256 (Era 443 / 60deg)
     static constexpr int32_t TAN_LR_HALF_Q8 = 215;   // tan(40 deg) * 256
 
     const bool isDown = (sumDy > 0) &&

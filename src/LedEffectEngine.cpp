@@ -161,6 +161,8 @@ void LedEffectEngine::render(const LedState& state, const MotionProcessor::Proce
                 renderRainbowBlade(state, motion ? motion->perturbationGrid : nullptr);
             } else if (state.effect == "rainbow_effect") {
                 renderRainbowEffect(state, motion ? motion->perturbationGrid : nullptr, motion);
+            } else if (state.effect == "storm_lightning") {
+                renderStormLightning(state, motion ? motion->perturbationGrid : nullptr);
             } else if (state.effect == "chrono_hybrid" || state.effect == "clock") {
                 renderChronoHybrid(state, motion ? motion->perturbationGrid : nullptr, motion);
             } else if (state.effect == "ignition") {
@@ -252,6 +254,8 @@ void LedEffectEngine::renderBaseEffect(const LedState& state, const MotionProces
         renderRainbowBlade(state, perturbationGrid);
     } else if (effectName == "rainbow_effect") {
         renderRainbowEffect(state, perturbationGrid, motion);
+    } else if (effectName == "storm_lightning") {
+        renderStormLightning(state, perturbationGrid);
     } else if (effectName == "chrono_hybrid" || effectName == "clock") {
         renderChronoHybrid(state, perturbationGrid, motion);
     } else {
@@ -2116,6 +2120,176 @@ void LedEffectEngine::renderRainbowEffect(const LedState& state, const uint8_t p
     }
 }
 
+void LedEffectEngine::renderStormLightning(const LedState& state, const uint8_t perturbationGrid[GRID_ROWS][GRID_COLS]) {
+    const unsigned long now = millis();
+    const uint16_t foldPoint = state.foldPoint;
+
+    // Sfondo: nuvole scure in movimento (Storm theme)
+    uint16_t timeShift = now / 12;
+    for (uint16_t i = 0; i < foldPoint; i++) {
+        uint16_t noiseX = i * 18 + timeShift;
+        uint8_t density = inoise8(noiseX);
+
+        CRGB cloudColor;
+        if (density < 70) {
+            cloudColor = CRGB(1, 1, 3);
+        } else {
+            uint8_t hue = map(density, 70, 255, 160, 190);
+            uint8_t bri = map(density, 70, 255, 4, 45);
+            uint8_t sat = map(density, 70, 255, 210, 140);
+            cloudColor = CHSV(hue, sat, bri);
+        }
+
+        if (perturbationGrid != nullptr) {
+            uint8_t col = map(i, 0, foldPoint - 1, 0, GRID_COLS - 1);
+            uint8_t maxPerturbation = 0;
+            for (uint8_t row = 2; row <= 4; row++) {
+                maxPerturbation = max(maxPerturbation, perturbationGrid[row][col]);
+            }
+            if (maxPerturbation > 8) {
+                uint8_t boost = scale8(maxPerturbation, 40);
+                cloudColor.r = qadd8(cloudColor.r, boost / 3);
+                cloudColor.g = qadd8(cloudColor.g, boost / 3);
+                cloudColor.b = qadd8(cloudColor.b, boost);
+            }
+        }
+
+        setLedPair(i, foldPoint, cloudColor);
+    }
+
+    auto addLedPair = [&](uint16_t logicalIndex, CRGB color) {
+        if (logicalIndex >= foldPoint) {
+            return;
+        }
+        uint16_t led1 = logicalIndex;
+        uint16_t led2 = (_numLeds - 1) - logicalIndex;
+        _leds[led1] += color;
+        _leds[led2] += color;
+    };
+
+    // Fulmine cinematografico: scatto, corsa verso la punta, impatto e scintille
+    static uint8_t boltStage = 0;  // 0 idle, 1 travel, 2 impact flash, 3 afterglow
+    static unsigned long stageStart = 0;
+    static unsigned long nextBoltTime = 0;
+    static unsigned long lastBoltStep = 0;
+    static uint16_t boltHead = 0;
+    static uint16_t boltLength = 0;
+    static uint8_t boltWidth = 1;
+    static uint8_t boltEnergy = 200;
+
+    uint16_t minGap = map(state.speed, 1, 255, 2800, 700);
+    uint16_t maxGap = map(state.speed, 1, 255, 9000, 2600);
+    uint8_t stepMs = map(state.speed, 1, 255, 18, 6);
+    uint8_t stepSize = 1 + (state.speed / 90);
+
+    if (nextBoltTime == 0) {
+        nextBoltTime = now + random16(minGap, maxGap);
+    }
+
+    if (boltStage == 0 && now >= nextBoltTime) {
+        boltStage = 1;
+        stageStart = now;
+        lastBoltStep = now;
+        boltHead = 0;
+        uint16_t baseLen = max<uint16_t>(6, foldPoint / 10);
+        uint16_t maxLen = max<uint16_t>(baseLen + 4, foldPoint / 3);
+        boltLength = random16(baseLen, maxLen);
+        boltWidth = random8(1, 3);
+        boltEnergy = random8(180, 255);
+    }
+
+    const CRGB boltColor = CRGB(200, 220, 255);
+    const CRGB coreColor = CRGB::White;
+
+    if (boltStage == 1) {
+        if (now - lastBoltStep >= stepMs) {
+            uint16_t nextHead = boltHead + stepSize;
+            boltHead = (nextHead >= foldPoint) ? (foldPoint - 1) : nextHead;
+            lastBoltStep = now;
+        }
+
+        if (boltHead < foldPoint) {
+            setLedPair(boltHead, foldPoint, coreColor);
+        }
+
+        for (uint16_t i = 1; i <= boltLength; i++) {
+            int16_t pos = (int16_t)boltHead - i;
+            if (pos < 0) {
+                break;
+            }
+            if (random8() < 200) {
+                uint8_t falloff = map(i, 1, boltLength, boltEnergy, 40);
+                uint8_t bri = qadd8(falloff, random8(40));
+                CRGB trail = boltColor;
+                trail.nscale8(bri);
+                setLedPair(pos, foldPoint, trail);
+
+                if (boltWidth > 1 && random8() < 70) {
+                    int16_t side = pos + ((random8() & 1) ? 1 : -1);
+                    if (side >= 0 && side < (int16_t)foldPoint) {
+                        CRGB sideColor = boltColor;
+                        sideColor.nscale8(bri / 2);
+                        addLedPair((uint16_t)side, sideColor);
+                    }
+                }
+            }
+        }
+
+        if (random8() < 120 && boltHead > 2) {
+            int16_t forkPos = (int16_t)boltHead - random8(1, 6);
+            if (forkPos >= 0) {
+                CRGB fork = boltColor;
+                fork.nscale8(random8(120, 200));
+                setLedPair((uint16_t)forkPos, foldPoint, fork);
+            }
+        }
+
+        if (boltHead >= foldPoint - 1) {
+            boltStage = 2;
+            stageStart = now;
+        }
+    } else if (boltStage == 2) {
+        const uint16_t impactDuration = 160;
+        uint32_t elapsed = now - stageStart;
+        if (elapsed < impactDuration) {
+            uint8_t flash = map(elapsed, 0, impactDuration, 200, 0);
+            uint8_t tipWidth = min<uint16_t>(6, foldPoint);
+
+            for (int16_t i = (int16_t)foldPoint - 1; i >= 0 && i >= (int16_t)(foldPoint - tipWidth); i--) {
+                CRGB tip = coreColor;
+                tip.nscale8(flash);
+                setLedPair((uint16_t)i, foldPoint, tip);
+            }
+
+            uint8_t scatterCount = max<uint8_t>(3, foldPoint / 18);
+            for (uint8_t s = 0; s < scatterCount; s++) {
+                uint16_t pos = random16(foldPoint);
+                CRGB scatter = boltColor;
+                scatter.nscale8(flash / 2);
+                addLedPair(pos, scatter);
+            }
+        } else {
+            boltStage = 3;
+            stageStart = now;
+        }
+    } else if (boltStage == 3) {
+        const uint16_t afterDuration = 240;
+        uint32_t elapsed = now - stageStart;
+        if (elapsed < afterDuration) {
+            uint8_t glow = map(elapsed, 0, afterDuration, 120, 0);
+            for (uint8_t s = 0; s < 4; s++) {
+                uint16_t pos = random16(foldPoint);
+                CRGB spark = boltColor;
+                spark.nscale8(glow);
+                addLedPair(pos, spark);
+            }
+        } else {
+            boltStage = 0;
+            nextBoltTime = now + random16(minGap, maxGap);
+        }
+    }
+}
+
 // ═══════════════════════════════════════════════════════════
 // GESTURE-TRIGGERED EFFECTS
 // ═══════════════════════════════════════════════════════════
@@ -2150,7 +2324,44 @@ void LedEffectEngine::renderIgnition(const LedState& state, const MotionProcesso
         }
     }
 
-    if (state.effect == "ignition" || state.effect == "retraction" || state.effect == "clash") {
+    if (state.effect == "storm_lightning") {
+        renderStormLightning(state, motion ? motion->perturbationGrid : nullptr);
+
+        auto addLedPair = [&](uint16_t logicalIndex, CRGB color) {
+            if (logicalIndex >= state.foldPoint) {
+                return;
+            }
+            uint16_t led1 = logicalIndex;
+            uint16_t led2 = (_numLeds - 1) - logicalIndex;
+            _leds[led1] += color;
+            _leds[led2] += color;
+        };
+
+        if (_ignitionProgress > 0) {
+            uint8_t sparkCount = max<uint8_t>(2, _ignitionProgress / 12);
+            for (uint8_t s = 0; s < sparkCount; s++) {
+                if (random8() < 180) {
+                    uint16_t pos = random16(_ignitionProgress);
+                    CRGB spark = CRGB(200, 220, 255);
+                    spark.nscale8(random8(120, 255));
+                    addLedPair(pos, spark);
+                }
+            }
+
+            if (_ignitionProgress > 2 && random8() < 200) {
+                uint16_t head = _ignitionProgress - 1;
+                uint8_t width = random8(1, 3);
+                for (int8_t i = -width; i <= width; i++) {
+                    int16_t pos = (int16_t)head + i;
+                    if (pos >= 0 && pos < (int16_t)_ignitionProgress) {
+                        CRGB core = CRGB::White;
+                        core.nscale8(random8(160, 255));
+                        addLedPair((uint16_t)pos, core);
+                    }
+                }
+            }
+        }
+    } else if (state.effect == "ignition" || state.effect == "retraction" || state.effect == "clash") {
         renderSolid(state, motion ? motion->perturbationGrid : nullptr);
     } else {
         renderBaseEffect(state, motion, state.effect);
@@ -2223,7 +2434,44 @@ void LedEffectEngine::renderRetraction(const LedState& state, const MotionProces
         }
     }
 
-    if (state.effect == "ignition" || state.effect == "retraction" || state.effect == "clash") {
+    if (state.effect == "storm_lightning") {
+        renderStormLightning(state, motion ? motion->perturbationGrid : nullptr);
+
+        auto addLedPair = [&](uint16_t logicalIndex, CRGB color) {
+            if (logicalIndex >= state.foldPoint) {
+                return;
+            }
+            uint16_t led1 = logicalIndex;
+            uint16_t led2 = (_numLeds - 1) - logicalIndex;
+            _leds[led1] += color;
+            _leds[led2] += color;
+        };
+
+        if (_retractionProgress > 0) {
+            uint8_t sparkCount = max<uint8_t>(2, _retractionProgress / 12);
+            for (uint8_t s = 0; s < sparkCount; s++) {
+                if (random8() < 180) {
+                    uint16_t pos = random16(_retractionProgress);
+                    CRGB spark = CRGB(200, 220, 255);
+                    spark.nscale8(random8(120, 255));
+                    addLedPair(pos, spark);
+                }
+            }
+
+            if (_retractionProgress > 2 && random8() < 200) {
+                uint16_t head = _retractionProgress - 1;
+                uint8_t width = random8(1, 3);
+                for (int8_t i = -width; i <= width; i++) {
+                    int16_t pos = (int16_t)head + i;
+                    if (pos >= 0 && pos < (int16_t)_retractionProgress) {
+                        CRGB core = CRGB::White;
+                        core.nscale8(random8(160, 255));
+                        addLedPair((uint16_t)pos, core);
+                    }
+                }
+            }
+        }
+    } else if (state.effect == "ignition" || state.effect == "retraction" || state.effect == "clash") {
         renderSolid(state, motion ? motion->perturbationGrid : nullptr);
     } else {
         renderBaseEffect(state, motion, state.effect);
