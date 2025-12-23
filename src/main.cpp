@@ -731,6 +731,8 @@ void loop() {
         // Visualizza progresso OTA sulla striscia LED
         // Aggiorna a intervalli regolari per animazioni senza stressare FastLED.show()
         static uint8_t lastOtaProgress = 255;
+        static uint8_t displayedProgress = 0;
+        static uint8_t targetProgress = 0;
         static uint32_t lastOtaRenderMs = 0;
         static uint32_t lastProgressChangeMs = 0;
         static constexpr uint32_t OTA_RENDER_INTERVAL_MS = 30;
@@ -739,19 +741,33 @@ void loop() {
         const bool renderDue = (now - lastOtaRenderMs) >= OTA_RENDER_INTERVAL_MS;
 
         if (progressChanged || renderDue) {
+            if (lastOtaProgress == 255) {
+                lastOtaProgress = currentProgress;
+                displayedProgress = currentProgress;
+                targetProgress = currentProgress;
+                lastProgressChangeMs = now;
+            }
             if (progressChanged) {
                 lastOtaProgress = currentProgress;
                 lastProgressChangeMs = now;
+                targetProgress = currentProgress;
             }
             lastOtaRenderMs = now;
-
-            // Calcola numero LED logici da accendere (rispetta fold point)
-            uint16_t foldPoint = ledState.foldPoint;
-            uint16_t logicalLedsToFill = (foldPoint * currentProgress) / 100;
 
             // Colore in base allo stato OTA
             CRGB color;
             OTAState state = otaManager.getState();
+            const bool isReceiving = (state == OTAState::RECEIVING);
+
+            // Calcola numero LED logici da accendere (rispetta fold point)
+            uint16_t foldPoint = ledState.foldPoint;
+            if (!isReceiving || currentProgress < displayedProgress) {
+                displayedProgress = currentProgress;
+                targetProgress = currentProgress;
+            }
+
+            uint16_t displayedLedsToFill = (foldPoint * displayedProgress) / 100;
+            uint16_t targetLedsToFill = (foldPoint * targetProgress) / 100;
 
             if (state == OTAState::WAITING) {
                 color = CRGB(128, 0, 128);  // Viola - in attesa del primo chunk
@@ -768,11 +784,10 @@ void loop() {
             // Riempimento progressivo simmetrico dalla base (rispetta fold point)
             fill_solid(leds, NUM_LEDS, CRGB::Black);
 
-            const bool isReceiving = (state == OTAState::RECEIVING);
             const uint32_t pulseWindowMs = 500;
             const bool allowScrollPulse = isReceiving && (now - lastProgressChangeMs) <= pulseWindowMs;
 
-            for (uint16_t i = 0; i < logicalLedsToFill; i++) {
+            for (uint16_t i = 0; i < displayedLedsToFill; i++) {
                 // Accende LED simmetrici (base verso punta su entrambi i lati)
                 uint16_t led1 = i;
                 uint16_t led2 = (NUM_LEDS - 1) - i;
@@ -799,7 +814,7 @@ void loop() {
             }
 
             // Pulse verde che corre nella barra solo quando la barra blu si aggiorna
-            if (allowScrollPulse && logicalLedsToFill > 0) {
+            if (allowScrollPulse && targetLedsToFill > 0) {
                 const uint32_t pulsePeriodMs = 350;
                 uint32_t elapsed = now - lastProgressChangeMs;
 
@@ -813,13 +828,13 @@ void loop() {
 
                 float pulsePhase = (float)elapsed / (float)pulsePeriodMs;
                 if (pulsePhase > 1.0f) pulsePhase = 1.0f;
-                float pulsePos = pulsePhase * (float)max((uint16_t)1, (uint16_t)(logicalLedsToFill - 1));
+                float pulsePos = pulsePhase * (float)max((uint16_t)1, (uint16_t)(targetLedsToFill - 1));
                 uint16_t pulseSpan = max((uint16_t)4, (uint16_t)(foldPoint / 20));
-                if (pulseSpan > logicalLedsToFill) {
-                    pulseSpan = logicalLedsToFill;
+                if (pulseSpan > targetLedsToFill) {
+                    pulseSpan = targetLedsToFill;
                 }
 
-                for (uint16_t i = 0; i < logicalLedsToFill; i++) {
+                for (uint16_t i = 0; i < targetLedsToFill; i++) {
                     float dist = fabsf((float)i - pulsePos);
                     if (dist <= pulseSpan && pulseSpan > 0) {
                         float t = 1.0f - (dist / (float)pulseSpan);
@@ -832,20 +847,24 @@ void loop() {
                 }
 
                 // Culmina con un breve allungamento della barra blu quando il pulse arriva in punta
-                if (foldPoint > logicalLedsToFill && pulseSpan > 0) {
+                if (foldPoint > displayedLedsToFill && pulseSpan > 0) {
                     // Usa pulsePhase per determinare l'estensione: inizia solo nell'ultimo 15% del viaggio
                     float t = (pulsePhase - 0.85f) / 0.15f;
                     if (t < 0.0f) t = 0.0f;
                     if (t > 1.0f) t = 1.0f;
                     t *= fadeFactor; // Dissolvenza (ritrazione) dell'estensione
-                    uint16_t maxExtra = min((uint16_t)6, (uint16_t)(foldPoint - logicalLedsToFill));
+                    uint16_t maxExtra = min((uint16_t)6, (uint16_t)(foldPoint - displayedLedsToFill));
                     uint16_t extra = (uint16_t)(t * (float)maxExtra);
-                    for (uint16_t i = logicalLedsToFill; i < logicalLedsToFill + extra; i++) {
+                    for (uint16_t i = displayedLedsToFill; i < displayedLedsToFill + extra; i++) {
                         uint16_t led1 = i;
                         uint16_t led2 = (NUM_LEDS - 1) - i;
                         leds[led1] = color;
                         leds[led2] = color;
                     }
+                }
+
+                if (elapsed >= pulsePeriodMs && displayedProgress != targetProgress) {
+                    displayedProgress = targetProgress;
                 }
             }
 
@@ -855,7 +874,7 @@ void loop() {
 
             if (progressChanged) {
                 Serial.printf("[OTA LED] Progress: %u%% | Logical LEDs: %u/%u | Physical LEDs: %u | State: %d\n",
-                    currentProgress, logicalLedsToFill, foldPoint, logicalLedsToFill * 2, (int)state);
+                    currentProgress, displayedLedsToFill, foldPoint, displayedLedsToFill * 2, (int)state);
             }
         }
     } else {
