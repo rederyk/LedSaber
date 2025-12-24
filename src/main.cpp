@@ -599,6 +599,18 @@ void setup() {
     } else {
         Serial.println("[BOOT] Auto-ignition disabled: blade stays OFF at normal boot");
     }
+
+    // Auto-start Motion & Camera if enabled in config
+    if (ledState.motionOnBoot) {
+        Serial.println("[BOOT] Motion on boot ENABLED: starting camera and motion services...");
+        
+        if (cameraManager.begin()) {
+            bleCameraService.setCameraActive(true);
+            bleMotionService.setMotionEnabled(true);
+        } else {
+            Serial.println("[BOOT] ✗ Camera init failed during boot sequence");
+        }
+    }
 }
 
 void loop() {

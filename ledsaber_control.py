@@ -744,6 +744,24 @@ class LedSaberClient:
         await self._write(CHAR_MOTION_CONFIG_UUID, config_data.encode('utf-8'), label="set_motion_config")
         print(f"{Colors.GREEN}✓ Motion config aggiornata: {config}{Colors.RESET}")
 
+    async def set_boot_config(self, motion_enabled: Optional[bool] = None, camera_enabled: Optional[bool] = None):
+        """Imposta configurazione di avvio (boot)"""
+        if not self.client or not self.client.is_connected:
+            print(f"{Colors.RED}✗ Non connesso{Colors.RESET}")
+            return
+
+        payload = {"command": "boot_config"}
+        updated = False
+
+        if motion_enabled is not None:
+            payload["motionEnabled"] = motion_enabled
+            updated = True
+
+        if updated:
+            data = json.dumps(payload)
+            await self._write(CHAR_DEVICE_CONTROL_UUID, data.encode('utf-8'), label="set_boot_config")
+            print(f"{Colors.GREEN}✓ Boot config updated: {payload}{Colors.RESET}")
+
     # ========================================================================
     # DEVICE CONTROL METHODS (NEW)
     # ========================================================================

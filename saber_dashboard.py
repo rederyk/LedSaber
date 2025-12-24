@@ -1015,6 +1015,7 @@ class SaberDashboard(App):
         Binding("f7", "chrono_cycle_seconds", "Chrono Seconds"),
         Binding("f8", "device_ignition", "Ignition"),
         Binding("f9", "device_retract", "Retract"),
+        Binding("f10", "toggle_motion_boot", "Motion Boot"),
     ]
 
     TITLE = "LedSaber Live Dashboard"
@@ -1285,7 +1286,7 @@ class SaberDashboard(App):
             # === MOTION COMMANDS ===
             elif cmd == "motion":
                 if not args:
-                    self._log("Usage: motion <enable|disable|status|config|quality N|motionmin N|speedmin N|ignitionmin N|retractmin N|clashmin N>", "red")
+                    self._log("Usage: motion <enable|disable|onboot|status|config|quality N|motionmin N|speedmin N|ignitionmin N|retractmin N|clashmin N>", "red")
                     return
 
                 subcmd = args[0].lower()
@@ -1297,6 +1298,18 @@ class SaberDashboard(App):
                 elif subcmd == "disable":
                     await self.client.motion_send_command("disable")
                     self._log("Motion detection disabled", "yellow")
+
+                elif subcmd == "onboot":
+                    if len(args) < 2:
+                        self._log("Usage: motion onboot <on|off>", "red")
+                        return
+                    val = args[1].lower()
+                    if val not in ["on", "off"]:
+                        self._log("Usage: motion onboot <on|off>", "red")
+                        return
+                    enabled = (val == "on")
+                    await self.client.set_boot_config(motion_enabled=enabled)
+                    self._log(f"Motion on boot set to: {enabled}", "green")
 
                 elif subcmd == "status":
                     status = await self.client.get_motion_status()
@@ -1409,9 +1422,9 @@ class SaberDashboard(App):
                 self._log("Commands: scan, connect, disconnect, color, effect, brightness, on, off", "cyan")
                 self._log("          chrono <hour_theme> <second_theme> - Set chrono themes (0-3 for hours, 0-5 for seconds)", "cyan")
                 self._log("          cam <init|start|stop|status>, motion <enable|disable|status|config|quality N|motionmin N|speedmin N|ignitionmin N|retractmin N|clashmin N>", "cyan")
-                self._log("          ignition, retract, reboot, sleep, effects", "cyan")
+                self._log("          ignition, retract, reboot, sleep, effects, motion onboot <on|off>", "cyan")
                 self._log("Shortcuts: Ctrl+S=scan, Ctrl+D=disconnect, F2=cam init, F3=start, F4=stop, F5=motion toggle", "cyan")
-                self._log("           F6=cycle hour theme, F7=cycle second theme, F8=ignition, F9=retract", "cyan")
+                self._log("           F6=cycle hour theme, F7=cycle second theme, F8=ignition, F9=retract, F10=toggle motion boot", "cyan")
 
             else:
                 self._log(f"Unknown command: {cmd}. Type 'help' for list.", "red")
@@ -1712,6 +1725,19 @@ class SaberDashboard(App):
     def action_device_retract(self) -> None:
         """F9: Trigger retraction animation"""
         self.run_worker(self._execute_command("retract"))
+
+    def action_toggle_motion_boot(self) -> None:
+        """F10: Toggle motion on boot configuration"""
+        # Legge lo stato attuale della configurazione di boot dal widget LED
+        # (Il firmware invia 'motionEnabled' nel pacchetto di stato LED che corrisponde a motionOnBoot)
+        current_boot_setting = False
+        if self.led_widget and self.led_widget.led_state:
+            current_boot_setting = self.led_widget.led_state.get('motionEnabled', False)
+
+        if current_boot_setting:
+            self.run_worker(self._execute_command("motion onboot off"))
+        else:
+            self.run_worker(self._execute_command("motion onboot on"))
 
 
 # ═══════════════════════════════════════════════════════════════════════════

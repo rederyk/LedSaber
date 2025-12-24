@@ -182,28 +182,29 @@ MotionProcessor::GestureType MotionProcessor::_detectGesture(
         return GestureType::CLASH;
     }
 
-    if (isDown &&
+    // RETRACT: Movimento verso il basso (Camera DOWN -> Pixels UP -> isUp)
+    if (isUp &&
         (intensity >= retractIntensityThreshold || speed >= _config.retractSpeedThreshold))
     {
         _gestureCooldown = true;
         _gestureCooldownEnd = timestamp + _config.gestureCooldownMs;
         _lastGestureConfidence = 80;
         if (_config.debugLogsEnabled) {
-            Serial.println("[MOTION] RETRACT detected (direction: down, slow).");
+            Serial.println("[MOTION] RETRACT detected (direction: up/camera-down).");
         }
         _lastDirection = direction;
         return GestureType::RETRACT;
     }
 
-    // IGNITION: Movimento verso l'alto deciso o swing generico forte
-    if (isUp && 
+    // IGNITION: Movimento verso l'alto (Camera UP -> Pixels DOWN -> isDown)
+    if (isDown && 
         (intensity >= _config.ignitionIntensityThreshold || speed >= _config.ignitionSpeedThreshold))
     {
         _gestureCooldown = true;
         _gestureCooldownEnd = timestamp + _config.gestureCooldownMs;
         _lastGestureConfidence = 85;
         if (_config.debugLogsEnabled) {
-            Serial.println("[MOTION] IGNITION detected (direction: up).");
+            Serial.println("[MOTION] IGNITION detected (direction: down/camera-up).");
         }
         _lastDirection = direction;
         return GestureType::IGNITION;

@@ -249,6 +249,11 @@ public:
                     updated = true;
                 }
 
+                if (!doc["motionEnabled"].isNull()) {
+                    controller->ledState->motionOnBoot = doc["motionEnabled"];
+                    updated = true;
+                }
+
                 if (updated) {
                     controller->setConfigDirty(true);
                     Serial.printf("[BLE] Boot config updated: autoIgnitionOnBoot=%d, autoIgnitionDelayMs=%lu\n",
@@ -505,6 +510,7 @@ void BLELedController::notifyState() {
     doc["foldPoint"] = ledState->foldPoint;
     doc["autoIgnitionOnBoot"] = ledState->autoIgnitionOnBoot;
     doc["autoIgnitionDelayMs"] = ledState->autoIgnitionDelayMs;
+    doc["motionEnabled"] = ledState->motionOnBoot;
 
     String jsonString;
     serializeJson(doc, jsonString);
