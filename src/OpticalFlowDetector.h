@@ -213,21 +213,6 @@ private:
         bool valid;             // Outlier filter flag
     };
 
-    // Blob structure for edge clustering
-    struct Blob {
-        float centroidX;        // Centroid X position
-        float centroidY;        // Centroid Y position
-        uint16_t minX, minY;    // Bounding box
-        uint16_t maxX, maxY;
-        uint16_t pixelCount;    // Number of edge pixels
-        uint8_t id;             // Blob identifier
-        bool matched;           // Matched in current frame
-        float dx, dy;           // Motion vector from previous frame
-        uint8_t confidence;     // Match confidence 0-255
-    };
-
-    static constexpr uint8_t MAX_BLOBS = 8;  // Max blobs to track
-
     // ═══════════════════════════════════════════════════════════
     // CONFIGURATION
     // ═══════════════════════════════════════════════════════════
@@ -257,19 +242,10 @@ private:
     // Frame buffers
     uint8_t* _previousFrame;    // PSRAM allocated
     uint8_t* _edgeFrame;        // Reused edge buffer (PSRAM)
-    uint8_t* _binaryEdgeFrame;  // Binary edge map (PSRAM)
-    uint8_t* _labelMap;         // Connected component labels (PSRAM)
     bool _hasPreviousFrame;
 
-    // Motion vectors grid (legacy, kept for compatibility)
+    // Motion vectors grid
     BlockMotionVector _motionVectors[GRID_ROWS][GRID_COLS];
-
-    // Blob tracking
-    Blob _currentBlobs[MAX_BLOBS];
-    Blob _previousBlobs[MAX_BLOBS];
-    uint8_t _currentBlobCount;
-    uint8_t _previousBlobCount;
-    uint8_t _nextBlobId;
 
     // Global motion state
     bool _motionActive;
@@ -331,41 +307,6 @@ private:
      * @brief Filtra outliers usando median filter
      */
     void _filterOutliers();
-
-    // ═══════════════════════════════════════════════════════════
-    // BLOB DETECTION & TRACKING
-    // ═══════════════════════════════════════════════════════════
-
-    /**
-     * @brief Binarizza edge frame con threshold adattivo
-     */
-    void _binarizeEdges(const uint8_t* edgeFrame);
-
-    /**
-     * @brief Trova blob usando connected component labeling
-     */
-    void _detectBlobs();
-
-    /**
-     * @brief Flood fill per labeling
-     * @return Numero di pixel nel blob
-     */
-    uint16_t _floodFill(uint16_t x, uint16_t y, uint8_t label);
-
-    /**
-     * @brief Estrae statistiche blob dalla label map
-     */
-    void _extractBlobStats();
-
-    /**
-     * @brief Match blob correnti con quelli del frame precedente
-     */
-    void _matchBlobs();
-
-    /**
-     * @brief Calcola movimento globale dai blob tracciati
-     */
-    void _calculateGlobalMotionFromBlobs();
 
     /**
      * @brief Calcola movimento globale da vettori

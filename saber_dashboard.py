@@ -485,8 +485,7 @@ class OpticalFlowCanvas(Static):
         legend.add_column(justify="left")
         legend_text = Text()
         legend_text.append("Legend: ", style="dim")
-        legend_text.append(". no blob  ", style="dim white")
-        legend_text.append("· blob (static)  ", style="dim cyan")
+        legend_text.append(". idle  ", style="dim white")
         legend_text.append("^ v up/down  ", style="cyan")
         legend_text.append("< > left/right  ", style="yellow")
         legend_text.append("A B C D diagonals", style="green")
@@ -512,7 +511,7 @@ class OpticalFlowCanvas(Static):
 
         return Panel(
             content,
-            title="[bold magenta]🔍 EDGE BLOB TRACKING[/]",
+            title="[bold magenta]🔍 OPTICAL FLOW GRID[/]",
             border_style="magenta",
             box=box.ROUNDED,  # Più accattivante
             padding=(0, pad_x),  # Ridotto padding esterno
