@@ -2123,34 +2123,19 @@ void LedEffectEngine::renderRainbowEffect(const LedState& state, const uint8_t p
 void LedEffectEngine::renderStormLightning(const LedState& state, const uint8_t perturbationGrid[GRID_ROWS][GRID_COLS]) {
     const unsigned long now = millis();
     const uint16_t foldPoint = state.foldPoint;
-    const CRGB boltColor = CRGB(200, 220, 255);
-    const CRGB coreColor = CRGB::White;
-
-    auto addLedPair = [&](uint16_t logicalIndex, CRGB color) {
-        if (logicalIndex >= foldPoint) {
-            return;
-        }
-        uint16_t led1 = logicalIndex;
-        uint16_t led2 = (_numLeds - 1) - logicalIndex;
-        _leds[led1] += color;
-        _leds[led2] += color;
-    };
 
     // Sfondo: nuvole scure in movimento (Storm theme)
     uint16_t timeShift = now / 12;
-    uint8_t cloudFlashPhase = now / 180;
     for (uint16_t i = 0; i < foldPoint; i++) {
         uint16_t noiseX = i * 18 + timeShift;
         uint8_t density = inoise8(noiseX);
-        uint8_t flashSeed = inoise8(i * 55 + cloudFlashPhase);
-        bool flashCloud = (flashSeed > 220);
 
         CRGB cloudColor;
         if (density < 70) {
             cloudColor = CRGB(1, 1, 3);
         } else {
             uint8_t hue = map(density, 70, 255, 160, 190);
-            uint8_t bri = map(density, 70, 255, 4, flashCloud ? 90 : 45);
+            uint8_t bri = map(density, 70, 255, 4, 45);
             uint8_t sat = map(density, 70, 255, 210, 140);
             cloudColor = CHSV(hue, sat, bri);
         }
@@ -2161,15 +2146,26 @@ void LedEffectEngine::renderStormLightning(const LedState& state, const uint8_t 
             for (uint8_t row = 2; row <= 4; row++) {
                 maxPerturbation = max(maxPerturbation, perturbationGrid[row][col]);
             }
-            if (maxPerturbation > 8 && random8() < scale8(maxPerturbation, 200)) {
-                CRGB spark = boltColor;
-                spark.nscale8(qadd8(scale8(maxPerturbation, 180), 40));
-                addLedPair(i, spark);
+            if (maxPerturbation > 8) {
+                uint8_t boost = scale8(maxPerturbation, 40);
+                cloudColor.r = qadd8(cloudColor.r, boost / 3);
+                cloudColor.g = qadd8(cloudColor.g, boost / 3);
+                cloudColor.b = qadd8(cloudColor.b, boost);
             }
         }
 
         setLedPair(i, foldPoint, cloudColor);
     }
+
+    auto addLedPair = [&](uint16_t logicalIndex, CRGB color) {
+        if (logicalIndex >= foldPoint) {
+            return;
+        }
+        uint16_t led1 = logicalIndex;
+        uint16_t led2 = (_numLeds - 1) - logicalIndex;
+        _leds[led1] += color;
+        _leds[led2] += color;
+    };
 
     // Fulmine cinematografico: scatto, corsa verso la punta, impatto e scintille
     static uint8_t boltStage = 0;  // 0 idle, 1 travel, 2 impact flash, 3 afterglow
@@ -2201,6 +2197,9 @@ void LedEffectEngine::renderStormLightning(const LedState& state, const uint8_t 
         boltWidth = random8(1, 3);
         boltEnergy = random8(180, 255);
     }
+
+    const CRGB boltColor = CRGB(200, 220, 255);
+    const CRGB coreColor = CRGB::White;
 
     if (boltStage == 1) {
         if (now - lastBoltStep >= stepMs) {

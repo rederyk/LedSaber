@@ -50,11 +50,11 @@ public:
 
         Config() :
             gesturesEnabled(true),
-            gestureThreshold(15),   // Più robusto contro rumore a QVGA
+            gestureThreshold(12),   // Più robusto contro rumore a QVGA
             ignitionIntensityThreshold(10),
-            retractIntensityThreshold(18),
+            retractIntensityThreshold(8),
             clashIntensityThreshold(14),
-            gestureDurationMs(100),  // Più reattivo
+            gestureDurationMs(70),  // Più reattivo
             clashDeltaThreshold(60), // Aumentato da 15 a 60 per ridurre falsi positivi
             clashWindowMs(600),     // ~2.2 frame @ 5.6fps per catturare veri clash
             gestureCooldownMs(800), // Meno "bloccante" del vecchio 2s
