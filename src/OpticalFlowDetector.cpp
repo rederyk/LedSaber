@@ -205,6 +205,20 @@ bool OpticalFlowDetector::processFrame(const uint8_t* frameBuffer, size_t frameL
     // Frame diff (fallback per occlusioni / scene change)
     // NOTA: Usiamo edgeFrame per confrontare bordi correnti vs bordi precedenti
     _frameDiffAvg = _calculateFrameDiffAvg(edgeFrame);
+    
+    // NOISE GATE: Se la scena è static (Diff basso), forza silenzio assoluto.
+    // Risolve il problema dei vettori fantasma su sfondi uniformi.
+    if (_frameDiffAvg <= 2) {
+        // Reset vettori e stato
+        memset(_motionVectors, 0, sizeof(_motionVectors));
+        _motionActive = false;
+        _motionIntensity = 0;
+        _motionDirection = Direction::NONE;
+        _motionSpeed = 0.0f;
+        _activeBlocks = 0;
+        memcpy(_previousFrame, edgeFrame, _frameSize);
+        return false;
+    }
 
     // Calcola optical flow
     // NOTA: Usiamo edgeFrame. _computeOpticalFlow confronterà edgeFrame con _previousFrame (che contiene i bordi precedenti)
@@ -254,12 +268,23 @@ void OpticalFlowDetector::_calculateBlockMotion(uint8_t row, uint8_t col, const 
     uint16_t blockX = col * BLOCK_SIZE;
     uint16_t blockY = row * BLOCK_SIZE;
 
+    // 1. Calcola PRIMA il costo di stare fermi (0,0)
+    // Questo elimina il bias verso sinistra/alto nelle zone uniformi
     int8_t bestDx = 0, bestDy = 0;
-    uint16_t minSAD = UINT16_MAX;
+    uint16_t minSAD = _computeSAD(
+        _previousFrame, currentFrame,
+        blockX, blockY,
+        blockX, blockY,
+        BLOCK_SIZE,
+        UINT16_MAX
+    );
 
     // Search window: ±searchRange px in step di searchStep px
     for (int8_t dy = -_searchRange; dy <= _searchRange; dy += _searchStep) {
         for (int8_t dx = -_searchRange; dx <= _searchRange; dx += _searchStep) {
+            // Salta (0,0) perché già calcolato
+            if (dx == 0 && dy == 0) continue;
+
             // Bounds check
             int16_t searchX = blockX + dx;
             int16_t searchY = blockY + dy;
@@ -279,7 +304,8 @@ void OpticalFlowDetector::_calculateBlockMotion(uint8_t row, uint8_t col, const 
                 minSAD  // Passa best SAD per early exit
             );
 
-            if (sad < minSAD) {
+            // Aggiorna SOLO se troviamo un match STRETTAMENTE migliore
+            if (sad < minSAD) { 
                 minSAD = sad;
                 bestDx = dx;
                 bestDy = dy;
@@ -410,15 +436,6 @@ void OpticalFlowDetector::_calculateGlobalMotion() {
         return;
     }
 
-    // FILTRO BIAS SISTEMATICO: Se >80% dei blocchi puntano DOWN-RIGHT, è rolling shutter
-    if (totalNonZeroBlocks > 10 && downRightBlocks > (totalNonZeroBlocks * 80 / 100)) {
-        _motionActive = false;
-        _motionIntensity = 0;
-        _motionDirection = Direction::NONE;
-        _motionSpeed = 0.0f;
-        _motionConfidence = 0.0f;
-        return;
-    }
 
     // Calcola media pesata
     float avgDx = sumDx / sumConfidence;
