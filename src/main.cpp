@@ -82,7 +82,6 @@ static bool gAutoIgnitionScheduled = false;
 static uint32_t gAutoIgnitionAtMs = 0;
 
 static void CameraCaptureTask(void* pvParameters);
-static void applyBootMotionConfig();
 
 // ============================================================================
 // CALLBACKS GLOBALI DEL SERVER BLE
@@ -570,8 +569,6 @@ void setup() {
         Serial.println("[MAIN] ✓ CameraCaptureTask created on core 0");
     }
 
-    applyBootMotionConfig();
-
     Serial.printf("Free heap: %u bytes\n", ESP.getFreeHeap());
     Serial.println("*** THE FORCE IS IN YOU ***");
 
@@ -604,29 +601,6 @@ void setup() {
     }
 }
 
-static void applyBootMotionConfig() {
-    if (!ledState.motionOnBoot) {
-        return;
-    }
-
-    Serial.println("[BOOT] Motion on boot requested");
-    bool cameraReady = cameraManager.isInitialized();
-    if (!cameraReady) {
-        cameraReady = cameraManager.begin(4);
-        if (!cameraReady) {
-            Serial.println("[BOOT] Camera init failed on boot");
-        }
-    }
-
-    if (cameraReady) {
-        bleCameraService.setCameraActive(true);
-        Serial.println("[BOOT] Camera streaming enabled on boot");
-    }
-
-    bleMotionService.setMotionEnabled(true);
-    Serial.println("[BOOT] Motion detection enabled on boot");
-}
-
 void loop() {
     static unsigned long lastBleNotify = 0;
     static unsigned long lastLoopDebug = 0;
@@ -634,33 +608,10 @@ void loop() {
     static unsigned long lastCameraUpdate = 0;
     static unsigned long lastCameraTaskInitWarning = 0;
     static unsigned long lastMotionStatusNotify = 0;
-    static bool lastMotionEnabled = false;
     const unsigned long now = millis();
 
     const bool bleConnected = bleController.isConnected();
     const bool cameraActive = bleCameraService.isCameraActive();
-    const bool motionEnabled = bleMotionService.isMotionEnabled();
-
-    if (motionEnabled != lastMotionEnabled) {
-        lastMotionEnabled = motionEnabled;
-        ledState.motionOnBoot = motionEnabled;
-        bleController.setConfigDirty(true);
-
-        if (motionEnabled) {
-            if (!cameraManager.isInitialized()) {
-                if (cameraManager.begin(4)) {
-                    Serial.println("[MAIN] Camera initialized for motion");
-                } else {
-                    Serial.println("[MAIN] Camera init failed for motion enable");
-                }
-            }
-            bleCameraService.setCameraActive(true);
-            Serial.println("[MAIN] Motion enabled -> camera streaming on");
-        } else {
-            bleCameraService.setCameraActive(false);
-            Serial.println("[MAIN] Motion disabled -> camera streaming off");
-        }
-    }
 
     if (gAutoIgnitionScheduled && (int32_t)(now - gAutoIgnitionAtMs) >= 0) {
         gAutoIgnitionScheduled = false;
@@ -721,6 +672,7 @@ void loop() {
     otaManager.update();
 
     StatusLedManager& ledManager = StatusLedManager::getInstance();
+   // todo usare colore progressivo viola blu verde in base al progresso della barra
     // Se OTA in corso: blocca LED strip e mostra status OTA
     if (otaManager.isOTAInProgress()) {
         if (!ledManager.isMode(StatusLedManager::Mode::OTA_BLINK)) {
@@ -729,45 +681,20 @@ void loop() {
         ledManager.updateOtaBlink();  // Blink veloce per indicare OTA
 
         // Visualizza progresso OTA sulla striscia LED
-        // Aggiorna a intervalli regolari per animazioni senza stressare FastLED.show()
-        static uint8_t lastOtaProgress = 255;
-        static uint8_t displayedProgress = 0;
-        static uint8_t targetProgress = 0;
-        static uint32_t lastOtaRenderMs = 0;
-        static uint32_t lastProgressChangeMs = 0;
-        static constexpr uint32_t OTA_RENDER_INTERVAL_MS = 30;
+        // Aggiorna solo se progresso è cambiato (riduce overhead FastLED.show())
+        static uint8_t lastOtaProgress = 0;
         uint8_t currentProgress = otaManager.getProgress();
-        const bool progressChanged = (currentProgress != lastOtaProgress);
-        const bool renderDue = (now - lastOtaRenderMs) >= OTA_RENDER_INTERVAL_MS;
 
-        if (progressChanged || renderDue) {
-            if (lastOtaProgress == 255) {
-                lastOtaProgress = currentProgress;
-                displayedProgress = currentProgress;
-                targetProgress = currentProgress;
-                lastProgressChangeMs = now;
-            }
-            if (progressChanged) {
-                lastOtaProgress = currentProgress;
-                lastProgressChangeMs = now;
-                targetProgress = currentProgress;
-            }
-            lastOtaRenderMs = now;
+        if (currentProgress != lastOtaProgress) {
+            lastOtaProgress = currentProgress;
+
+            // Calcola numero LED logici da accendere (rispetta fold point)
+            uint16_t foldPoint = ledState.foldPoint;
+            uint16_t logicalLedsToFill = (foldPoint * currentProgress) / 100;
 
             // Colore in base allo stato OTA
             CRGB color;
             OTAState state = otaManager.getState();
-            const bool isReceiving = (state == OTAState::RECEIVING);
-
-            // Calcola numero LED logici da accendere (rispetta fold point)
-            uint16_t foldPoint = ledState.foldPoint;
-            if (!isReceiving || currentProgress < displayedProgress) {
-                displayedProgress = currentProgress;
-                targetProgress = currentProgress;
-            }
-
-            uint16_t displayedLedsToFill = (foldPoint * displayedProgress) / 100;
-            uint16_t targetLedsToFill = (foldPoint * targetProgress) / 100;
 
             if (state == OTAState::WAITING) {
                 color = CRGB(128, 0, 128);  // Viola - in attesa del primo chunk
@@ -784,10 +711,7 @@ void loop() {
             // Riempimento progressivo simmetrico dalla base (rispetta fold point)
             fill_solid(leds, NUM_LEDS, CRGB::Black);
 
-            const uint32_t pulseWindowMs = 500;
-            const bool allowScrollPulse = isReceiving && (now - lastProgressChangeMs) <= pulseWindowMs;
-
-            for (uint16_t i = 0; i < displayedLedsToFill; i++) {
+            for (uint16_t i = 0; i < logicalLedsToFill; i++) {
                 // Accende LED simmetrici (base verso punta su entrambi i lati)
                 uint16_t led1 = i;
                 uint16_t led2 = (NUM_LEDS - 1) - i;
@@ -795,87 +719,12 @@ void loop() {
                 leds[led2] = color;
             }
 
-            if (isReceiving) {
-                // Pulse base fermo: respira alla base quando il progresso non cambia.
-                if (!allowScrollPulse) {
-                    const uint32_t basePulsePeriodMs = 900;
-                    uint8_t basePulse = sin8((now % basePulsePeriodMs) * 255 / basePulsePeriodMs);
-                    uint8_t baseBrightness = scale8(basePulse, 160);
-                    uint16_t baseSpan = max((uint16_t)3, (uint16_t)(foldPoint / 24));
-                    CRGB basePulseColor = color;
-                    basePulseColor.nscale8_video(baseBrightness);
-                    for (uint16_t i = 0; i < baseSpan; i++) {
-                        uint16_t led1 = i;
-                        uint16_t led2 = (NUM_LEDS - 1) - i;
-                        leds[led1] = basePulseColor;
-                        leds[led2] = basePulseColor;
-                    }
-                }
-            }
-
-            // Pulse verde che corre nella barra solo quando la barra blu si aggiorna
-            if (allowScrollPulse && targetLedsToFill > 0) {
-                const uint32_t pulsePeriodMs = 350;
-                uint32_t elapsed = now - lastProgressChangeMs;
-
-                // Calcola fattore di dissolvenza se il pulse ha raggiunto la fine
-                float fadeFactor = 1.0f;
-                if (elapsed > pulsePeriodMs) {
-                    float fadeProgress = (float)(elapsed - pulsePeriodMs) / (float)(pulseWindowMs - pulsePeriodMs);
-                    if (fadeProgress > 1.0f) fadeProgress = 1.0f;
-                    fadeFactor = 1.0f - fadeProgress;
-                }
-
-                float pulsePhase = (float)elapsed / (float)pulsePeriodMs;
-                if (pulsePhase > 1.0f) pulsePhase = 1.0f;
-                float pulsePos = pulsePhase * (float)max((uint16_t)1, (uint16_t)(targetLedsToFill - 1));
-                uint16_t pulseSpan = max((uint16_t)4, (uint16_t)(foldPoint / 20));
-                if (pulseSpan > targetLedsToFill) {
-                    pulseSpan = targetLedsToFill;
-                }
-
-                for (uint16_t i = 0; i < targetLedsToFill; i++) {
-                    float dist = fabsf((float)i - pulsePos);
-                    if (dist <= pulseSpan && pulseSpan > 0) {
-                        float t = 1.0f - (dist / (float)pulseSpan);
-                        uint8_t greenBoost = (uint8_t)(t * 220.0f * fadeFactor);
-                        uint16_t led1 = i;
-                        uint16_t led2 = (NUM_LEDS - 1) - i;
-                        leds[led1] += CRGB(0, greenBoost, 0);
-                        leds[led2] += CRGB(0, greenBoost, 0);
-                    }
-                }
-
-                // Culmina con un breve allungamento della barra blu quando il pulse arriva in punta
-                if (foldPoint > displayedLedsToFill && pulseSpan > 0) {
-                    // Usa pulsePhase per determinare l'estensione: inizia solo nell'ultimo 15% del viaggio
-                    float t = (pulsePhase - 0.85f) / 0.15f;
-                    if (t < 0.0f) t = 0.0f;
-                    if (t > 1.0f) t = 1.0f;
-                    t *= fadeFactor; // Dissolvenza (ritrazione) dell'estensione
-                    uint16_t maxExtra = min((uint16_t)6, (uint16_t)(foldPoint - displayedLedsToFill));
-                    uint16_t extra = (uint16_t)(t * (float)maxExtra);
-                    for (uint16_t i = displayedLedsToFill; i < displayedLedsToFill + extra; i++) {
-                        uint16_t led1 = i;
-                        uint16_t led2 = (NUM_LEDS - 1) - i;
-                        leds[led1] = color;
-                        leds[led2] = color;
-                    }
-                }
-
-                if (elapsed >= pulsePeriodMs && displayedProgress != targetProgress) {
-                    displayedProgress = targetProgress;
-                }
-            }
-
-            // Show a frame rate limitato per evitare overhead OTA
-            FastLED.setBrightness(80);  // Più vivace ma ancora sicuro
+            // Show solo quando cambia % (max 100 chiamate invece di migliaia)
+            FastLED.setBrightness(60);  // Luminosità media per visibilità
             FastLED.show();
 
-            if (progressChanged) {
-                Serial.printf("[OTA LED] Progress: %u%% | Logical LEDs: %u/%u | Physical LEDs: %u | State: %d\n",
-                    currentProgress, displayedLedsToFill, foldPoint, displayedLedsToFill * 2, (int)state);
-            }
+            Serial.printf("[OTA LED] Progress: %u%% | Logical LEDs: %u/%u | Physical LEDs: %u | State: %d\n",
+                currentProgress, logicalLedsToFill, foldPoint, logicalLedsToFill * 2, (int)state);
         }
     } else {
         // Funzionamento normale
@@ -942,48 +791,17 @@ void loop() {
     yield();
 }
 
-static OpticalFlowDetector::Direction rotateCW(OpticalFlowDetector::Direction dir, uint16_t degrees) {
-    switch (degrees % 360) {
-        case 0:
-            return dir;
-        case 90:
-            switch (dir) {
-                case OpticalFlowDetector::Direction::UP:         return OpticalFlowDetector::Direction::RIGHT;
-                case OpticalFlowDetector::Direction::UP_RIGHT:   return OpticalFlowDetector::Direction::DOWN_RIGHT;
-                case OpticalFlowDetector::Direction::RIGHT:      return OpticalFlowDetector::Direction::DOWN;
-                case OpticalFlowDetector::Direction::DOWN_RIGHT: return OpticalFlowDetector::Direction::DOWN_LEFT;
-                case OpticalFlowDetector::Direction::DOWN:       return OpticalFlowDetector::Direction::LEFT;
-                case OpticalFlowDetector::Direction::DOWN_LEFT:  return OpticalFlowDetector::Direction::UP_LEFT;
-                case OpticalFlowDetector::Direction::LEFT:       return OpticalFlowDetector::Direction::UP;
-                case OpticalFlowDetector::Direction::UP_LEFT:    return OpticalFlowDetector::Direction::UP_RIGHT;
-                default: return dir;
-            }
-        case 180:
-            switch (dir) {
-                case OpticalFlowDetector::Direction::UP:         return OpticalFlowDetector::Direction::DOWN;
-                case OpticalFlowDetector::Direction::UP_RIGHT:   return OpticalFlowDetector::Direction::DOWN_LEFT;
-                case OpticalFlowDetector::Direction::RIGHT:      return OpticalFlowDetector::Direction::LEFT;
-                case OpticalFlowDetector::Direction::DOWN_RIGHT: return OpticalFlowDetector::Direction::UP_LEFT;
-                case OpticalFlowDetector::Direction::DOWN:       return OpticalFlowDetector::Direction::UP;
-                case OpticalFlowDetector::Direction::DOWN_LEFT:  return OpticalFlowDetector::Direction::UP_RIGHT;
-                case OpticalFlowDetector::Direction::LEFT:       return OpticalFlowDetector::Direction::RIGHT;
-                case OpticalFlowDetector::Direction::UP_LEFT:    return OpticalFlowDetector::Direction::DOWN_RIGHT;
-                default: return dir;
-            }
-        case 270:
-            switch (dir) {
-                case OpticalFlowDetector::Direction::UP:         return OpticalFlowDetector::Direction::LEFT;
-                case OpticalFlowDetector::Direction::UP_RIGHT:   return OpticalFlowDetector::Direction::UP_LEFT;
-                case OpticalFlowDetector::Direction::RIGHT:      return OpticalFlowDetector::Direction::UP;
-                case OpticalFlowDetector::Direction::DOWN_RIGHT: return OpticalFlowDetector::Direction::UP_RIGHT;
-                case OpticalFlowDetector::Direction::DOWN:       return OpticalFlowDetector::Direction::RIGHT;
-                case OpticalFlowDetector::Direction::DOWN_LEFT:  return OpticalFlowDetector::Direction::DOWN_RIGHT;
-                case OpticalFlowDetector::Direction::LEFT:       return OpticalFlowDetector::Direction::DOWN;
-                case OpticalFlowDetector::Direction::UP_LEFT:    return OpticalFlowDetector::Direction::DOWN_LEFT;
-                default: return dir;
-            }
-        default:
-            return dir;
+static OpticalFlowDetector::Direction rotateDirection90CW(OpticalFlowDetector::Direction dir) {
+    switch (dir) {
+        case OpticalFlowDetector::Direction::UP:         return OpticalFlowDetector::Direction::RIGHT;
+        case OpticalFlowDetector::Direction::UP_RIGHT:   return OpticalFlowDetector::Direction::DOWN_RIGHT;
+        case OpticalFlowDetector::Direction::RIGHT:      return OpticalFlowDetector::Direction::DOWN;
+        case OpticalFlowDetector::Direction::DOWN_RIGHT: return OpticalFlowDetector::Direction::DOWN_LEFT;
+        case OpticalFlowDetector::Direction::DOWN:       return OpticalFlowDetector::Direction::LEFT;
+        case OpticalFlowDetector::Direction::DOWN_LEFT:  return OpticalFlowDetector::Direction::UP_LEFT;
+        case OpticalFlowDetector::Direction::LEFT:       return OpticalFlowDetector::Direction::UP;
+        case OpticalFlowDetector::Direction::UP_LEFT:    return OpticalFlowDetector::Direction::UP_RIGHT;
+        default: return dir;
     }
 }
 
@@ -991,24 +809,12 @@ static void CameraCaptureTask(void* pvParameters) {
     (void)pvParameters;
 
     bool motionInitialized = false;
-    // Target: 6-8 FPS (periodo di ~125-150ms). Più veloce grazie a QVGA e griglia ottimizzata
-    const TickType_t xFrequency = pdMS_TO_TICKS(150);
-    TickType_t xLastWakeTime = xTaskGetTickCount();
-
-    uint32_t frameCounter = 0;
-    unsigned long lastMemoryCheck = 0;
 
     for (;;) {
         // Attende un segnale d'avvio
         ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
 
-        // Reset del timer all'avvio dello streaming
-        xLastWakeTime = xTaskGetTickCount();
-        frameCounter = 0;
-        lastMemoryCheck = millis();
-
         while (gCameraTaskShouldRun) {
-            frameCounter++;
             if (!cameraManager.isInitialized() || !bleCameraService.isCameraActive()) {
                 vTaskDelay(pdMS_TO_TICKS(10));
                 continue;
@@ -1022,8 +828,7 @@ static void CameraCaptureTask(void* pvParameters) {
             }
 
             if (!motionInitialized && frameLength > 0) {
-                // Usa 240x240 da crop centrale 480x480 (VGA) con subsampling 2x
-                if (motionDetector.begin(240, 240)) {
+                if (motionDetector.begin(320, 240)) {
                     motionInitialized = true;
                     Serial.println("[CAM TASK] Motion detector initialized");
                 } else {
@@ -1044,7 +849,7 @@ static void CameraCaptureTask(void* pvParameters) {
                 result.motionDetected = motionDetected;
                 result.flashIntensity = motionDetector.getRecommendedFlashIntensity();
                 result.motionIntensity = motionDetector.getMotionIntensity();
-                result.direction = rotateCW(motionDetector.getMotionDirection(), 0);
+                result.direction = rotateDirection90CW(motionDetector.getMotionDirection());
                 result.timestamp = millis();
                 result.processedMotion = motionProcessor.process(
                     result.motionIntensity,
@@ -1060,27 +865,12 @@ static void CameraCaptureTask(void* pvParameters) {
                 }
             }
 
-            // Pulizia periodica memoria ogni 100 frames per prevenire frammentazione
-            unsigned long now = millis();
-            if (frameCounter % 100 == 0 && (now - lastMemoryCheck) > 5000) {
-                size_t freePsram = ESP.getFreePsram();
-                Serial.printf("[CAM TASK] Frames: %u | Free PSRAM: %u bytes | FPS: ~%.1f\n",
-                    frameCounter, freePsram, 1000.0f / pdTICKS_TO_MS(xFrequency));
-                lastMemoryCheck = now;
-
-                // Force garbage collection se memoria bassa
-                if (freePsram < 100000) {
-                    Serial.println("[CAM TASK] Low PSRAM, triggering cleanup");
-                    heap_caps_check_integrity_all(true);
-                }
-            }
-
             if (!gCameraTaskShouldRun) {
                 break;
             }
 
-            // Limita FPS usando vTaskDelayUntil per mantenere una frequenza costante
-            vTaskDelayUntil(&xLastWakeTime, xFrequency);
+            // Minimo delay per evitare watchdog timeout e permettere altre task
+            taskYIELD(); // Più veloce di vTaskDelay(1), previene comunque il WDT
         }
     }
 }

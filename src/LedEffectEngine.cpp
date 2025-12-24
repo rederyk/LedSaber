@@ -58,8 +58,8 @@ LedEffectEngine::LedEffectEngine(CRGB* leds, uint16_t numLeds) :
 void LedEffectEngine::render(const LedState& state, const MotionProcessor::ProcessedMotion* motion) {
     const unsigned long now = millis();
 
-    // Rate limiting: 20ms per frame
-    if (now - _lastUpdate < 20) {
+    // Rate limiting: Ridotto a 15ms (~66 FPS) per animazioni più fluide
+    if (now - _lastUpdate < 15) {
         return;
     }
 
@@ -72,10 +72,11 @@ void LedEffectEngine::render(const LedState& state, const MotionProcessor::Proce
 
     // Auto-IGNITION when blade is off: any direction ("spicchio") triggers ignition
     if (!state.bladeEnabled && motion != nullptr) {
-        const unsigned long AUTO_IGNITION_DEBOUNCE_MS = 600;
+        const unsigned long AUTO_IGNITION_DEBOUNCE_MS = 300; // Ridotto da 600ms per maggiore reattività
         
-        // Accendi se c'è movimento generico OPPURE se viene rilevata una gesture specifica (Ignition o Retract)
-        bool validMotion = (motion->direction != OpticalFlowDetector::Direction::NONE);
+        // Accendi se c'è movimento generico (anche senza direzione chiara se intenso) 
+        // OPPURE se viene rilevata una gesture specifica
+        bool validMotion = (motion->direction != OpticalFlowDetector::Direction::NONE) || (motion->motionIntensity > 5);
         bool validGesture = (motion->gesture == MotionProcessor::GestureType::IGNITION) || 
                             (motion->gesture == MotionProcessor::GestureType::RETRACT);
 
