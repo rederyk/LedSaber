@@ -29,7 +29,7 @@ OpticalFlowDetector::OpticalFlowDetector()
     , _centroidY(0.0f)
     , _centroidValid(false)
     , _trajectoryLength(0)
-    , _flashIntensity(150)
+    , _flashIntensity(200)  // Imposta direttamente a 200 (o 0) per evitare il salto da 150
     , _avgBrightness(0)
     , _frameDiffAvg(0)
     , _lastMotionTime(0)
@@ -615,10 +615,10 @@ uint8_t OpticalFlowDetector::_calculateAverageBrightness(const uint8_t* frame) {
         return 0;
     }
 
-    // Sample 1 pixel ogni 4 per ridurre calcoli (76800 → 19200 ops, -75%)
+    // Sample 1 pixel ogni 16 per ridurre calcoli (76800 → 4800 ops, -93%)
     uint64_t total = 0;
     uint32_t sampleCount = 0;
-    for (size_t i = 0; i < _frameSize; i += 4) {
+    for (size_t i = 0; i < _frameSize; i += 16) {
         total += frame[i];
         sampleCount++;
     }
@@ -627,26 +627,20 @@ uint8_t OpticalFlowDetector::_calculateAverageBrightness(const uint8_t* frame) {
 }
 
 void OpticalFlowDetector::_updateFlashIntensity() {
-    // Logica auto flash con smoothing graduale (identica a MotionDetector)
-    uint8_t targetIntensity;
+    // Logica semplificata: controllo ogni 30 minuti
+    // Se luminosità alta (>180) -> OFF (0), altrimenti -> 200
+    static unsigned long lastCheck = 0;
+    unsigned long now = millis();
 
-    if (_avgBrightness < 30) {
-        targetIntensity = 255;
-    } else if (_avgBrightness < 100) {
-        targetIntensity = map(_avgBrightness, 30, 100, 255, 150);
-    } else if (_avgBrightness < 180) {
-        targetIntensity = map(_avgBrightness, 100, 180, 150, 80);
-    } else {
-        targetIntensity = 80;
-    }
-
-    // Smoothing
-    if (_flashIntensity < targetIntensity) {
-        uint16_t newValue = (uint16_t)_flashIntensity + 5;
-        _flashIntensity = (newValue > targetIntensity) ? targetIntensity : newValue;
-    } else if (_flashIntensity > targetIntensity) {
-        int16_t newValue = (int16_t)_flashIntensity - 5;
-        _flashIntensity = (newValue < targetIntensity) ? targetIntensity : newValue;
+    // 30 minuti = 1800000 ms
+    // Forza controllo anche se il valore corrente non è valido (es. dopo reset a 150)
+    if (lastCheck == 0 || (now - lastCheck) > 1800000 || (_flashIntensity != 0 && _flashIntensity != 200)) {
+        lastCheck = now;
+        if (_avgBrightness > 180) {
+            _flashIntensity = 0;
+        } else {
+            _flashIntensity = 200;
+        }
     }
 }
 

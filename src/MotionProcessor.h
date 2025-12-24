@@ -57,8 +57,8 @@ public:
             gesturesEnabled(true),
             gestureThreshold(8),   // Ridotto a 8 per rilevare gesture più leggere
             ignitionIntensityThreshold(8),  // Ridotto a 8
-            retractIntensityThreshold(6),   // Ridotto a 6 (logs mostrano picchi di 9-10)
-            clashIntensityThreshold(30),     // Aumentato da 14 a 30 per evitare rumore
+            retractIntensityThreshold(12),   // Ridotto a 6 (logs mostrano picchi di 9-10)
+            clashIntensityThreshold(10),     // Aumentato da 14 a 30 per evitare rumore
             gestureDurationMs(150),  // Aumentato da 100 a 150ms per gesture più stabili
             clashDeltaThreshold(60), // Aumentato da 15 a 60 per ridurre falsi positivi
             clashWindowMs(600),     // ~2.2 frame @ 5.6fps per catturare veri clash

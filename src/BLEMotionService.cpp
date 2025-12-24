@@ -357,7 +357,7 @@ String BLEMotionService::_getStatusJson() {
         rowStr.reserve(OpticalFlowDetector::GRID_COLS);
         for (uint8_t col = 0; col < OpticalFlowDetector::GRID_COLS; col++) {
             const char tag = _motion->getBlockDirectionTag(row, col);
-            rowStr += rotateTagCW(tag, 180);
+            rowStr += rotateTagCW(tag, 0);
         }
         gridArray.add(rowStr);
     }
@@ -475,13 +475,13 @@ void BLEMotionService::ConfigCallbacks::onWrite(BLECharacteristic* pCharacterist
     }
 
     bool enabled = doc["enabled"] | _service->_motionEnabled;
-    const bool hasQuality = doc.containsKey("quality");
-    const bool hasMotionIntensity = doc.containsKey("motionIntensityMin");
-    const bool hasMotionSpeed = doc.containsKey("motionSpeedMin");
-    const bool hasIgnitionIntensity = doc.containsKey("gestureIgnitionIntensity");
-    const bool hasRetractIntensity = doc.containsKey("gestureRetractIntensity");
-    const bool hasClashIntensity = doc.containsKey("gestureClashIntensity");
-    const bool hasDebugLogs = doc.containsKey("debugLogs");
+    const bool hasQuality = !doc["quality"].isNull();
+    const bool hasMotionIntensity = !doc["motionIntensityMin"].isNull();
+    const bool hasMotionSpeed = !doc["motionSpeedMin"].isNull();
+    const bool hasIgnitionIntensity = !doc["gestureIgnitionIntensity"].isNull();
+    const bool hasRetractIntensity = !doc["gestureRetractIntensity"].isNull();
+    const bool hasClashIntensity = !doc["gestureClashIntensity"].isNull();
+    const bool hasDebugLogs = !doc["debugLogs"].isNull();
 
     uint8_t quality = doc["quality"] | _service->_motion->getQuality();
     uint8_t motionIntensityMin = doc["motionIntensityMin"] | _service->_motion->getMotionIntensityThreshold();

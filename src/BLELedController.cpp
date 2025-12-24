@@ -48,10 +48,10 @@ public:
             controller->ledState->speed = doc["speed"] | 50;
 
             // Chrono themes (opzionale, solo se presenti nel JSON)
-            if (doc.containsKey("chronoHourTheme")) {
+            if (!doc["chronoHourTheme"].isNull()) {
                 controller->ledState->chronoHourTheme = doc["chronoHourTheme"];
             }
-            if (doc.containsKey("chronoSecondTheme")) {
+            if (!doc["chronoSecondTheme"].isNull()) {
                 controller->ledState->chronoSecondTheme = doc["chronoSecondTheme"];
             }
 
@@ -114,12 +114,12 @@ public:
         if (!error) {
             bool updated = false;
 
-            if (doc.containsKey("enabled")) {
+            if (!doc["enabled"].isNull()) {
                 controller->ledState->statusLedEnabled = doc["enabled"] | controller->ledState->statusLedEnabled;
                 updated = true;
             }
 
-            if (doc.containsKey("brightness")) {
+            if (!doc["brightness"].isNull()) {
                 uint8_t requestedBrightness = doc["brightness"] | controller->ledState->statusLedBrightness;
                 requestedBrightness = constrain(requestedBrightness, static_cast<uint8_t>(0), static_cast<uint8_t>(255));
                 controller->ledState->statusLedBrightness = requestedBrightness;
@@ -238,12 +238,12 @@ public:
             } else if (command == "boot_config") {
                 bool updated = false;
 
-                if (doc.containsKey("autoIgnitionOnBoot")) {
+                if (!doc["autoIgnitionOnBoot"].isNull()) {
                     controller->ledState->autoIgnitionOnBoot = doc["autoIgnitionOnBoot"] | controller->ledState->autoIgnitionOnBoot;
                     updated = true;
                 }
 
-                if (doc.containsKey("autoIgnitionDelayMs")) {
+                if (!doc["autoIgnitionDelayMs"].isNull()) {
                     const uint32_t requestedDelayMs = doc["autoIgnitionDelayMs"] | controller->ledState->autoIgnitionDelayMs;
                     controller->ledState->autoIgnitionDelayMs = min<uint32_t>(requestedDelayMs, 60000);
                     updated = true;
@@ -306,7 +306,6 @@ public:
     {"id":"dual_pulse","name":"Dual Pulse","params":["speed"],"icon":"⚔️"},
     {"id":"dual_pulse_simple","name":"Dual Pulse Simple","params":["speed"],"icon":"⚔️"},
     {"id":"rainbow_blade","name":"Rainbow Blade","params":["speed"],"icon":"🌟"},
-    {"id":"storm_lightning","name":"Storm Lightning","params":["speed"],"icon":"⛈️"},
     {"id":"chrono_hybrid","name":"Chrono Clock","params":["chronoHourTheme","chronoSecondTheme"],"themes":{"hour":["Classic","Neon","Plasma","Digital","Inferno","Storm"],"second":["Classic","Spiral","Fire","Lightning","Particle","Quantum"]},"icon":"🕐"}
   ]
 })";
