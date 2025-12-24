@@ -149,10 +149,14 @@ MotionProcessor::GestureType MotionProcessor::_detectGesture(
             absDy >>= shift;
         }
     }
-    static constexpr int32_t TAN_DOWN_HALF_Q8 = 256; // tan(45 deg) * 256 (Era 443 / 60deg)
+    // Allargato angolo di rilevamento verticale a ~56 gradi (tan(56)*256 ~= 380)
+    // Rende più facile fare RETRACT senza essere perfettamente verticali
+    static constexpr int32_t TAN_DOWN_HALF_Q8 = 380; 
     static constexpr int32_t TAN_LR_HALF_Q8 = 215;   // tan(40 deg) * 256
 
     const bool isDown = (sumDy > 0) &&
+        ((absDx << 8) <= (TAN_DOWN_HALF_Q8 * absDy));
+    const bool isUp = (sumDy < 0) &&
         ((absDx << 8) <= (TAN_DOWN_HALF_Q8 * absDy));
     const bool isLeft = (sumDx < 0) &&
         ((absDy << 8) <= (TAN_LR_HALF_Q8 * absDx));
@@ -161,7 +165,7 @@ MotionProcessor::GestureType MotionProcessor::_detectGesture(
 
     // "Cerchio a spicchi": giu' lento? = retract, sinistra/destra veloce ?= clash
     if ((isLeft || isRight) &&
-        intensity >= clashIntensityThreshold &&
+        (intensity >= clashIntensityThreshold || speed >= _config.clashSpeedThreshold) &&
         !clashOnCooldown)
     {
         _gestureCooldown = true;
@@ -179,7 +183,7 @@ MotionProcessor::GestureType MotionProcessor::_detectGesture(
     }
 
     if (isDown &&
-        intensity >= retractIntensityThreshold)
+        (intensity >= retractIntensityThreshold || speed >= _config.retractSpeedThreshold))
     {
         _gestureCooldown = true;
         _gestureCooldownEnd = timestamp + _config.gestureCooldownMs;
@@ -189,6 +193,20 @@ MotionProcessor::GestureType MotionProcessor::_detectGesture(
         }
         _lastDirection = direction;
         return GestureType::RETRACT;
+    }
+
+    // IGNITION: Movimento verso l'alto deciso o swing generico forte
+    if (isUp && 
+        (intensity >= _config.ignitionIntensityThreshold || speed >= _config.ignitionSpeedThreshold))
+    {
+        _gestureCooldown = true;
+        _gestureCooldownEnd = timestamp + _config.gestureCooldownMs;
+        _lastGestureConfidence = 85;
+        if (_config.debugLogsEnabled) {
+            Serial.println("[MOTION] IGNITION detected (direction: up).");
+        }
+        _lastDirection = direction;
+        return GestureType::IGNITION;
     }
 
     // No gesture detected

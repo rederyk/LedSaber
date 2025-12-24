@@ -48,11 +48,16 @@ public:
         uint8_t perturbationScale;     // Perturbation multiplier 0-255 (default: 255)
         bool debugLogsEnabled;         // Enable motion debug logs (default: false)
 
+        // Speed thresholds (px/frame) - Alternative trigger for fast gestures
+        float ignitionSpeedThreshold;
+        float retractSpeedThreshold;
+        float clashSpeedThreshold;
+
         Config() :
             gesturesEnabled(true),
-            gestureThreshold(20),   // Aumentato da 15 a 20 per ridurre falsi positivi
-            ignitionIntensityThreshold(15),  // Aumentato da 10 a 15
-            retractIntensityThreshold(25),   // Aumentato da 18 a 25
+            gestureThreshold(8),   // Ridotto a 8 per rilevare gesture più leggere
+            ignitionIntensityThreshold(8),  // Ridotto a 8
+            retractIntensityThreshold(6),   // Ridotto a 6 (logs mostrano picchi di 9-10)
             clashIntensityThreshold(30),     // Aumentato da 14 a 30 per evitare rumore
             gestureDurationMs(150),  // Aumentato da 100 a 150ms per gesture più stabili
             clashDeltaThreshold(60), // Aumentato da 15 a 60 per ridurre falsi positivi
@@ -61,7 +66,10 @@ public:
             clashCooldownMs(5000),   // Clash dedicato per evitare raffiche
             perturbationEnabled(true),
             perturbationScale(255),
-            debugLogsEnabled(false) {}
+            debugLogsEnabled(false),
+            ignitionSpeedThreshold(0.8f),  // Ridotto a 0.8 per facilitare ignition
+            retractSpeedThreshold(0.4f),   // Ridotto a 0.4 per facilitare retract
+            clashSpeedThreshold(4.0f) {}
     };
 
     MotionProcessor();

@@ -14,10 +14,10 @@ OpticalFlowDetector::OpticalFlowDetector()
     , _minConfidence(25)     // Ridotto per blocchi più piccoli (meno pixel = SAD più basso)
     , _minActiveBlocks(6)    // Aumentato a 6 per griglia 8x8 (più blocchi disponibili)
     , _quality(160)      // Default: bilanciato (meno rumore)
-    , _directionMagnitudeThreshold(4.0f)  // Aumentato a 4.0 per ignorare bias rolling shutter
+    , _directionMagnitudeThreshold(2.0f)  // Ridotto a 2.0 per maggiore sensibilità
     , _minCentroidWeight(100.0f)
-    , _motionIntensityThreshold(40)       // Drasticamente aumentato da 25 a 40 per bias sistematico
-    , _motionSpeedThreshold(4.0f)         // Drasticamente aumentato da 2.0 a 4.0 per motion reale
+    , _motionIntensityThreshold(6)        // Ridotto a 6 per rilevare movimenti fluidi (logs: ~7-10)
+    , _motionSpeedThreshold(0.4f)         // Ridotto a 0.4 per rilevare inizio movimento (logs: ~0.7)
     , _hasPreviousFrame(false)
     , _motionActive(false)
     , _motionIntensity(0)
@@ -38,6 +38,8 @@ OpticalFlowDetector::OpticalFlowDetector()
     , _totalComputeTime(0)
     , _consecutiveMotionFrames(0)
     , _consecutiveStillFrames(0)
+    , _lastFrameTimestamp(0)
+    , _currentFrameDt(100)
 {
     memset(_motionVectors, 0, sizeof(_motionVectors));
     memset(_trajectory, 0, sizeof(_trajectory));
@@ -137,6 +139,7 @@ bool OpticalFlowDetector::begin(uint16_t frameWidth, uint16_t frameHeight) {
     Serial.printf("[OPTICAL FLOW] Min confidence: %d, min active blocks: %d\n",
                   _minConfidence, _minActiveBlocks);
 
+    _lastFrameTimestamp = millis();
     return true;
 }
 
@@ -155,6 +158,14 @@ bool OpticalFlowDetector::processFrame(const uint8_t* frameBuffer, size_t frameL
 
     unsigned long startTime = millis();
     _totalFramesProcessed++;
+
+    // Calcola Delta Time (dt) per normalizzare la velocità
+    unsigned long now = millis();
+    _currentFrameDt = now - _lastFrameTimestamp;
+    _lastFrameTimestamp = now;
+    // Clamp per evitare divisioni per zero o valori assurdi al primo frame
+    if (_currentFrameDt == 0) _currentFrameDt = 1;
+    if (_currentFrameDt > 200) _currentFrameDt = 200; // Max 200ms (min 5 FPS)
 
     // 1. Usa buffer bordi riutilizzabile
     uint8_t* edgeFrame = _edgeFrame;
@@ -442,7 +453,11 @@ void OpticalFlowDetector::_calculateGlobalMotion() {
     float avgDy = sumDy / sumConfidence;
 
     // Calcola velocità (magnitude)
-    _motionSpeed = sqrtf(avgDx * avgDx + avgDy * avgDy);
+    float rawSpeed = sqrtf(avgDx * avgDx + avgDy * avgDy);
+
+    // NORMALIZZAZIONE VELOCITÀ: Riferimento 10 FPS (100ms)
+    // Se dt=100ms -> factor=1.0. Se dt=50ms (20fps) -> factor=2.0.
+    _motionSpeed = rawSpeed * (100.0f / (float)_currentFrameDt);
 
     // Calcola direzione
     _motionDirection = _vectorToDirection(avgDx, avgDy);
@@ -459,25 +474,25 @@ void OpticalFlowDetector::_calculateGlobalMotion() {
     bool rawMotionDetected = (_motionIntensity > _motionIntensityThreshold &&
                               _motionSpeed > _motionSpeedThreshold);
 
-    // Filtro temporale: richiedi 2 frame consecutivi per attivare motion
-    // e 3 frame consecutivi di quiete per disattivarlo
-    if (rawMotionDetected) {
-        _consecutiveMotionFrames++;
-        _consecutiveStillFrames = 0;
-
-        // Attiva motion solo dopo 2 frame consecutivi
-        if (_consecutiveMotionFrames >= 2) {
-            _motionActive = true;
-        }
-    } else {
-        _consecutiveStillFrames++;
-        _consecutiveMotionFrames = 0;
-
-        // Disattiva motion solo dopo 3 frame consecutivi di quiete
-        if (_consecutiveStillFrames >= 3) {
-            _motionActive = false;
-        }
-    }
+  //  // Filtro temporale: richiedi 2 frame consecutivi per attivare motion
+  //  // e 2 frame consecutivi di quiete per disattivarlo
+  //  if (rawMotionDetected) {
+  //      _consecutiveMotionFrames++;
+  //      _consecutiveStillFrames = 0;
+//
+  //      // Attiva motion solo dopo 2 frame consecutivi
+  //      if (_consecutiveMotionFrames >= 2) {
+  //          _motionActive = true;
+  //      }
+  //  } else {
+  //      _consecutiveStillFrames++;
+  //      _consecutiveMotionFrames = 0;
+//
+  //      // Disattiva motion solo dopo 2 frame consecutivi di quiete
+  //      if (_consecutiveStillFrames >= 2) {
+  //          _motionActive = false;
+  //      }
+  //  }
 }
 
 void OpticalFlowDetector::_calculateCentroid() {
@@ -742,14 +757,17 @@ OpticalFlowDetector::Direction OpticalFlowDetector::_vectorToDirection(float dx,
     // UP_LEFT:   202.5 - 247.5  (225°)
     // UP_RIGHT:  292.5 - 337.5  (315°)
 
-    if (angle >= 67.5f && angle < 112.5f) return Direction::DOWN;
-    if (angle >= 247.5f && angle < 292.5f) return Direction::UP;
-    if (angle >= 157.5f && angle < 202.5f) return Direction::LEFT;
-    if (angle < 22.5f || angle >= 337.5f) return Direction::RIGHT;
-    if (angle >= 22.5f && angle < 67.5f) return Direction::DOWN_RIGHT;
-    if (angle >= 112.5f && angle < 157.5f) return Direction::DOWN_LEFT;
-    if (angle >= 202.5f && angle < 247.5f) return Direction::UP_LEFT;
-    if (angle >= 292.5f && angle < 337.5f) return Direction::UP_RIGHT;
+    // Settori allargati a 60 gradi per le cardinali (UP/DOWN/LEFT/RIGHT)
+    // per favorire le direzioni principali rispetto alle diagonali.
+    if (angle >= 60.0f && angle < 120.0f) return Direction::DOWN;
+    if (angle >= 240.0f && angle < 300.0f) return Direction::UP;
+    if (angle >= 150.0f && angle < 210.0f) return Direction::LEFT;
+    if (angle < 30.0f || angle >= 330.0f) return Direction::RIGHT;
+    
+    if (angle >= 30.0f && angle < 60.0f) return Direction::DOWN_RIGHT;
+    if (angle >= 120.0f && angle < 150.0f) return Direction::DOWN_LEFT;
+    if (angle >= 210.0f && angle < 240.0f) return Direction::UP_LEFT;
+    if (angle >= 300.0f && angle < 330.0f) return Direction::UP_RIGHT;
 
     return Direction::NONE;
 }

@@ -279,6 +279,9 @@ private:
     uint8_t _consecutiveMotionFrames;
     uint8_t _consecutiveStillFrames;
 
+    unsigned long _lastFrameTimestamp;
+    unsigned long _currentFrameDt;
+
     // ═══════════════════════════════════════════════════════════
     // CORE ALGORITHM
     // ═══════════════════════════════════════════════════════════
