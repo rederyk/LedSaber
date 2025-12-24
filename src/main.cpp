@@ -991,9 +991,12 @@ static void CameraCaptureTask(void* pvParameters) {
     (void)pvParameters;
 
     bool motionInitialized = false;
-    // Limita FPS a 3 (periodo di ~333ms)
-    const TickType_t xFrequency = pdMS_TO_TICKS(333);
+    // Target: 6-8 FPS (periodo di ~125-150ms). Più veloce grazie a QVGA e griglia ottimizzata
+    const TickType_t xFrequency = pdMS_TO_TICKS(150);
     TickType_t xLastWakeTime = xTaskGetTickCount();
+
+    uint32_t frameCounter = 0;
+    unsigned long lastMemoryCheck = 0;
 
     for (;;) {
         // Attende un segnale d'avvio
@@ -1001,8 +1004,11 @@ static void CameraCaptureTask(void* pvParameters) {
 
         // Reset del timer all'avvio dello streaming
         xLastWakeTime = xTaskGetTickCount();
+        frameCounter = 0;
+        lastMemoryCheck = millis();
 
         while (gCameraTaskShouldRun) {
+            frameCounter++;
             if (!cameraManager.isInitialized() || !bleCameraService.isCameraActive()) {
                 vTaskDelay(pdMS_TO_TICKS(10));
                 continue;
@@ -1054,11 +1060,26 @@ static void CameraCaptureTask(void* pvParameters) {
                 }
             }
 
+            // Pulizia periodica memoria ogni 100 frames per prevenire frammentazione
+            unsigned long now = millis();
+            if (frameCounter % 100 == 0 && (now - lastMemoryCheck) > 5000) {
+                size_t freePsram = ESP.getFreePsram();
+                Serial.printf("[CAM TASK] Frames: %u | Free PSRAM: %u bytes | FPS: ~%.1f\n",
+                    frameCounter, freePsram, 1000.0f / pdTICKS_TO_MS(xFrequency));
+                lastMemoryCheck = now;
+
+                // Force garbage collection se memoria bassa
+                if (freePsram < 100000) {
+                    Serial.println("[CAM TASK] Low PSRAM, triggering cleanup");
+                    heap_caps_check_integrity_all(true);
+                }
+            }
+
             if (!gCameraTaskShouldRun) {
                 break;
             }
 
-            // Limita FPS a 3 usando vTaskDelayUntil per mantenere una frequenza costante
+            // Limita FPS usando vTaskDelayUntil per mantenere una frequenza costante
             vTaskDelayUntil(&xLastWakeTime, xFrequency);
         }
     }

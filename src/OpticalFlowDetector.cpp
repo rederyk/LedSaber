@@ -9,10 +9,10 @@ OpticalFlowDetector::OpticalFlowDetector()
     , _frameSize(0)
     , _previousFrame(nullptr)
     , _edgeFrame(nullptr)
-    , _searchRange(10)       // Compromesso: copre ~25px movimento (era 6, tentato 12)
-    , _searchStep(5)         // Step largo: 5×5=25 posizioni (uguale a prima, ma range maggiore)
-    , _minConfidence(30)     // Aumentato per filtrare vettori deboli
-    , _minActiveBlocks(4)    // Aumentato: richiede più coerenza spaziale (almeno 4 blocchi)
+    , _searchRange(8)        // Ridotto per blocchi più piccoli (30px): 8px range
+    , _searchStep(4)         // Step: 4px (4×4=16 posizioni, meno calcoli)
+    , _minConfidence(25)     // Ridotto per blocchi più piccoli (meno pixel = SAD più basso)
+    , _minActiveBlocks(6)    // Aumentato a 6 per griglia 8x8 (più blocchi disponibili)
     , _quality(160)      // Default: bilanciato (meno rumore)
     , _directionMagnitudeThreshold(2.0f)
     , _minCentroidWeight(100.0f)
@@ -144,9 +144,9 @@ bool OpticalFlowDetector::processFrame(const uint8_t* frameBuffer, size_t frameL
         return false;
     }
 
-    bool isVGA = (frameLength == 640 * 480);
-    if (frameLength != _frameSize && !isVGA) {
-        Serial.printf("[OPTICAL FLOW ERROR] Frame size mismatch! Expected %u (or VGA input), got %u\n",
+    bool isQVGA = (frameLength == 320 * 240);
+    if (frameLength != _frameSize && !isQVGA) {
+        Serial.printf("[OPTICAL FLOW ERROR] Frame size mismatch! Expected %u (or QVGA input), got %u\n",
                       _frameSize, frameLength);
         return false;
     }
@@ -167,19 +167,14 @@ bool OpticalFlowDetector::processFrame(const uint8_t* frameBuffer, size_t frameL
     int offsetY = 0;
     int step = 1;
 
-    if (isVGA) {
-        srcFullWidth = 640;
+    if (isQVGA) {
+        srcFullWidth = 320;
         if (_frameWidth == 240 && _frameHeight == 240) {
-            // CROP 480x480 CENTRALE -> Subsample a 240x240
-            // Offset X = (640 - 480) / 2 = 80
-            offsetX = 80;
+            // CROP 240x240 CENTRALE da QVGA (320x240)
+            // Offset X = (320 - 240) / 2 = 40
+            offsetX = 40;
             offsetY = 0;
-            step = 2;
-        } else if (_frameWidth == 320 && _frameHeight == 240) {
-            // QVGA standard (subsample intero frame)
-            offsetX = 0;
-            offsetY = 0;
-            step = 2;
+            step = 1;  // Nessun subsample, già alla risoluzione corretta
         }
     }
 

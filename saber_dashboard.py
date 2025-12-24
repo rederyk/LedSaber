@@ -385,11 +385,11 @@ class OpticalFlowCanvas(Static):
         state = self.motion_state or {}
 
         raw_rows = state.get('grid', [])
-        grid_cols = state.get('gridCols') or (len(raw_rows[0]) if raw_rows else 6)
-        grid_rows_count = state.get('gridRows') or (len(raw_rows) if raw_rows else 6)
+        grid_cols = state.get('gridCols') or (len(raw_rows[0]) if raw_rows else 8)
+        grid_rows_count = state.get('gridRows') or (len(raw_rows) if raw_rows else 8)
         grid_cols = max(1, grid_cols)
         grid_rows_count = max(1, grid_rows_count)
-        block_size = state.get('blockSize', 40)
+        block_size = state.get('blockSize', 30)  # 240/8 = 30px per blocco
         has_live_data = bool(raw_rows)
 
         # Mappa simboli -> colori

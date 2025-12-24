@@ -19,10 +19,11 @@
 class OpticalFlowDetector {
 public:
     // Configurazione griglia (condivisa con renderer/servizi BLE)
-    static constexpr uint8_t BLOCK_SIZE = 40;
-    static constexpr uint8_t GRID_COLS = 6;
-    static constexpr uint8_t GRID_ROWS = 6;
-    static constexpr uint8_t TOTAL_BLOCKS = GRID_COLS * GRID_ROWS;
+    // Aumentata a 8x8 per maggiore risoluzione gesture detection
+    static constexpr uint8_t BLOCK_SIZE = 30;  // 240/8 = 30px per blocco
+    static constexpr uint8_t GRID_COLS = 8;
+    static constexpr uint8_t GRID_ROWS = 8;
+    static constexpr uint8_t TOTAL_BLOCKS = GRID_COLS * GRID_ROWS;  // 64 blocchi
 
     OpticalFlowDetector();
     ~OpticalFlowDetector();

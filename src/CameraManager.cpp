@@ -84,13 +84,14 @@ bool CameraManager::begin(uint8_t flashPin) {
     _configurePinout(config);
 
     // Configurazione
-    config.xclk_freq_hz = 24000000;  // 24MHz clock (OV2640 max, era 20MHz)
+    config.xclk_freq_hz = 20000000;  // 20MHz clock (stabile per QVGA, evita artefatti)
     config.ledc_timer = LEDC_TIMER_0;
     config.ledc_channel = LEDC_CHANNEL_0;
 
-    // Formato immagine: VGA grayscale (verrà croppato a 480x480 dal motion detector)
+    // Formato immagine: QVGA grayscale (240x240 dal crop centrale)
+    // Ridotto da VGA per migliorare FPS e ridurre overhead memoria
     config.pixel_format = PIXFORMAT_GRAYSCALE;  // 1 byte/pixel
-    config.frame_size = FRAMESIZE_VGA;          // 640x480 (High Res, limited FPS)
+    config.frame_size = FRAMESIZE_QVGA;         // 320x240 (migliori FPS)
     config.jpeg_quality = 12;                    // Non usato per grayscale
     config.fb_count = 2;                         // Double buffering
     config.fb_location = CAMERA_FB_IN_PSRAM;     // Usa PSRAM per buffer
@@ -134,7 +135,7 @@ bool CameraManager::begin(uint8_t flashPin) {
     _fpsStartTime = millis();
 
     Serial.println("[CAMERA] ✓ Initialized successfully!");
-    Serial.printf("[CAMERA] Format: VGA (640x480) Grayscale, %d FB\n", config.fb_count);
+    Serial.printf("[CAMERA] Format: QVGA (320x240) Grayscale, %d FB\n", config.fb_count);
     Serial.printf("[CAMERA] PSRAM available: %u bytes\n", ESP.getPsramSize());
     Serial.printf("[CAMERA] PSRAM free: %u bytes\n", ESP.getFreePsram());
 

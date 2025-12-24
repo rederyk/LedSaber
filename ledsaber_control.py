@@ -1302,11 +1302,11 @@ class InteractiveCLI:
                             print(f"    {zones[3]:3d} {zones[4]:3d} {zones[5]:3d}")
                             print(f"    {zones[6]:3d} {zones[7]:3d} {zones[8]:3d}")
 
-                        # Mostra griglia optical flow 40px (6x6)
+                        # Mostra griglia optical flow 30px (8x8)
                         grid_rows = status.get('grid', [])
                         if grid_rows:
                             grid_cols = status.get('gridCols', len(grid_rows[0]) if grid_rows else 0)
-                            block_size = status.get('blockSize', 40)
+                            block_size = status.get('blockSize', 30)  # 240/8 = 30px per blocco
                             print(f"\n  {Colors.CYAN}Optical Flow Grid ({grid_cols}x{len(grid_rows)} blocchi @ {block_size}px):{Colors.RESET}")
                             for row_str in grid_rows:
                                 printable = " ".join(list(row_str))
@@ -1604,7 +1604,7 @@ class InteractiveCLI:
                 grid_rows = state.get('grid', [])
                 if grid_rows:
                     grid_cols = state.get('gridCols', len(grid_rows[0]) if grid_rows else 0)
-                    block_size = state.get('blockSize', 40)
+                    block_size = state.get('blockSize', 30)  # 240/8 = 30px per blocco
                     print(f"  {Colors.CYAN}Optical Flow Grid ({grid_cols}x{len(grid_rows)} @ {block_size}px):{Colors.RESET}")
                     for row_str in grid_rows:
                         print(f"    {' '.join(list(row_str))}")
@@ -1644,7 +1644,7 @@ class InteractiveCLI:
                 grid_rows = state.get('grid', [])
                 if grid_rows:
                     grid_cols = state.get('gridCols', len(grid_rows[0]) if grid_rows else 0)
-                    block_size = state.get('blockSize', 40)
+                    block_size = state.get('blockSize', 30)  # 240/8 = 30px per blocco
                     print(f"  {Colors.CYAN}Flow ({grid_cols}x{len(grid_rows)} @ {block_size}px):{Colors.RESET} {' | '.join(grid_rows)}")
 
                 # Statistiche compatte (solo se cambiate)
