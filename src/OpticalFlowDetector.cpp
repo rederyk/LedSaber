@@ -14,10 +14,10 @@ OpticalFlowDetector::OpticalFlowDetector()
     , _minConfidence(25)     // Ridotto per blocchi più piccoli (meno pixel = SAD più basso)
     , _minActiveBlocks(6)    // Aumentato a 6 per griglia 8x8 (più blocchi disponibili)
     , _quality(160)      // Default: bilanciato (meno rumore)
-    , _directionMagnitudeThreshold(2.0f)
+    , _directionMagnitudeThreshold(4.0f)  // Aumentato a 4.0 per ignorare bias rolling shutter
     , _minCentroidWeight(100.0f)
-    , _motionIntensityThreshold(15)
-    , _motionSpeedThreshold(1.2f)
+    , _motionIntensityThreshold(40)       // Drasticamente aumentato da 25 a 40 per bias sistematico
+    , _motionSpeedThreshold(4.0f)         // Drasticamente aumentato da 2.0 a 4.0 per motion reale
     , _hasPreviousFrame(false)
     , _motionActive(false)
     , _motionIntensity(0)
@@ -36,6 +36,8 @@ OpticalFlowDetector::OpticalFlowDetector()
     , _totalFramesProcessed(0)
     , _motionFrameCount(0)
     , _totalComputeTime(0)
+    , _consecutiveMotionFrames(0)
+    , _consecutiveStillFrames(0)
 {
     memset(_motionVectors, 0, sizeof(_motionVectors));
     memset(_trajectory, 0, sizeof(_trajectory));
@@ -59,7 +61,7 @@ static void computeEdgeImage(const uint8_t* src, uint8_t* dst, uint16_t width, u
     // Pulisci il buffer (bordi a 0)
     memset(dst, 0, width * height);
     
-    const int threshold = 50; // SOGLIA RUMORE: Aumentata per evitare falsi positivi da rumore sensore
+    const int threshold = 80; // SOGLIA RUMORE: Aumentata significativamente per filtrare rumore sensore
     
     // Calcola gradiente per ogni pixel (esclusi i bordi estremi)
     for (uint16_t y = 0; y < height - 1; y++) {
@@ -371,6 +373,10 @@ void OpticalFlowDetector::_calculateGlobalMotion() {
     uint32_t sumConfidence = 0;
     uint8_t validBlocks = 0;
 
+    // Contatori per rilevare pattern uniformi (bias sistematico)
+    uint8_t downRightBlocks = 0;  // Blocchi con vettore DOWN-RIGHT (tipico rolling shutter)
+    uint8_t totalNonZeroBlocks = 0;
+
     for (uint8_t row = 0; row < GRID_ROWS; row++) {
         for (uint8_t col = 0; col < GRID_COLS; col++) {
             BlockMotionVector& vec = _motionVectors[row][col];
@@ -379,6 +385,15 @@ void OpticalFlowDetector::_calculateGlobalMotion() {
                 sumDy += vec.dy * vec.confidence;
                 sumConfidence += vec.confidence;
                 validBlocks++;
+
+                // Conta blocchi con movimento significativo
+                if (abs(vec.dx) > 1 || abs(vec.dy) > 1) {
+                    totalNonZeroBlocks++;
+                    // Rileva pattern DOWN-RIGHT (dx>0, dy>0)
+                    if (vec.dx > 0 && vec.dy > 0) {
+                        downRightBlocks++;
+                    }
+                }
             }
         }
     }
@@ -387,6 +402,16 @@ void OpticalFlowDetector::_calculateGlobalMotion() {
 
     // Verifica movimento
     if (validBlocks < _minActiveBlocks || sumConfidence == 0) {
+        _motionActive = false;
+        _motionIntensity = 0;
+        _motionDirection = Direction::NONE;
+        _motionSpeed = 0.0f;
+        _motionConfidence = 0.0f;
+        return;
+    }
+
+    // FILTRO BIAS SISTEMATICO: Se >80% dei blocchi puntano DOWN-RIGHT, è rolling shutter
+    if (totalNonZeroBlocks > 10 && downRightBlocks > (totalNonZeroBlocks * 80 / 100)) {
         _motionActive = false;
         _motionIntensity = 0;
         _motionDirection = Direction::NONE;
@@ -413,10 +438,29 @@ void OpticalFlowDetector::_calculateGlobalMotion() {
     float normalizedSpeed = min(_motionSpeed / 20.0f, 1.0f);  // 20px/frame = max
     _motionIntensity = (uint8_t)(normalizedSpeed * _motionConfidence * 255.0f);
 
-    // Soglie globali (stabili, poco rumore)
-    // Aumentata soglia intensità da 8 a 15 per tagliare il rumore di fondo
-    _motionActive = (_motionIntensity > _motionIntensityThreshold &&
-                     _motionSpeed > _motionSpeedThreshold);
+    // Soglie globali con filtro temporale per stabilità
+    bool rawMotionDetected = (_motionIntensity > _motionIntensityThreshold &&
+                              _motionSpeed > _motionSpeedThreshold);
+
+    // Filtro temporale: richiedi 2 frame consecutivi per attivare motion
+    // e 3 frame consecutivi di quiete per disattivarlo
+    if (rawMotionDetected) {
+        _consecutiveMotionFrames++;
+        _consecutiveStillFrames = 0;
+
+        // Attiva motion solo dopo 2 frame consecutivi
+        if (_consecutiveMotionFrames >= 2) {
+            _motionActive = true;
+        }
+    } else {
+        _consecutiveStillFrames++;
+        _consecutiveMotionFrames = 0;
+
+        // Disattiva motion solo dopo 3 frame consecutivi di quiete
+        if (_consecutiveStillFrames >= 3) {
+            _motionActive = false;
+        }
+    }
 }
 
 void OpticalFlowDetector::_calculateCentroid() {
@@ -616,6 +660,8 @@ void OpticalFlowDetector::reset() {
     _avgBrightness = 0;
     _frameDiffAvg = 0;
     _hasPreviousFrame = false;
+    _consecutiveMotionFrames = 0;
+    _consecutiveStillFrames = 0;
 
     memset(_motionVectors, 0, sizeof(_motionVectors));
     memset(_trajectory, 0, sizeof(_trajectory));

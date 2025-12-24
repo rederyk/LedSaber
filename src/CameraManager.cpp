@@ -84,7 +84,7 @@ bool CameraManager::begin(uint8_t flashPin) {
     _configurePinout(config);
 
     // Configurazione
-    config.xclk_freq_hz = 20000000;  // 20MHz clock (stabile per QVGA, evita artefatti)
+    config.xclk_freq_hz = 20000000;  // 20MHz: compromesso tra FPS (~8-10) e rolling shutter artifacts
     config.ledc_timer = LEDC_TIMER_0;
     config.ledc_channel = LEDC_CHANNEL_0;
 
@@ -104,12 +104,12 @@ bool CameraManager::begin(uint8_t flashPin) {
         return false;
     }
 
-    // Ottimizzazioni sensore
+    // Ottimizzazioni sensore per QVGA @ 10-12fps
     sensor_t* s = esp_camera_sensor_get();
     if (s != nullptr) {
-        // Disabilita funzioni non necessarie per motion detection
+        // Ottimizzazioni per motion detection ad alto framerate
         s->set_brightness(s, 0);     // Brightness: -2 to 2
-        s->set_contrast(s, 0);       // Contrast: -2 to 2
+        s->set_contrast(s, 1);       // Aumentato contrast per bordi più netti
         s->set_saturation(s, 0);     // Non applicabile a grayscale
         s->set_whitebal(s, 1);       // White balance auto
         s->set_awb_gain(s, 1);       // Auto white balance gain
@@ -117,10 +117,10 @@ bool CameraManager::begin(uint8_t flashPin) {
         s->set_exposure_ctrl(s, 1);  // Auto exposure ENABLED for cleaner image
         s->set_aec2(s, 1);           // AEC DSP ENABLED
         s->set_ae_level(s, 0);       // AE level: -2 to 2
-        s->set_aec_value(s, 400);    // AEC value fisso: 0 to 1200 (era 300, aumentato per compensare)
+        s->set_aec_value(s, 350);    // AEC value ridotto: era 400, ora 350 per più luce con fps alto
         s->set_gain_ctrl(s, 1);      // Auto gain
         s->set_agc_gain(s, 0);       // AGC gain: 0 to 30
-        s->set_gainceiling(s, (gainceiling_t)0);  // Gain ceiling
+        s->set_gainceiling(s, (gainceiling_t)2);  // Gain ceiling aumentato per compensare fps alto
         s->set_bpc(s, 0);            // Black pixel correction
         s->set_wpc(s, 1);            // White pixel correction
         s->set_raw_gma(s, 1);        // Gamma correction

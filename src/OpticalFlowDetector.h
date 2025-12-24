@@ -275,6 +275,10 @@ private:
     uint32_t _motionFrameCount;
     uint32_t _totalComputeTime;
 
+    // Filtro temporale per ridurre rumore
+    uint8_t _consecutiveMotionFrames;
+    uint8_t _consecutiveStillFrames;
+
     // ═══════════════════════════════════════════════════════════
     // CORE ALGORITHM
     // ═══════════════════════════════════════════════════════════
