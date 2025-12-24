@@ -56,9 +56,9 @@ public:
         Config() :
             gesturesEnabled(true),
             gestureThreshold(6),   // Ridotto a 6 per rilevare gesture più leggere
-            ignitionIntensityThreshold(6),  // Ridotto a 6 per facilitare ignition
+            ignitionIntensityThreshold(12),  // Ridotto a 6 per facilitare ignition
             retractIntensityThreshold(12),   // Ridotto a 6 (logs mostrano picchi di 9-10)
-            clashIntensityThreshold(10),     // Aumentato da 14 a 30 per evitare rumore
+            clashIntensityThreshold(12),     // Aumentato da 14 a 30 per evitare rumore
             gestureDurationMs(150),  // Aumentato da 100 a 150ms per gesture più stabili
             clashDeltaThreshold(60), // Aumentato da 15 a 60 per ridurre falsi positivi
             clashWindowMs(600),     // ~2.2 frame @ 5.6fps per catturare veri clash
@@ -67,9 +67,9 @@ public:
             perturbationEnabled(true),
             perturbationScale(255),
             debugLogsEnabled(false),
-            ignitionSpeedThreshold(0.5f),  // Ridotto a 0.5 per facilitare ignition
+            ignitionSpeedThreshold(0.4f),  // Ridotto a 0.5 per facilitare ignition
             retractSpeedThreshold(0.4f),   // Ridotto a 0.4 per facilitare retract
-            clashSpeedThreshold(4.0f) {}
+            clashSpeedThreshold(2.0f) {}
     };
 
     MotionProcessor();

@@ -357,7 +357,7 @@ String BLEMotionService::_getStatusJson() {
         rowStr.reserve(OpticalFlowDetector::GRID_COLS);
         for (uint8_t col = 0; col < OpticalFlowDetector::GRID_COLS; col++) {
             const char tag = _motion->getBlockDirectionTag(row, col);
-            rowStr += rotateTagCW(tag, 0);
+            rowStr += rotateTagCW(tag, 180);
         }
         gridArray.add(rowStr);
     }
