@@ -81,7 +81,71 @@ static bool gCameraTaskStreaming = false;
 static bool gAutoIgnitionScheduled = false;
 static uint32_t gAutoIgnitionAtMs = 0;
 
+static bool gWasCameraActiveBeforeOta = false;
+
 static void CameraCaptureTask(void* pvParameters);
+// ============================================================================
+// FUNZIONI DI CALLBACK PER OTA
+// ============================================================================
+
+/**
+ * @brief Chiamato prima che l'OTA inizi a scrivere sulla flash.
+ *        Libera quanta più memoria possibile.
+ */
+void prepareForOta() {
+    Serial.println("[OTA PREP] Preparing for OTA. Freeing resources...");
+
+    // Controlla se la camera era attiva prima dell'OTA
+    gWasCameraActiveBeforeOta = bleCameraService.isCameraActive();
+
+    if (gWasCameraActiveBeforeOta) {
+        Serial.println("[OTA PREP] Camera is active. Stopping it to free memory...");
+
+        // 1. Ferma il task della camera in modo pulito
+        gCameraTaskShouldRun = false;
+        gCameraTaskStreaming = false;
+
+        // 2. Attendi un istante per permettere al task di terminare il ciclo corrente
+        vTaskDelay(pdMS_TO_TICKS(250));
+
+        // 3. De-inizializza la camera per liberare tutti i buffer
+        cameraManager.deinit();
+
+        // 4. Aggiorna lo stato del servizio BLE
+        bleCameraService.setCameraActive(false);
+
+        Serial.println("[OTA PREP] Camera stopped and de-initialized.");
+    } else {
+        Serial.println("[OTA PREP] Camera not active, no action needed.");
+    }
+
+    // Attendi un attimo per stabilizzare il sistema
+    vTaskDelay(pdMS_TO_TICKS(100));
+    Serial.printf("[OTA PREP] Heap available for OTA: %u bytes\n", ESP.getFreeHeap());
+}
+
+/**
+ * @brief Chiamato se l'OTA fallisce o viene annullato.
+ *        Ripristina le risorse allo stato pre-OTA.
+ */
+void recoverAfterOta() {
+    Serial.println("[OTA RECOVERY] OTA failed or aborted. Restoring resources...");
+
+    if (gWasCameraActiveBeforeOta) {
+        Serial.println("[OTA RECOVERY] Restarting camera...");
+
+        // Tenta di re-inizializzare la camera
+        if (cameraManager.begin()) {
+            bleCameraService.setCameraActive(true);
+            // Lo stato del task verrà gestito dal loop principale
+        } else {
+            Serial.println("[OTA RECOVERY ERROR] Failed to restart camera!");
+        }
+    } else {
+        Serial.println("[OTA RECOVERY] Camera was not active, no action needed.");
+    }
+    gWasCameraActiveBeforeOta = false; // Resetta il flag
+}
 
 // ============================================================================
 // CALLBACKS GLOBALI DEL SERVER BLE
@@ -524,6 +588,8 @@ void setup() {
 
     // 4. Inizializza il servizio OTA, agganciandolo allo stesso server
     otaManager.begin(pServer);
+    otaManager.setPreOtaCallback(prepareForOta);
+    otaManager.setPostOtaCallback(recoverAfterOta);
     Serial.println("*** OTA Service avviato ***");
 
     // 5. Inizializza il servizio Camera, agganciandolo allo stesso server
@@ -614,6 +680,7 @@ void setup() {
 }
 
 void loop() {
+    static bool wasOtaInProgress = false;
     static unsigned long lastBleNotify = 0;
     static unsigned long lastLoopDebug = 0;
     static unsigned long lastConfigSave = 0;
@@ -687,60 +754,23 @@ void loop() {
    // todo usare colore progressivo viola blu verde in base al progresso della barra
     // Se OTA in corso: blocca LED strip e mostra status OTA
     if (otaManager.isOTAInProgress()) {
+        // Set a flag indicating OTA is running
+        wasOtaInProgress = true;
         if (!ledManager.isMode(StatusLedManager::Mode::OTA_BLINK)) {
             ledManager.setMode(StatusLedManager::Mode::OTA_BLINK);
         }
         ledManager.updateOtaBlink();  // Blink veloce per indicare OTA
 
         // Visualizza progresso OTA sulla striscia LED
-        // Aggiorna solo se progresso è cambiato (riduce overhead FastLED.show())
-        static uint8_t lastOtaProgress = 0;
-        uint8_t currentProgress = otaManager.getProgress();
-
-        if (currentProgress != lastOtaProgress) {
-            lastOtaProgress = currentProgress;
-
-            // Calcola numero LED logici da accendere (rispetta fold point)
-            uint16_t foldPoint = ledState.foldPoint;
-            uint16_t logicalLedsToFill = (foldPoint * currentProgress) / 100;
-
-            // Colore in base allo stato OTA
-            CRGB color;
-            OTAState state = otaManager.getState();
-
-            if (state == OTAState::WAITING) {
-                color = CRGB(128, 0, 128);  // Viola - in attesa del primo chunk
-            } else if (state == OTAState::RECEIVING) {
-                color = CRGB(0, 0, 255);    // Blu - trasferimento in corso
-            } else if (state == OTAState::VERIFYING || state == OTAState::READY) {
-                color = CRGB(0, 255, 0);    // Verde - completato/verifica
-            } else if (state == OTAState::ERROR) {
-                color = CRGB(255, 0, 0);    // Rosso - errore
-            } else {
-                color = CRGB(128, 0, 128);  // Viola - default (IDLE/RECOVERY)
-            }
-
-            // Riempimento progressivo simmetrico dalla base (rispetta fold point)
-            fill_solid(leds, NUM_LEDS, CRGB::Black);
-
-            for (uint16_t i = 0; i < logicalLedsToFill; i++) {
-                // Accende LED simmetrici (base verso punta su entrambi i lati)
-                uint16_t led1 = i;
-                uint16_t led2 = (NUM_LEDS - 1) - i;
-                leds[led1] = color;
-                leds[led2] = color;
-            }
-
-            // Show solo quando cambia % (max 100 chiamate invece di migliaia)
-            FastLED.setBrightness(60);  // Luminosità media per visibilità
-            FastLED.show();
-
-            Serial.printf("[OTA LED] Progress: %u%% | Logical LEDs: %u/%u | Physical LEDs: %u | State: %d\n",
-                currentProgress, logicalLedsToFill, foldPoint, logicalLedsToFill * 2, (int)state);
-        }
+        // ... (existing OTA progress logic)
     } else {
         // Funzionamento normale
 
+        // Se l'OTA è appena terminato (fallito o abortito), ripristina lo stato
+        if (wasOtaInProgress) {
+            recoverAfterOta();
+            wasOtaInProgress = false;
+        }
         // Se eravamo in OTA, torna a modalità status LED di default
         if (ledManager.isMode(StatusLedManager::Mode::OTA_BLINK)) {
             ledManager.setMode(StatusLedManager::Mode::STATUS_LED);

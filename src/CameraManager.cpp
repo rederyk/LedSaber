@@ -205,3 +205,23 @@ void CameraManager::resetMetrics() {
     _frameCount = 0;
     _fpsStartTime = millis();
 }
+
+void CameraManager::deinit() {
+    if (_initialized) {
+        // Rilascia eventuale framebuffer in uso
+        if (_currentFrameBuffer) {
+            esp_camera_fb_return(_currentFrameBuffer);
+            _currentFrameBuffer = nullptr;
+        }
+
+        // De-inizializza il driver della camera
+        esp_err_t err = esp_camera_deinit();
+        if (err == ESP_OK) {
+            Serial.println("[CAMERA] Camera de-initialized successfully.");
+        } else {
+            Serial.printf("[CAMERA ERROR] Failed to de-initialize camera: %s\n", esp_err_to_name(err));
+        }
+
+        _initialized = false;
+    }
+}

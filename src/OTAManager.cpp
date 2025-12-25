@@ -74,6 +74,8 @@ OTAManager::OTAManager() {
     pCharFWVersion = nullptr;
     otaHandle = 0;
     updatePartition = nullptr;
+    preOtaCallback = nullptr;
+    postOtaCallback = nullptr;
 }
 
 void OTAManager::begin(BLEServer* server) {
@@ -477,11 +479,20 @@ void OTAManager::processPendingCommands() {
 void OTAManager::executeStartCommand(uint32_t firmwareSize) {
     Serial.printf("[OTA] Executing START (size=%u bytes)\n", firmwareSize);
 
+    if (preOtaCallback) {
+        Serial.println("[OTA] Executing pre-OTA callback...");
+        preOtaCallback();
+    }
+
     // Verifica heap disponibile (minimo 50KB per sicurezza)
     uint32_t freeHeap = ESP.getFreeHeap();
     Serial.printf("[OTA] Free heap: %u bytes\n", freeHeap);
     if (freeHeap < 50000) {
         setError("Insufficient memory");
+        if (postOtaCallback) {
+            Serial.println("[OTA] Executing post-OTA (error) callback...");
+            postOtaCallback();
+        }
         return;
     }
 
@@ -530,6 +541,11 @@ void OTAManager::executeAbortCommand() {
 
     resetOTAState();
     setState(OTAState::IDLE);
+
+    if (postOtaCallback) {
+        Serial.println("[OTA] Executing post-OTA (abort) callback...");
+        postOtaCallback();
+    }
 }
 
 void OTAManager::handleVerifyCommand() {

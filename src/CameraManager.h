@@ -62,6 +62,11 @@ public:
     bool isInitialized() const { return _initialized; }
 
     /**
+     * @brief De-inizializza la camera e rilascia le risorse
+     */
+    void deinit();
+
+    /**
      * @brief Ottiene metriche camera
      */
     struct CameraMetrics {

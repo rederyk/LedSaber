@@ -72,6 +72,9 @@ struct OTAPendingCommand {
     bool rebootPending = false;
 };
 
+// Callback for OTA events
+typedef void (*ota_event_callback_t)(void);
+
 class OTAManager {
 private:
     BLEServer* pServer;
@@ -95,6 +98,9 @@ private:
     QueueHandle_t rxQueue = nullptr;
     volatile uint8_t rxQueueError = 0; // 0=ok, 1=full, 2=oversize
 
+    ota_event_callback_t preOtaCallback = nullptr;
+    ota_event_callback_t postOtaCallback = nullptr;
+
     uint32_t crc32Calculate(const uint8_t* data, size_t length);
     void setState(OTAState newState);
     void setError(const String& errorMsg);
@@ -111,6 +117,10 @@ public:
     bool isOTAInProgress();
     OTAState getState() { return otaStatus.state; }
     uint8_t getProgress() { return otaStatus.progressPercent; }
+
+    // Callbacks for freeing/restoring resources
+    void setPreOtaCallback(ota_event_callback_t callback) { preOtaCallback = callback; }
+    void setPostOtaCallback(ota_event_callback_t callback) { postOtaCallback = callback; }
 
     // Handler comandi (chiamati dal callback BLE - schedula solo)
     void scheduleStartCommand(uint32_t firmwareSize);
