@@ -30,7 +30,7 @@ OpticalFlowDetector::OpticalFlowDetector()
     , _centroidY(0.0f)
     , _centroidValid(false)
     , _trajectoryLength(0)
-    , _flashIntensity(200)  // Imposta direttamente a 200 (o 0) per evitare il salto da 150
+    , _flashIntensity(0)    // Flash disabilitato (era 200)
     , _avgBrightness(0)
     , _frameDiffAvg(0)
     , _lastMotionTime(0)
@@ -445,8 +445,10 @@ uint16_t OpticalFlowDetector::_computeSAD(
 ) {
     uint32_t sad = 0;
 
-    for (uint8_t by = 0; by < blockSize; by++) {
-        for (uint8_t bx = 0; bx < blockSize; bx++) {
+    // OTTIMIZZAZIONE: Campionamento ogni 2 pixel (step 2)
+    // Riduce il carico CPU del 75% mantenendo precisione sufficiente per motion detection
+    for (uint8_t by = 0; by < blockSize; by += 2) {
+        for (uint8_t bx = 0; bx < blockSize; bx += 2) {
             uint16_t idx1 = (y1 + by) * _frameWidth + (x1 + bx);
             uint16_t idx2 = (y2 + by) * _frameWidth + (x2 + bx);
 
@@ -725,21 +727,8 @@ uint8_t OpticalFlowDetector::_calculateAverageBrightness(const uint8_t* frame) {
 }
 
 void OpticalFlowDetector::_updateFlashIntensity() {
-    // Logica semplificata: controllo ogni 30 minuti
-    // Se luminosità alta (>180) -> OFF (0), altrimenti -> 200
-    static unsigned long lastCheck = 0;
-    unsigned long now = millis();
-
-    // 30 minuti = 1800000 ms
-    // Forza controllo anche se il valore corrente non è valido (es. dopo reset a 150)
-    if (lastCheck == 0 || (now - lastCheck) > 1800000 || (_flashIntensity != 0 && _flashIntensity != 200)) {
-        lastCheck = now;
-        if (_avgBrightness > 180) {
-            _flashIntensity = 0;
-        } else {
-            _flashIntensity = 200;
-        }
-    }
+    // Flash disabilitato permanentemente come richiesto
+    _flashIntensity = 0;
 }
 
 void OpticalFlowDetector::setQuality(uint8_t quality) {

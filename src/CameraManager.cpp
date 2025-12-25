@@ -109,25 +109,25 @@ bool CameraManager::begin(uint8_t flashPin) {
     if (s != nullptr) {
         // Ottimizzazioni per motion detection ad alto framerate
         s->set_brightness(s, 0);     // Brightness: -2 to 2
-        s->set_contrast(s, 1);       // Aumentato contrast per bordi più netti
+        s->set_contrast(s, 2);       // Aumentato contrast per bordi più netti (era 1)
         s->set_saturation(s, 0);     // Non applicabile a grayscale
         s->set_whitebal(s, 1);       // White balance auto
         s->set_awb_gain(s, 1);       // Auto white balance gain
         s->set_wb_mode(s, 0);        // White balance mode auto
-        s->set_exposure_ctrl(s, 1);  // Auto exposure ENABLED for cleaner image
-        s->set_aec2(s, 1);           // AEC DSP ENABLED
+        s->set_exposure_ctrl(s, 0);  // Auto exposure DISABILITATO per FPS stabili
+        s->set_aec2(s, 0);           // AEC DSP DISABILITATO
         s->set_ae_level(s, 0);       // AE level: -2 to 2
-        s->set_aec_value(s, 350);    // AEC value ridotto: era 400, ora 350 per più luce con fps alto
+        s->set_aec_value(s, 400);    // Exposure fisso (0-1200). 400 garantisce ~20+ FPS
         s->set_gain_ctrl(s, 1);      // Auto gain
         s->set_agc_gain(s, 0);       // AGC gain: 0 to 30
-        s->set_gainceiling(s, (gainceiling_t)2);  // Gain ceiling aumentato per compensare fps alto
-        s->set_bpc(s, 0);            // Black pixel correction
+        s->set_gainceiling(s, (gainceiling_t)6);  // Gain ceiling MAX (128X) per compensare exposure basso
+        s->set_bpc(s, 1);            // Black pixel correction ABILITATO per ridurre rumore high gain
         s->set_wpc(s, 1);            // White pixel correction
         s->set_raw_gma(s, 1);        // Gamma correction
-        s->set_lenc(s, 1);           // Lens correction
+        s->set_lenc(s, 0);           // Lens correction DISABILITATO per max luminosità ai bordi
         s->set_hmirror(s, 0);        // Horizontal mirror
         s->set_vflip(s, 0);          // Vertical flip
-        s->set_dcw(s, 0);            // DCW (Downsize EN)
+        s->set_dcw(s, 1);            // DCW (Downsize EN) ABILITATO
         s->set_colorbar(s, 0);       // Color bar test pattern
     }
 
