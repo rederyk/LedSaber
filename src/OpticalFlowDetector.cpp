@@ -32,6 +32,8 @@ OpticalFlowDetector::OpticalFlowDetector()
     , _trajectoryLength(0)
     , _flashIntensity(200)  // Flash default attivo (era 0)
     , _avgBrightness(0)
+    , _smoothedBrightness(0)
+    , _brightnessFilterInitialized(false)
     , _frameDiffAvg(0)
     , _lastMotionTime(0)
     , _totalFramesProcessed(0)
@@ -574,6 +576,9 @@ void OpticalFlowDetector::_calculateGlobalMotion() {
     bool rawMotionDetected = (_motionIntensity > _motionIntensityThreshold &&
                               _motionSpeed > _motionSpeedThreshold);
 
+    // Default: usa rilevamento immediato se il filtro temporale è disattivato
+    _motionActive = rawMotionDetected;
+
   //  // Filtro temporale: richiedi 2 frame consecutivi per attivare motion
   //  // e 2 frame consecutivi di quiete per disattivarlo
   //  if (rawMotionDetected) {
@@ -727,14 +732,37 @@ uint8_t OpticalFlowDetector::_calculateAverageBrightness(const uint8_t* frame) {
 }
 
 void OpticalFlowDetector::_updateFlashIntensity() {
-    // Logica semplice: se buio -> flash alto, se luce -> flash basso/spento
-    // Questo aiuta l'auto-exposure a lavorare meglio e alzare gli FPS
-    if (_avgBrightness < 60) {
-        _flashIntensity = 200; // Buio: Flash forte
-    } else if (_avgBrightness > 150) {
-        _flashIntensity = 0;   // Luce: Flash spento
+    // Filtra la luminosita per evitare flicker del flash con piccoli cambi.
+    if (!_brightnessFilterInitialized) {
+        _smoothedBrightness = _avgBrightness;
+        _brightnessFilterInitialized = true;
     } else {
-        _flashIntensity = 100; // Medio
+        _smoothedBrightness = (uint8_t)((_smoothedBrightness * 3 + _avgBrightness) / 4);
+    }
+
+    // Logica con isteresi: evita continui ON/OFF quando la mano si avvicina.
+    const uint8_t lowOn = 60;
+    const uint8_t lowOff = 85;
+    const uint8_t highOn = 150;
+    const uint8_t highOff = 120;
+
+    if (_flashIntensity >= 150) {
+        // Modalita flash alto, scendi solo quando c'e abbastanza luce.
+        if (_smoothedBrightness > lowOff) {
+            _flashIntensity = 100;
+        }
+    } else if (_flashIntensity == 0) {
+        // Flash spento, riaccendi solo se diventa buio.
+        if (_smoothedBrightness < highOff) {
+            _flashIntensity = 100;
+        }
+    } else {
+        // Modalita media: sali o scendi con soglie separate.
+        if (_smoothedBrightness < lowOn) {
+            _flashIntensity = 200;
+        } else if (_smoothedBrightness > highOn) {
+            _flashIntensity = 0;
+        }
     }
 }
 
@@ -778,6 +806,8 @@ void OpticalFlowDetector::reset() {
     _totalComputeTime = 0;
     _flashIntensity = 150;
     _avgBrightness = 0;
+    _smoothedBrightness = 0;
+    _brightnessFilterInitialized = false;
     _frameDiffAvg = 0;
     _hasPreviousFrame = false;
     _consecutiveMotionFrames = 0;

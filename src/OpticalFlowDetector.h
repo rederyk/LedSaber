@@ -286,6 +286,8 @@ private:
     // Auto flash
     uint8_t _flashIntensity;
     uint8_t _avgBrightness;
+    uint8_t _smoothedBrightness;
+    bool _brightnessFilterInitialized;
     uint8_t _frameDiffAvg;
 
     // Timing & metrics
