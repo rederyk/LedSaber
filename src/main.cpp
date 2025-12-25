@@ -821,12 +821,15 @@ static void CameraCaptureTask(void* pvParameters) {
     (void)pvParameters;
 
     bool motionInitialized = false;
+    // Target 7 FPS = ~143ms per frame
+    const unsigned long targetFrameTimeMs = 143;
 
     for (;;) {
         // Attende un segnale d'avvio
         ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
 
         while (gCameraTaskShouldRun) {
+            unsigned long startLoop = millis();
             if (!cameraManager.isInitialized() || !bleCameraService.isCameraActive()) {
                 vTaskDelay(pdMS_TO_TICKS(10));
                 continue;
@@ -882,7 +885,13 @@ static void CameraCaptureTask(void* pvParameters) {
             }
 
             // Minimo delay per evitare watchdog timeout e permettere altre task
-            taskYIELD(); // Più veloce di vTaskDelay(1), previene comunque il WDT
+            // Limita FPS a targetFrameTimeMs (7 FPS)
+            unsigned long elapsed = millis() - startLoop;
+            if (elapsed < targetFrameTimeMs) {
+                vTaskDelay(pdMS_TO_TICKS(targetFrameTimeMs - elapsed));
+            } else {
+                taskYIELD();
+            }
         }
     }
 }
