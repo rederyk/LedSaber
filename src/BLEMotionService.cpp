@@ -325,6 +325,34 @@ String BLEMotionService::_getStatusJson() {
     doc["flashIntensity"] = metrics.flashIntensity;
     doc["trajectoryLength"] = metrics.trajectoryLength;
 
+    float centroidX = 0.0f;
+    float centroidY = 0.0f;
+    float centroidNormX = 0.0f;
+    float centroidNormY = 0.0f;
+    uint8_t centroidRow = 0;
+    uint8_t centroidCol = 0;
+    const bool centroidValid = _motion->getCentroid(&centroidX, &centroidY);
+    const bool centroidNormValid = _motion->getCentroidNormalized(&centroidNormX, &centroidNormY);
+    const bool centroidBlockValid = _motion->getCentroidBlock(&centroidRow, &centroidCol);
+
+    doc["centroidValid"] = centroidValid;
+    if (centroidValid) {
+        doc["centroidX"] = round(centroidX * 10.0f) / 10.0f;
+        doc["centroidY"] = round(centroidY * 10.0f) / 10.0f;
+    } else {
+        doc["centroidX"] = 0;
+        doc["centroidY"] = 0;
+    }
+    if (centroidNormValid) {
+        doc["centroidNormX"] = round(centroidNormX * 100.0f) / 100.0f;
+        doc["centroidNormY"] = round(centroidNormY * 100.0f) / 100.0f;
+    } else {
+        doc["centroidNormX"] = 0;
+        doc["centroidNormY"] = 0;
+    }
+    doc["centroidRow"] = centroidBlockValid ? centroidRow : 255;
+    doc["centroidCol"] = centroidBlockValid ? centroidCol : 255;
+
     doc["totalFrames"] = metrics.totalFramesProcessed;
     doc["motionFrames"] = metrics.motionFrameCount;
 
@@ -359,14 +387,29 @@ String BLEMotionService::_getStatusJson() {
         String rowStr;
         rowStr.reserve(OpticalFlowDetector::GRID_COLS);
         for (uint8_t col = 0; col < OpticalFlowDetector::GRID_COLS; col++) {
-            const char tag = _motion->getBlockDirectionTag(row, col);
+            char tag = _motion->getBlockDirectionTag(row, col);
+            if (centroidBlockValid && row == centroidRow && col == centroidCol) {
+                tag = 'X';
+            }
             rowStr += rotateTagCW(tag, 0);
         }
         gridArray.add(rowStr);
     }
 
     // NON includere trajectory nello status (troppo grande per BLE notification)
-    // La trajectory è disponibile solo tramite eventi
+    // La trajectory completa è disponibile solo tramite eventi; qui inviamo solo una coda breve.
+    static constexpr uint8_t MAX_TRAIL_POINTS = 5;
+    OpticalFlowDetector::TrajectoryPoint points[OpticalFlowDetector::MAX_TRAJECTORY_POINTS];
+    const uint8_t pointCount = _motion->getTrajectory(points);
+    const uint8_t trailStart = (pointCount > MAX_TRAIL_POINTS) ? (pointCount - MAX_TRAIL_POINTS) : 0;
+    JsonArray trailArray = doc["trail"].to<JsonArray>();
+    for (uint8_t i = trailStart; i < pointCount; i++) {
+        JsonObject point = trailArray.add<JsonObject>();
+        point["x"] = round(points[i].x * 100.0f) / 100.0f;
+        point["y"] = round(points[i].y * 100.0f) / 100.0f;
+        point["t"] = points[i].timestamp;
+        point["d"] = OpticalFlowDetector::directionToString(points[i].direction);
+    }
 
     String output;
     serializeJson(doc, output);

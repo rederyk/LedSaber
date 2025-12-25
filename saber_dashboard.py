@@ -320,6 +320,12 @@ class MotionDirectionCard(Static):
         direction = state.get('direction', 'none')
         gesture = state.get('gesture', 'none')
         gesture_confidence = state.get('gestureConfidence', 0)
+        centroid_valid = state.get('centroidValid', False)
+        centroid_x = state.get('centroidX', 0.0)
+        centroid_y = state.get('centroidY', 0.0)
+        centroid_norm_x = state.get('centroidNormX', 0.0)
+        centroid_norm_y = state.get('centroidNormY', 0.0)
+        trail = state.get('trail', []) or []
 
         # Direction arrows
         direction_arrows = {
@@ -335,18 +341,36 @@ class MotionDirectionCard(Static):
         else:
             gesture_display = "[dim]no gesture[/]"
 
+        if centroid_valid:
+            centroid_line = f"[dim]C: {centroid_x:.1f},{centroid_y:.1f}[/]"
+            centroid_norm_line = f"[dim]N: {centroid_norm_x:.2f},{centroid_norm_y:.2f}[/]"
+        else:
+            centroid_line = "[dim]C: --[/]"
+            centroid_norm_line = "[dim]N: --[/]"
+
+        trail_points = []
+        for point in trail[-3:]:
+            try:
+                trail_points.append(f"{point.get('x', 0):.2f},{point.get('y', 0):.2f}")
+            except Exception:
+                continue
+        trail_line = "[dim]Trail: --[/]" if not trail_points else f"[dim]Trail: {' -> '.join(trail_points)}[/]"
+
         table = Table.grid(padding=(0, 1), expand=True)
         table.add_column(justify="center")
         table.add_row(f"[cyan bold]{dir_arrow}[/] [cyan]{direction.upper()}[/]")
         table.add_row("─" * 15)
         table.add_row(gesture_display)
+        table.add_row(centroid_line)
+        table.add_row(centroid_norm_line)
+        table.add_row(trail_line)
 
         return Panel(
             table,
             title="[bold cyan]🧭 DIRECTION[/]",
             border_style="cyan",
             box=box.ROUNDED,
-            height=7
+            height=10
         )
 
 
@@ -403,6 +427,7 @@ class OpticalFlowCanvas(Static):
             'B': 'green',
             'C': 'magenta',
             'D': 'magenta',
+            'X': 'red',
         }
 
         # Normalizza righe (garantisce sempre una matrice completa)
@@ -489,6 +514,7 @@ class OpticalFlowCanvas(Static):
         legend_text.append("^ v up/down  ", style="cyan")
         legend_text.append("< > left/right  ", style="yellow")
         legend_text.append("A B C D diagonals", style="green")
+        legend_text.append("  X centroid", style="red")
         legend.add_row(legend_text)
 
         pad_x = 1

@@ -1019,6 +1019,42 @@ char OpticalFlowDetector::getBlockDirectionTag(uint8_t row, uint8_t col) const {
     return '*';
 }
 
+bool OpticalFlowDetector::getCentroid(float* outX, float* outY) const {
+    if (!_centroidValid) {
+        return false;
+    }
+
+    if (outX) *outX = _centroidX;
+    if (outY) *outY = _centroidY;
+    return true;
+}
+
+bool OpticalFlowDetector::getCentroidNormalized(float* outX, float* outY) const {
+    if (!_centroidValid || _frameWidth == 0 || _frameHeight == 0) {
+        return false;
+    }
+
+    if (outX) *outX = _centroidX / (float)_frameWidth;
+    if (outY) *outY = _centroidY / (float)_frameHeight;
+    return true;
+}
+
+bool OpticalFlowDetector::getCentroidBlock(uint8_t* outRow, uint8_t* outCol) const {
+    if (!_centroidValid) {
+        return false;
+    }
+
+    uint8_t col = (uint8_t)(_centroidX / BLOCK_SIZE);
+    uint8_t row = (uint8_t)(_centroidY / BLOCK_SIZE);
+
+    if (col >= GRID_COLS) col = GRID_COLS - 1;
+    if (row >= GRID_ROWS) row = GRID_ROWS - 1;
+
+    if (outRow) *outRow = row;
+    if (outCol) *outCol = col;
+    return true;
+}
+
 uint8_t OpticalFlowDetector::_calculateFrameDiffAvg(const uint8_t* currentFrame, const uint8_t* previousFrame) const {
     if (!currentFrame || !previousFrame || _frameSize == 0) {
         return 0;

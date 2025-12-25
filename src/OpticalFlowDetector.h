@@ -164,6 +164,30 @@ public:
      */
     char getBlockDirectionTag(uint8_t row, uint8_t col) const;
 
+    /**
+     * @brief Ottieni centroide corrente in pixel (se valido)
+     * @param outX Output: X in pixel
+     * @param outY Output: Y in pixel
+     * @return true se centroide valido
+     */
+    bool getCentroid(float* outX, float* outY) const;
+
+    /**
+     * @brief Ottieni centroide corrente normalizzato (0.0-1.0)
+     * @param outX Output: X normalizzato
+     * @param outY Output: Y normalizzato
+     * @return true se centroide valido
+     */
+    bool getCentroidNormalized(float* outX, float* outY) const;
+
+    /**
+     * @brief Ottieni blocco (row/col) che contiene il centroide
+     * @param outRow Riga blocco
+     * @param outCol Colonna blocco
+     * @return true se centroide valido
+     */
+    bool getCentroidBlock(uint8_t* outRow, uint8_t* outCol) const;
+
     // ═══════════════════════════════════════════════════════════
     // TRAJECTORY TRACKING (compatibile + migliorato)
     // ═══════════════════════════════════════════════════════════
