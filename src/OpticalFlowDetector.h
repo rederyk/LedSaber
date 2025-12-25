@@ -290,6 +290,8 @@ private:
     uint8_t _smoothedBrightness;
     bool _brightnessFilterInitialized;
     unsigned long _flashHighSinceMs;
+    unsigned long _lastFlashCheckMs;
+    unsigned long _flashStabilizeUntilMs;
     uint8_t _frameDiffAvg;
 
     // Timing & metrics
