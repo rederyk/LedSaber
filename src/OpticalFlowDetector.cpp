@@ -9,8 +9,9 @@ OpticalFlowDetector::OpticalFlowDetector()
     , _frameSize(0)
     , _previousFrame(nullptr)
     , _edgeFrame(nullptr)
-    , _searchRange(6)        // Ridotto a 6px per stabilizzare FPS (worst-case minore)
-    , _searchStep(3)         // Step 3px (bilanciamento precisione/velocità)
+    , _previousRawFrame(nullptr)
+    , _searchRange(12)       // Aumentato: copre movimenti piu' grandi tra frame
+    , _searchStep(4)         // Step 4px: bilanciamento precisione/velocita'
     , _algorithm(Algorithm::OPTICAL_FLOW_SAD) // Default standard
     , _minConfidence(25)     // Ridotto per blocchi più piccoli (meno pixel = SAD più basso)
     , _minActiveBlocks(6)    // Aumentato a 6 per griglia 8x8 (più blocchi disponibili)
@@ -34,6 +35,7 @@ OpticalFlowDetector::OpticalFlowDetector()
     , _avgBrightness(0)
     , _smoothedBrightness(0)
     , _brightnessFilterInitialized(false)
+    , _flashHighSinceMs(0)
     , _frameDiffAvg(0)
     , _lastMotionTime(0)
     , _totalFramesProcessed(0)
@@ -57,6 +59,10 @@ OpticalFlowDetector::~OpticalFlowDetector() {
         heap_caps_free(_edgeFrame);
         _edgeFrame = nullptr;
     }
+    if (_previousRawFrame) {
+        heap_caps_free(_previousRawFrame);
+        _previousRawFrame = nullptr;
+    }
     _initialized = false;
 }
 
@@ -66,7 +72,7 @@ static void computeEdgeImage(const uint8_t* src, uint8_t* dst, uint16_t width, u
     // Pulisci il buffer (bordi a 0)
     memset(dst, 0, width * height);
     
-    const int threshold = 80; // SOGLIA RUMORE: Aumentata significativamente per filtrare rumore sensore
+    const int threshold = 40; // SOGLIA RUMORE: piu' permissiva per rilevare contorni deboli
     
     // Calcola gradiente per ogni pixel (esclusi i bordi estremi)
     for (uint16_t y = 0; y < height - 1; y++) {
@@ -115,7 +121,8 @@ bool OpticalFlowDetector::begin(uint16_t frameWidth, uint16_t frameHeight) {
     // Alloca buffer in PSRAM per frame precedente e mappa bordi
     _previousFrame = (uint8_t*)heap_caps_malloc(_frameSize, MALLOC_CAP_SPIRAM);
     _edgeFrame = (uint8_t*)heap_caps_malloc(_frameSize, MALLOC_CAP_SPIRAM);
-    if (!_previousFrame || !_edgeFrame) {
+    _previousRawFrame = (uint8_t*)heap_caps_malloc(_frameSize, MALLOC_CAP_SPIRAM);
+    if (!_previousFrame || !_edgeFrame || !_previousRawFrame) {
         Serial.println("[OPTICAL FLOW ERROR] Failed to allocate frame buffers!");
         if (_previousFrame) {
             heap_caps_free(_previousFrame);
@@ -125,11 +132,16 @@ bool OpticalFlowDetector::begin(uint16_t frameWidth, uint16_t frameHeight) {
             heap_caps_free(_edgeFrame);
             _edgeFrame = nullptr;
         }
+        if (_previousRawFrame) {
+            heap_caps_free(_previousRawFrame);
+            _previousRawFrame = nullptr;
+        }
         return false;
     }
 
     memset(_previousFrame, 0, _frameSize);
     memset(_edgeFrame, 0, _frameSize);
+    memset(_previousRawFrame, 0, _frameSize);
     _initialized = true;
     _hasPreviousFrame = false;
 
@@ -176,7 +188,7 @@ bool OpticalFlowDetector::processFrame(const uint8_t* frameBuffer, size_t frameL
         // Non calcoliamo i bordi (risparmio CPU)
         
         if (!_hasPreviousFrame) {
-            memcpy(_previousFrame, frameBuffer, _frameSize);
+            memcpy(_previousRawFrame, frameBuffer, _frameSize);
             _hasPreviousFrame = true;
             return false;
         }
@@ -201,7 +213,7 @@ bool OpticalFlowDetector::processFrame(const uint8_t* frameBuffer, size_t frameL
         }
 
         // Salva frame corrente per il prossimo ciclo
-        memcpy(_previousFrame, frameBuffer, _frameSize);
+        memcpy(_previousRawFrame, frameBuffer, _frameSize);
         
         _totalComputeTime += (millis() - startTime);
         return _motionActive;
@@ -238,6 +250,7 @@ bool OpticalFlowDetector::processFrame(const uint8_t* frameBuffer, size_t frameL
     // Primo frame: inizializza previous e non rilevare motion
     if (!_hasPreviousFrame) {
         memcpy(_previousFrame, edgeFrame, _frameSize); // Salva i bordi, non il raw
+        memcpy(_previousRawFrame, frameBuffer, _frameSize);
         _hasPreviousFrame = true;
         _motionActive = false;
         _motionIntensity = 0;
@@ -255,8 +268,8 @@ bool OpticalFlowDetector::processFrame(const uint8_t* frameBuffer, size_t frameL
     _updateFlashIntensity();
 
     // Frame diff (fallback per occlusioni / scene change)
-    // NOTA: Usiamo edgeFrame per confrontare bordi correnti vs bordi precedenti
-    _frameDiffAvg = _calculateFrameDiffAvg(edgeFrame);
+    // Usa raw per evitare che la mappa dei bordi risulti troppo "vuota".
+    _frameDiffAvg = _calculateFrameDiffAvg(frameBuffer, _previousRawFrame);
     
     // Calcola optical flow
     // NOTA: Usiamo edgeFrame. _computeOpticalFlow confronterà edgeFrame con _previousFrame (che contiene i bordi precedenti)
@@ -267,6 +280,13 @@ bool OpticalFlowDetector::processFrame(const uint8_t* frameBuffer, size_t frameL
 
     // Calcola movimento globale
     _calculateGlobalMotion();
+
+    // Fallback: se l'edge flow non attiva motion ma il frame raw cambia,
+    // usa il centroid tracking sul raw per aumentare la sensibilita'.
+    if (!_motionActive && _frameDiffAvg >= 10) {
+        _computeCentroidMotion(frameBuffer);
+        _calculateGlobalMotion();
+    }
 
     // Calcola centroide se c'è movimento
     if (_motionActive) {
@@ -285,6 +305,7 @@ bool OpticalFlowDetector::processFrame(const uint8_t* frameBuffer, size_t frameL
     // Copia frame corrente in previous
     // Salviamo i bordi per il prossimo confronto
     memcpy(_previousFrame, edgeFrame, _frameSize);
+    memcpy(_previousRawFrame, frameBuffer, _frameSize);
 
     // Aggiorna metriche timing
     unsigned long computeTime = millis() - startTime;
@@ -306,7 +327,7 @@ void OpticalFlowDetector::_computeCentroidMotion(const uint8_t* currentFrame) {
     for (int y = 0; y < _frameHeight; y += step) {
         for (int x = 0; x < _frameWidth; x += step) {
             int idx = y * _frameWidth + x;
-            int diff = abs((int)currentFrame[idx] - (int)_previousFrame[idx]);
+            int diff = abs((int)currentFrame[idx] - (int)_previousRawFrame[idx]);
 
             if (diff > threshold) {
                 sumX += x * diff;
@@ -745,6 +766,7 @@ void OpticalFlowDetector::_updateFlashIntensity() {
     const uint8_t lowOff = 85;
     const uint8_t highOn = 150;
     const uint8_t highOff = 120;
+    const unsigned long highHoldMs = 400;
 
     if (_flashIntensity >= 150) {
         // Modalita flash alto, scendi solo quando c'e abbastanza luce.
@@ -760,8 +782,17 @@ void OpticalFlowDetector::_updateFlashIntensity() {
         // Modalita media: sali o scendi con soglie separate.
         if (_smoothedBrightness < lowOn) {
             _flashIntensity = 200;
+            _flashHighSinceMs = 0;
         } else if (_smoothedBrightness > highOn) {
-            _flashIntensity = 0;
+            unsigned long now = millis();
+            if (_flashHighSinceMs == 0) {
+                _flashHighSinceMs = now;
+            } else if (now - _flashHighSinceMs >= highHoldMs) {
+                _flashIntensity = 0;
+                _flashHighSinceMs = 0;
+            }
+        } else {
+            _flashHighSinceMs = 0;
         }
     }
 }
@@ -771,8 +802,8 @@ void OpticalFlowDetector::setQuality(uint8_t quality) {
 
     // Qualità alta -> confidence threshold più basso e meno blocchi richiesti.
     // Manteniamo soglie globali di motion stabili per non introdurre rumore.
-    _minConfidence = (uint8_t)map(quality, 0, 255, 80, 30);
-    _minActiveBlocks = (uint8_t)map(quality, 0, 255, 10, 4);
+    _minConfidence = (uint8_t)map(quality, 0, 255, 70, 20);
+    _minActiveBlocks = (uint8_t)map(quality, 0, 255, 8, 3);
 
     Serial.printf("[OPTICAL FLOW] Quality updated: %u (minConf: %u, minBlocks: %u)\n",
                   _quality, _minConfidence, _minActiveBlocks);
@@ -808,6 +839,7 @@ void OpticalFlowDetector::reset() {
     _avgBrightness = 0;
     _smoothedBrightness = 0;
     _brightnessFilterInitialized = false;
+    _flashHighSinceMs = 0;
     _frameDiffAvg = 0;
     _hasPreviousFrame = false;
     _consecutiveMotionFrames = 0;
@@ -818,6 +850,9 @@ void OpticalFlowDetector::reset() {
 
     if (_previousFrame) {
         memset(_previousFrame, 0, _frameSize);
+    }
+    if (_previousRawFrame) {
+        memset(_previousRawFrame, 0, _frameSize);
     }
 
     Serial.println("[OPTICAL FLOW] State reset");
@@ -831,6 +866,10 @@ void OpticalFlowDetector::end() {
     if (_edgeFrame) {
         heap_caps_free(_edgeFrame);
         _edgeFrame = nullptr;
+    }
+    if (_previousRawFrame) {
+        heap_caps_free(_previousRawFrame);
+        _previousRawFrame = nullptr;
     }
     _initialized = false;
     Serial.println("[OPTICAL FLOW] De-initialized (buffers freed)");
@@ -988,8 +1027,8 @@ char OpticalFlowDetector::getBlockDirectionTag(uint8_t row, uint8_t col) const {
     return '*';
 }
 
-uint8_t OpticalFlowDetector::_calculateFrameDiffAvg(const uint8_t* currentFrame) const {
-    if (!currentFrame || !_previousFrame || _frameSize == 0) {
+uint8_t OpticalFlowDetector::_calculateFrameDiffAvg(const uint8_t* currentFrame, const uint8_t* previousFrame) const {
+    if (!currentFrame || !previousFrame || _frameSize == 0) {
         return 0;
     }
 
@@ -997,7 +1036,7 @@ uint8_t OpticalFlowDetector::_calculateFrameDiffAvg(const uint8_t* currentFrame)
     uint32_t total = 0;
     uint32_t count = 0;
     for (size_t i = 0; i < _frameSize; i += 16) {
-        int16_t diff = (int16_t)currentFrame[i] - (int16_t)_previousFrame[i];
+        int16_t diff = (int16_t)currentFrame[i] - (int16_t)previousFrame[i];
         total += (uint16_t)abs(diff);
         count++;
     }

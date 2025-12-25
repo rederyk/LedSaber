@@ -24,7 +24,7 @@ public:
     static constexpr uint8_t GRID_COLS = 8;
     static constexpr uint8_t GRID_ROWS = 8;
     static constexpr uint8_t TOTAL_BLOCKS = GRID_COLS * GRID_ROWS;  // 64 blocchi
-    static constexpr uint16_t BLOCK_NOISE_THRESHOLD = 1200; // Soglia rumore per blocco (SAD)
+    static constexpr uint16_t BLOCK_NOISE_THRESHOLD = 400; // Soglia rumore per blocco (SAD)
 
     // Algoritmo di rilevamento
     enum class Algorithm : uint8_t {
@@ -261,6 +261,7 @@ private:
     // Frame buffers
     uint8_t* _previousFrame;    // PSRAM allocated
     uint8_t* _edgeFrame;        // Reused edge buffer (PSRAM)
+    uint8_t* _previousRawFrame; // Raw frame for centroid/fallback
     bool _hasPreviousFrame;
 
     // Motion vectors grid
@@ -288,6 +289,7 @@ private:
     uint8_t _avgBrightness;
     uint8_t _smoothedBrightness;
     bool _brightnessFilterInitialized;
+    unsigned long _flashHighSinceMs;
     uint8_t _frameDiffAvg;
 
     // Timing & metrics
@@ -369,7 +371,7 @@ private:
     /**
      * @brief Calcola frame diff medio (sampled) tra previous e current
      */
-    uint8_t _calculateFrameDiffAvg(const uint8_t* currentFrame) const;
+    uint8_t _calculateFrameDiffAvg(const uint8_t* currentFrame, const uint8_t* previousFrame) const;
 
     // ═══════════════════════════════════════════════════════════
     // UTILITY
