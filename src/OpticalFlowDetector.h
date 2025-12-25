@@ -24,6 +24,7 @@ public:
     static constexpr uint8_t GRID_COLS = 8;
     static constexpr uint8_t GRID_ROWS = 8;
     static constexpr uint8_t TOTAL_BLOCKS = GRID_COLS * GRID_ROWS;  // 64 blocchi
+    static constexpr uint16_t BLOCK_NOISE_THRESHOLD = 1200; // Soglia rumore per blocco (SAD)
 
     // Algoritmo di rilevamento
     enum class Algorithm : uint8_t {

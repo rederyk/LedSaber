@@ -857,8 +857,8 @@ static void CameraCaptureTask(void* pvParameters) {
     (void)pvParameters;
 
     bool motionInitialized = false;
-    // Target 12 FPS = ~83ms per frame
-    const unsigned long targetFrameTimeMs = 83;
+    // Target 30 FPS = ~33ms per frame (Increased reactivity)
+    const unsigned long targetFrameTimeMs = 33;
 
     for (;;) {
         // Attende un segnale d'avvio

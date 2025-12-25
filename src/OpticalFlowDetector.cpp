@@ -256,20 +256,6 @@ bool OpticalFlowDetector::processFrame(const uint8_t* frameBuffer, size_t frameL
     // NOTA: Usiamo edgeFrame per confrontare bordi correnti vs bordi precedenti
     _frameDiffAvg = _calculateFrameDiffAvg(edgeFrame);
     
-    // NOISE GATE: Se la scena è static (Diff basso), forza silenzio assoluto.
-    // Risolve il problema dei vettori fantasma su sfondi uniformi.
-    if (_frameDiffAvg <= 2) {
-        // Reset vettori e stato
-        memset(_motionVectors, 0, sizeof(_motionVectors));
-        _motionActive = false;
-        _motionIntensity = 0;
-        _motionDirection = Direction::NONE;
-        _motionSpeed = 0.0f;
-        _activeBlocks = 0;
-        memcpy(_previousFrame, edgeFrame, _frameSize);
-        return false;
-    }
-
     // Calcola optical flow
     // NOTA: Usiamo edgeFrame. _computeOpticalFlow confronterà edgeFrame con _previousFrame (che contiene i bordi precedenti)
     _computeOpticalFlow(edgeFrame);
@@ -390,6 +376,17 @@ void OpticalFlowDetector::_calculateBlockMotion(uint8_t row, uint8_t col, const 
         BLOCK_SIZE,
         UINT16_MAX
     );
+
+    // PER-BLOCK NOISE GATE: Ignora blocchi che non sono cambiati significativamente
+    if (minSAD < BLOCK_NOISE_THRESHOLD) {
+        BlockMotionVector& vec = _motionVectors[row][col];
+        vec.dx = 0;
+        vec.dy = 0;
+        vec.sad = minSAD;
+        vec.confidence = 0;
+        vec.valid = false; // Ignora blocco statico
+        return;
+    }
 
     // Search window: ±searchRange px in step di searchStep px
     for (int8_t dy = -_searchRange; dy <= _searchRange; dy += _searchStep) {

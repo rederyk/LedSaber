@@ -67,13 +67,6 @@ MotionProcessor::GestureType MotionProcessor::_detectGesture(
 {
     _lastGestureConfidence = 0;
 
-    // Noise filter: Se la differenza tra frame è trascurabile, ignora l'optical flow
-    // Questo elimina il rumore fisso del sensore (Diff=1) che genera falsi vettori
-    if (detector.getMetrics().frameDiff <= 2) {
-        _lastDirection = direction;
-        return GestureType::NONE;
-    }
-
     (void)speed;
 
     auto max16 = [](uint16_t a, uint16_t b) { return (a > b) ? a : b; };
@@ -250,13 +243,6 @@ void MotionProcessor::_calculatePerturbationGrid(
     const float inv255 = 1.0f / 255.0f;
     const float confWeight = 0.2f * inv255;
     const float scale = _config.perturbationScale * inv255;
-
-    // Noise filter: Pulisce la griglia se la scena è statica (Diff <= 2)
-    // Evita che il rumore di fondo (vettori ~2.6px) accenda i LED
-    if (detector.getMetrics().frameDiff <= 2) {
-        memset(perturbationGrid, 0, sizeof(uint8_t) * OpticalFlowDetector::GRID_ROWS * OpticalFlowDetector::GRID_COLS);
-        return;
-    }
 
     for (uint8_t row = 0; row < OpticalFlowDetector::GRID_ROWS; row++) {
         for (uint8_t col = 0; col < OpticalFlowDetector::GRID_COLS; col++) {
