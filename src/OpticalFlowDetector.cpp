@@ -11,6 +11,7 @@ OpticalFlowDetector::OpticalFlowDetector()
     , _edgeFrame(nullptr)
     , _searchRange(6)        // Ridotto a 6px per stabilizzare FPS (worst-case minore)
     , _searchStep(3)         // Step 3px (bilanciamento precisione/velocità)
+    , _algorithm(Algorithm::OPTICAL_FLOW_SAD) // Default standard
     , _minConfidence(25)     // Ridotto per blocchi più piccoli (meno pixel = SAD più basso)
     , _minActiveBlocks(6)    // Aumentato a 6 per griglia 8x8 (più blocchi disponibili)
     , _quality(160)      // Default: bilanciato (meno rumore)
@@ -167,6 +168,44 @@ bool OpticalFlowDetector::processFrame(const uint8_t* frameBuffer, size_t frameL
     if (_currentFrameDt == 0) _currentFrameDt = 1;
     if (_currentFrameDt > 200) _currentFrameDt = 200; // Max 200ms (min 5 FPS)
 
+    // --- ALGORITMO LITE: CENTROID TRACKING ---
+    if (_algorithm == Algorithm::CENTROID_TRACKING) {
+        // In questa modalità usiamo direttamente il frame raw per la differenza
+        // Non calcoliamo i bordi (risparmio CPU)
+        
+        if (!_hasPreviousFrame) {
+            memcpy(_previousFrame, frameBuffer, _frameSize);
+            _hasPreviousFrame = true;
+            return false;
+        }
+
+        // Calcola luminosità media (utile per flash)
+        _avgBrightness = _calculateAverageBrightness(frameBuffer);
+        _updateFlashIntensity();
+
+        // Calcola movimento tramite centroide
+        _computeCentroidMotion(frameBuffer);
+
+        // Filtra e aggiorna stato globale (simile a optical flow ma semplificato)
+        // Nota: _computeCentroidMotion ha già popolato _motionVectors con un vettore globale
+        _calculateGlobalMotion(); 
+
+        // Aggiorna traiettoria
+        if (_motionActive) {
+            _calculateCentroid(); // Usa i vettori popolati uniformemente
+            _updateTrajectory();
+            _motionFrameCount++;
+            _lastMotionTime = millis();
+        }
+
+        // Salva frame corrente per il prossimo ciclo
+        memcpy(_previousFrame, frameBuffer, _frameSize);
+        
+        _totalComputeTime += (millis() - startTime);
+        return _motionActive;
+    }
+    // -----------------------------------------
+
     // 1. Usa buffer bordi riutilizzabile
     uint8_t* edgeFrame = _edgeFrame;
     if (!edgeFrame) {
@@ -264,6 +303,68 @@ bool OpticalFlowDetector::processFrame(const uint8_t* frameBuffer, size_t frameL
     _totalComputeTime += computeTime;
 
     return _motionActive;
+}
+
+void OpticalFlowDetector::_computeCentroidMotion(const uint8_t* currentFrame) {
+    long sumX = 0;
+    long sumY = 0;
+    long totalMass = 0;
+    
+    // Campionamento sparso per velocità (1 pixel ogni 4x4 = 16 pixel)
+    // Sufficiente per rilevare oggetti vicini/grandi
+    const int step = 4; 
+    const int threshold = 25; // Soglia minima differenza pixel
+
+    for (int y = 0; y < _frameHeight; y += step) {
+        for (int x = 0; x < _frameWidth; x += step) {
+            int idx = y * _frameWidth + x;
+            int diff = abs((int)currentFrame[idx] - (int)_previousFrame[idx]);
+
+            if (diff > threshold) {
+                sumX += x * diff;
+                sumY += y * diff;
+                totalMass += diff;
+            }
+        }
+    }
+
+    // Reset griglia vettori
+    memset(_motionVectors, 0, sizeof(_motionVectors));
+    _frameDiffAvg = (uint8_t)min((long)255, totalMass / (long)(_frameWidth * _frameHeight / (step*step)));
+
+    // Se c'è abbastanza "massa" di movimento
+    if (totalMass > 5000) {
+        float currentCx = (float)sumX / totalMass;
+        float currentCy = (float)sumY / totalMass;
+
+        if (_centroidValid) {
+            // Calcola delta rispetto al centroide precedente
+            float dx = currentCx - _centroidX;
+            float dy = currentCy - _centroidY;
+
+            // Amplifica un po' il segnale
+            dx *= 2.0f;
+            dy *= 2.0f;
+
+            // Popola la griglia con questo vettore globale (movimento uniforme)
+            // Questo permette al resto del sistema (gesture, effetti) di funzionare senza modifiche
+            for (uint8_t row = 0; row < GRID_ROWS; row++) {
+                for (uint8_t col = 0; col < GRID_COLS; col++) {
+                    _motionVectors[row][col].dx = (int8_t)constrain(dx, -127, 127);
+                    _motionVectors[row][col].dy = (int8_t)constrain(dy, -127, 127);
+                    _motionVectors[row][col].confidence = 200; // Alta fiducia sintetica
+                    _motionVectors[row][col].valid = true;
+                }
+            }
+        }
+
+        // Aggiorna centroide precedente per il prossimo frame
+        _centroidX = currentCx;
+        _centroidY = currentCy;
+        _centroidValid = true;
+    } else {
+        _centroidValid = false; // Movimento perso o fermo
+    }
 }
 
 void OpticalFlowDetector::_computeOpticalFlow(const uint8_t* currentFrame) {

@@ -569,6 +569,9 @@ void setup() {
 
     FastLED.setMaxPowerInVoltsAndMilliamps(LED_STRIP_VOLTAGE, MAX_POWER_MILLIAMPS);
 
+    // Collega i componenti motion al ConfigManager per salvare/caricare le impostazioni
+    configManager.setMotionComponents(&motionDetector, &motionProcessor);
+
     // 1. Carica configurazione da LittleFS PRIMA di inizializzare BLE
     if (!configManager.begin()) {
         Serial.println("[CONFIG] Warning: using default values");
@@ -851,8 +854,8 @@ static void CameraCaptureTask(void* pvParameters) {
     (void)pvParameters;
 
     bool motionInitialized = false;
-    // Target 7 FPS = ~143ms per frame
-    const unsigned long targetFrameTimeMs = 143;
+    // Target 12 FPS = ~83ms per frame
+    const unsigned long targetFrameTimeMs = 83;
 
     for (;;) {
         // Attende un segnale d'avvio

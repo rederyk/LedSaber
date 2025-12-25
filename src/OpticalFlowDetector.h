@@ -25,6 +25,12 @@ public:
     static constexpr uint8_t GRID_ROWS = 8;
     static constexpr uint8_t TOTAL_BLOCKS = GRID_COLS * GRID_ROWS;  // 64 blocchi
 
+    // Algoritmo di rilevamento
+    enum class Algorithm : uint8_t {
+        OPTICAL_FLOW_SAD,   // Alta precisione, più pesante (Default)
+        CENTROID_TRACKING   // Molto leggero, ideale per oggetti vicini/gesture veloci
+    };
+
     OpticalFlowDetector();
     ~OpticalFlowDetector();
 
@@ -87,6 +93,12 @@ public:
      * @brief Reset stato detector
      */
     void reset();
+
+    /**
+     * @brief Imposta l'algoritmo di rilevamento
+     * @param algo OPTICAL_FLOW_SAD o CENTROID_TRACKING
+     */
+    void setAlgorithm(Algorithm algo) { _algorithm = algo; }
 
     // ═══════════════════════════════════════════════════════════
     // OPTICAL FLOW SPECIFIC API (nuove features)
@@ -228,6 +240,7 @@ private:
     uint8_t _minConfidence;     // Threshold (default: 50)
     uint8_t _minActiveBlocks;   // Min blocks (default: 6)
 
+    Algorithm _algorithm;       // Algoritmo corrente
     // Sensitivity and thresholds
     uint8_t _quality;
     float _directionMagnitudeThreshold;
@@ -290,6 +303,11 @@ private:
      * @brief Calcola optical flow completo
      */
     void _computeOpticalFlow(const uint8_t* currentFrame);
+
+    /**
+     * @brief Calcola movimento basato sul centroide della differenza (Lite Mode)
+     */
+    void _computeCentroidMotion(const uint8_t* currentFrame);
 
     /**
      * @brief Calcola motion vector per singolo blocco

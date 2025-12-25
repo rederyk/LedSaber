@@ -1,4 +1,7 @@
 #include "BLEMotionService.h"
+#include "BLELedController.h"
+
+extern BLELedController bleController;
 
 BLEMotionService::BLEMotionService(OpticalFlowDetector* motionDetector, MotionProcessor* motionProcessor)
     : _motion(motionDetector)
@@ -438,6 +441,7 @@ void BLEMotionService::_executeCommand(const String& command) {
     } else {
         Serial.printf("[MOTION BLE] ✗ Unknown command: %s\n", command.c_str());
     }
+    bleController.setConfigDirty(true);
 
     // Aggiorna config characteristic
     _pCharConfig->setValue(_getConfigJson().c_str());
@@ -521,6 +525,7 @@ void BLEMotionService::ConfigCallbacks::onWrite(BLECharacteristic* pCharacterist
                       cfg.retractIntensityThreshold,
                       cfg.clashIntensityThreshold);
     }
+    bleController.setConfigDirty(true);
 
     // Aggiorna characteristic con nuovo stato
     String response = _service->_getConfigJson();

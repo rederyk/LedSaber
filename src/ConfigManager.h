@@ -4,11 +4,15 @@
 #include <LittleFS.h>
 #include <ArduinoJson.h>
 #include "BLELedController.h"
+#include "OpticalFlowDetector.h"
+#include "MotionProcessor.h"
 
 class ConfigManager {
 private:
     static constexpr const char* CONFIG_FILE = "/config.json";
     LedState* ledState;
+    OpticalFlowDetector* motionDetector = nullptr;
+    MotionProcessor* motionProcessor = nullptr;
 
     // Valori di default (stessi di main.cpp)
     struct DefaultConfig {
@@ -25,6 +29,13 @@ private:
         bool autoIgnitionOnBoot = true;
         uint32_t autoIgnitionDelayMs = 2000;
         bool motionOnBoot = false;
+        // Motion defaults
+        uint8_t motionQuality = 160;
+        uint8_t motionIntensityMin = 6;
+        float motionSpeedMin = 0.4f;
+        uint8_t gestureIgnitionMin = 15;
+        uint8_t gestureRetractMin = 15;
+        uint8_t gestureClashMin = 15;
     };
     DefaultConfig defaults;
 
@@ -34,6 +45,7 @@ private:
 public:
     explicit ConfigManager(LedState* state);
 
+    void setMotionComponents(OpticalFlowDetector* detector, MotionProcessor* processor);
     bool begin();           // Inizializza LittleFS e carica config
     bool loadConfig();      // Carica config da JSON
     bool saveConfig();      // Salva SOLO valori diversi dai default

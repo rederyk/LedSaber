@@ -4,6 +4,11 @@ ConfigManager::ConfigManager(LedState* state) {
     ledState = state;
 }
 
+void ConfigManager::setMotionComponents(OpticalFlowDetector* detector, MotionProcessor* processor) {
+    motionDetector = detector;
+    motionProcessor = processor;
+}
+
 bool ConfigManager::begin() {
     Serial.println("[CONFIG] Mounting LittleFS...");
 
@@ -72,6 +77,26 @@ bool ConfigManager::loadConfig() {
     ledState->autoIgnitionDelayMs = doc["autoIgnitionDelayMs"] | defaults.autoIgnitionDelayMs;
     ledState->motionOnBoot = doc["motionOnBoot"] | defaults.motionOnBoot;
 
+    // Carica parametri Motion se i componenti sono stati collegati
+    if (motionDetector) {
+        uint8_t quality = doc["motionQuality"] | defaults.motionQuality;
+        uint8_t intensity = doc["motionIntensityMin"] | defaults.motionIntensityMin;
+        float speed = doc["motionSpeedMin"] | defaults.motionSpeedMin;
+        
+        motionDetector->setQuality(quality);
+        motionDetector->setMotionIntensityThreshold(intensity);
+        motionDetector->setMotionSpeedThreshold(speed);
+    }
+
+    if (motionProcessor) {
+        MotionProcessor::Config cfg = motionProcessor->getConfig();
+        cfg.ignitionIntensityThreshold = doc["gestureIgnitionMin"] | defaults.gestureIgnitionMin;
+        cfg.retractIntensityThreshold = doc["gestureRetractMin"] | defaults.gestureRetractMin;
+        cfg.clashIntensityThreshold = doc["gestureClashMin"] | defaults.gestureClashMin;
+        
+        motionProcessor->setConfig(cfg);
+    }
+
     // Valida i valori caricati
     if (ledState->brightness > 255) ledState->brightness = 255;
     if (ledState->r > 255) ledState->r = 255;
@@ -95,6 +120,13 @@ bool ConfigManager::loadConfig() {
         ledState->effect.c_str(), ledState->speed);
     Serial.printf("[CONFIG] Status: enabled=%d, statusLed=%d (brightness=%d)\n",
         ledState->enabled, ledState->statusLedEnabled, ledState->statusLedBrightness);
+    
+    if (motionDetector) {
+        Serial.printf("[CONFIG] Motion: quality=%d, intMin=%d, speedMin=%.2f\n",
+            motionDetector->getQuality(), 
+            motionDetector->getMotionIntensityThreshold(), 
+            motionDetector->getMotionSpeedThreshold());
+    }
 
     return true;
 }
@@ -151,6 +183,30 @@ bool ConfigManager::saveConfig() {
         modifiedCount++;
     }
 
+    // Salva parametri Motion
+    if (motionDetector) {
+        if (motionDetector->getQuality() != defaults.motionQuality) {
+            doc["motionQuality"] = motionDetector->getQuality();
+            modifiedCount++;
+        }
+        if (motionDetector->getMotionIntensityThreshold() != defaults.motionIntensityMin) {
+            doc["motionIntensityMin"] = motionDetector->getMotionIntensityThreshold();
+            modifiedCount++;
+        }
+        if (motionDetector->getMotionSpeedThreshold() != defaults.motionSpeedMin) {
+            doc["motionSpeedMin"] = motionDetector->getMotionSpeedThreshold();
+            modifiedCount++;
+        }
+    }
+
+    if (motionProcessor) {
+        MotionProcessor::Config cfg = motionProcessor->getConfig();
+        if (cfg.ignitionIntensityThreshold != defaults.gestureIgnitionMin) doc["gestureIgnitionMin"] = cfg.ignitionIntensityThreshold;
+        if (cfg.retractIntensityThreshold != defaults.gestureRetractMin) doc["gestureRetractMin"] = cfg.retractIntensityThreshold;
+        if (cfg.clashIntensityThreshold != defaults.gestureClashMin) doc["gestureClashMin"] = cfg.clashIntensityThreshold;
+        // Nota: modifiedCount incrementato implicitamente se salviamo
+    }
+
     // Se tutti i valori sono uguali ai default, elimina il file config
     if (modifiedCount == 0) {
         if (LittleFS.exists(CONFIG_FILE)) {
@@ -198,6 +254,19 @@ void ConfigManager::resetToDefaults() {
     ledState->autoIgnitionOnBoot = defaults.autoIgnitionOnBoot;
     ledState->autoIgnitionDelayMs = defaults.autoIgnitionDelayMs;
     ledState->motionOnBoot = defaults.motionOnBoot;
+
+    if (motionDetector) {
+        motionDetector->setQuality(defaults.motionQuality);
+        motionDetector->setMotionIntensityThreshold(defaults.motionIntensityMin);
+        motionDetector->setMotionSpeedThreshold(defaults.motionSpeedMin);
+    }
+    if (motionProcessor) {
+        MotionProcessor::Config cfg;
+        cfg.ignitionIntensityThreshold = defaults.gestureIgnitionMin;
+        cfg.retractIntensityThreshold = defaults.gestureRetractMin;
+        cfg.clashIntensityThreshold = defaults.gestureClashMin;
+        motionProcessor->setConfig(cfg);
+    }
 
     if (LittleFS.exists(CONFIG_FILE)) {
         LittleFS.remove(CONFIG_FILE);
@@ -254,4 +323,17 @@ void ConfigManager::createDefaultConfig() {
     ledState->autoIgnitionOnBoot = defaults.autoIgnitionOnBoot;
     ledState->autoIgnitionDelayMs = defaults.autoIgnitionDelayMs;
     ledState->motionOnBoot = defaults.motionOnBoot;
+
+    if (motionDetector) {
+        motionDetector->setQuality(defaults.motionQuality);
+        motionDetector->setMotionIntensityThreshold(defaults.motionIntensityMin);
+        motionDetector->setMotionSpeedThreshold(defaults.motionSpeedMin);
+    }
+    if (motionProcessor) {
+        MotionProcessor::Config cfg;
+        cfg.ignitionIntensityThreshold = defaults.gestureIgnitionMin;
+        cfg.retractIntensityThreshold = defaults.gestureRetractMin;
+        cfg.clashIntensityThreshold = defaults.gestureClashMin;
+        motionProcessor->setConfig(cfg);
+    }
 }
