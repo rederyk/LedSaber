@@ -155,6 +155,8 @@ MotionProcessor::GestureType MotionProcessor::_detectGesture(
         ((absDy << 8) <= (TAN_LR_HALF_Q8 * absDx));
     const bool isRight = (sumDx > 0) &&
         ((absDy << 8) <= (TAN_LR_HALF_Q8 * absDx));
+    const bool isDownDiagonal = (direction == OpticalFlowDetector::Direction::DOWN_LEFT) ||
+        (direction == OpticalFlowDetector::Direction::DOWN_RIGHT);
 
     // "Cerchio a spicchi": giu' lento? = retract, sinistra/destra veloce ?= clash
     if ((isLeft || isRight) &&
@@ -176,7 +178,7 @@ MotionProcessor::GestureType MotionProcessor::_detectGesture(
     }
 
     // RETRACT: Movimento verso il basso (Camera DOWN -> Pixels UP -> isUp)
-    if (isUp &&
+    if ((isDown || isDownDiagonal) &&
         (intensity >= retractIntensityThreshold || speed >= _config.retractSpeedThreshold))
     {
         _gestureCooldown = true;
@@ -190,7 +192,7 @@ MotionProcessor::GestureType MotionProcessor::_detectGesture(
     }
 
     // IGNITION: Movimento verso l'alto (Camera UP -> Pixels DOWN -> isDown)
-    if (isDown && 
+    if (isUp && 
         (intensity >= _config.ignitionIntensityThreshold || speed >= _config.ignitionSpeedThreshold))
     {
         _gestureCooldown = true;
