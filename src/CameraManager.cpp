@@ -84,7 +84,7 @@ bool CameraManager::begin(uint8_t flashPin) {
     _configurePinout(config);
 
     // Configurazione
-    config.xclk_freq_hz = 20000000;  // 20MHz: compromesso tra FPS (~8-10) e rolling shutter artifacts
+    config.xclk_freq_hz = 24000000;  // 24MHz: Max speed per OV2640 (FPS più alti)
     config.ledc_timer = LEDC_TIMER_0;
     config.ledc_channel = LEDC_CHANNEL_0;
 
@@ -114,10 +114,10 @@ bool CameraManager::begin(uint8_t flashPin) {
         s->set_whitebal(s, 1);       // White balance auto
         s->set_awb_gain(s, 1);       // Auto white balance gain
         s->set_wb_mode(s, 0);        // White balance mode auto
-        s->set_exposure_ctrl(s, 0);  // Auto exposure DISABILITATO per FPS stabili
-        s->set_aec2(s, 0);           // AEC DSP DISABILITATO
+        s->set_exposure_ctrl(s, 1);  // Auto exposure ABILITATO (più veloce con flash)
+        s->set_aec2(s, 1);           // AEC DSP ABILITATO
         s->set_ae_level(s, 0);       // AE level: -2 to 2
-        s->set_aec_value(s, 400);    // Exposure fisso (0-1200). 400 garantisce ~20+ FPS
+        s->set_aec_value(s, 300);    // AEC value target
         s->set_gain_ctrl(s, 1);      // Auto gain
         s->set_agc_gain(s, 0);       // AGC gain: 0 to 30
         s->set_gainceiling(s, (gainceiling_t)6);  // Gain ceiling MAX (128X) per compensare exposure basso

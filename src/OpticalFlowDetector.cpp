@@ -30,7 +30,7 @@ OpticalFlowDetector::OpticalFlowDetector()
     , _centroidY(0.0f)
     , _centroidValid(false)
     , _trajectoryLength(0)
-    , _flashIntensity(0)    // Flash disabilitato (era 200)
+    , _flashIntensity(200)  // Flash default attivo (era 0)
     , _avgBrightness(0)
     , _frameDiffAvg(0)
     , _lastMotionTime(0)
@@ -727,8 +727,15 @@ uint8_t OpticalFlowDetector::_calculateAverageBrightness(const uint8_t* frame) {
 }
 
 void OpticalFlowDetector::_updateFlashIntensity() {
-    // Flash disabilitato permanentemente come richiesto
-    _flashIntensity = 0;
+    // Logica semplice: se buio -> flash alto, se luce -> flash basso/spento
+    // Questo aiuta l'auto-exposure a lavorare meglio e alzare gli FPS
+    if (_avgBrightness < 60) {
+        _flashIntensity = 200; // Buio: Flash forte
+    } else if (_avgBrightness > 150) {
+        _flashIntensity = 0;   // Luce: Flash spento
+    } else {
+        _flashIntensity = 100; // Medio
+    }
 }
 
 void OpticalFlowDetector::setQuality(uint8_t quality) {
