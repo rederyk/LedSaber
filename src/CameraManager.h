@@ -26,6 +26,11 @@ public:
     bool begin(uint8_t flashPin = 4);
 
     /**
+     * @brief De-inizializza la camera e libera le risorse
+     */
+    void deinit();
+
+    /**
      * @brief Cattura un frame dalla camera
      * @param outBuffer Puntatore al buffer frame
      * @param outLength Lunghezza dati frame
@@ -60,11 +65,6 @@ public:
      * @brief Stato inizializzazione camera
      */
     bool isInitialized() const { return _initialized; }
-
-    /**
-     * @brief De-inizializza la camera e rilascia le risorse
-     */
-    void deinit();
 
     /**
      * @brief Ottiene metriche camera

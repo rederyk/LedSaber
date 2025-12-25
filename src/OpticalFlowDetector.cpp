@@ -800,6 +800,19 @@ void OpticalFlowDetector::reset() {
     Serial.println("[OPTICAL FLOW] State reset");
 }
 
+void OpticalFlowDetector::end() {
+    if (_previousFrame) {
+        heap_caps_free(_previousFrame);
+        _previousFrame = nullptr;
+    }
+    if (_edgeFrame) {
+        heap_caps_free(_edgeFrame);
+        _edgeFrame = nullptr;
+    }
+    _initialized = false;
+    Serial.println("[OPTICAL FLOW] De-initialized (buffers freed)");
+}
+
 OpticalFlowDetector::Metrics OpticalFlowDetector::getMetrics() const {
     Metrics metrics;
 

@@ -95,6 +95,11 @@ public:
     void reset();
 
     /**
+     * @brief De-inizializza e libera la memoria (PSRAM)
+     */
+    void end();
+
+    /**
      * @brief Imposta l'algoritmo di rilevamento
      * @param algo OPTICAL_FLOW_SAD o CENTROID_TRACKING
      */

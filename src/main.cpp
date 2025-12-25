@@ -111,6 +111,9 @@ void prepareForOta() {
         // 3. De-inizializza la camera per liberare tutti i buffer
         cameraManager.deinit();
 
+        // 3b. De-inizializza motion detector per liberare PSRAM
+        motionDetector.end();
+
         // 4. Aggiorna lo stato del servizio BLE
         bleCameraService.setCameraActive(false);
 
@@ -861,6 +864,9 @@ static void CameraCaptureTask(void* pvParameters) {
         // Attende un segnale d'avvio
         ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
 
+        // Reset stato motion quando il task viene riavviato (es. dopo OTA o stop/start)
+        motionInitialized = false;
+
         while (gCameraTaskShouldRun) {
             unsigned long startLoop = millis();
             if (!cameraManager.isInitialized() || !bleCameraService.isCameraActive()) {
@@ -918,7 +924,7 @@ static void CameraCaptureTask(void* pvParameters) {
             }
 
             // Minimo delay per evitare watchdog timeout e permettere altre task
-            // Limita FPS a targetFrameTimeMs (7 FPS)
+            // Limita FPS a targetFrameTimeMs (12 FPS)
             unsigned long elapsed = millis() - startLoop;
             if (elapsed < targetFrameTimeMs) {
                 vTaskDelay(pdMS_TO_TICKS(targetFrameTimeMs - elapsed));

@@ -142,6 +142,19 @@ bool CameraManager::begin(uint8_t flashPin) {
     return true;
 }
 
+void CameraManager::deinit() {
+    if (_currentFrameBuffer) {
+        esp_camera_fb_return(_currentFrameBuffer);
+        _currentFrameBuffer = nullptr;
+    }
+
+    if (_initialized) {
+        esp_camera_deinit();
+        _initialized = false;
+    }
+    Serial.println("[CAMERA] De-initialized");
+}
+
 bool CameraManager::captureFrame(uint8_t** outBuffer, size_t* outLength) {
     if (!_initialized) {
         Serial.println("[CAMERA ERROR] Not initialized!");
@@ -204,24 +217,4 @@ void CameraManager::resetMetrics() {
     memset(&_metrics, 0, sizeof(_metrics));
     _frameCount = 0;
     _fpsStartTime = millis();
-}
-
-void CameraManager::deinit() {
-    if (_initialized) {
-        // Rilascia eventuale framebuffer in uso
-        if (_currentFrameBuffer) {
-            esp_camera_fb_return(_currentFrameBuffer);
-            _currentFrameBuffer = nullptr;
-        }
-
-        // De-inizializza il driver della camera
-        esp_err_t err = esp_camera_deinit();
-        if (err == ESP_OK) {
-            Serial.println("[CAMERA] Camera de-initialized successfully.");
-        } else {
-            Serial.printf("[CAMERA ERROR] Failed to de-initialize camera: %s\n", esp_err_to_name(err));
-        }
-
-        _initialized = false;
-    }
 }
