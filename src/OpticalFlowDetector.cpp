@@ -25,11 +25,14 @@ OpticalFlowDetector::OpticalFlowDetector()
     , _motionIntensity(0)
     , _motionDirection(Direction::NONE)
     , _motionSpeed(0.0f)
+    , _smoothedMotionSpeed(0.0f)
+    , _motionSpeedFilterInitialized(false)
     , _motionConfidence(0.0f)
     , _activeBlocks(0)
     , _centroidX(0.0f)
     , _centroidY(0.0f)
     , _centroidValid(false)
+    , _centroidSeeded(false)
     , _trajectoryLength(0)
     , _flashIntensity(200)  // Flash default attivo (era 0)
     , _avgBrightness(0)
@@ -70,14 +73,22 @@ OpticalFlowDetector::~OpticalFlowDetector() {
 
 // Helper statico per calcolare la mappa dei bordi (Gradient Magnitude)
 // Questo evidenzia solo i contorni e ignora le aree piatte/uniformi
-static void computeEdgeImage(const uint8_t* src, uint8_t* dst, uint16_t width, uint16_t height, int srcFullWidth, int offsetX, int offsetY, int step) {
+static void computeEdgeImage(const uint8_t* src,
+                             uint8_t* dst,
+                             uint16_t width,
+                             uint16_t height,
+                             int srcFullWidth,
+                             int offsetX,
+                             int offsetY,
+                             int step,
+                             int outStep) {
     // Pulisci il buffer (bordi a 0)
     memset(dst, 0, width * height);
     
     const int threshold = 40; // SOGLIA RUMORE: piu' permissiva per rilevare contorni deboli
     
     // Calcola gradiente per ogni pixel (esclusi i bordi estremi)
-    for (uint16_t y = 0; y < height - 1; y++) {
+    for (uint16_t y = 0; y < height - 1; y += outStep) {
         int srcY = offsetY + y * step;
         const uint8_t* rowPtr = src + srcY * srcFullWidth + offsetX;
         
@@ -85,7 +96,7 @@ static void computeEdgeImage(const uint8_t* src, uint8_t* dst, uint16_t width, u
         
         uint8_t* dstPtr = dst + y * width;
         
-        for (uint16_t x = 0; x < width - 1; x++) {
+        for (uint16_t x = 0; x < width - 1; x += outStep) {
             int srcX = x * step;
             
             // Gradiente semplice (Manhattan): |dx| + |dy|
@@ -101,6 +112,21 @@ static void computeEdgeImage(const uint8_t* src, uint8_t* dst, uint16_t width, u
                 dstPtr[x] = (mag > 255) ? 255 : (uint8_t)mag;
             }
         }
+    }
+}
+
+static void copyCroppedRaw(const uint8_t* src,
+                           uint8_t* dst,
+                           uint16_t width,
+                           uint16_t height,
+                           int srcFullWidth,
+                           int offsetX,
+                           int offsetY) {
+    for (uint16_t y = 0; y < height; y++) {
+        int srcY = offsetY + y;
+        const uint8_t* srcRow = src + (srcY * srcFullWidth) + offsetX;
+        uint8_t* dstRow = dst + (y * width);
+        memcpy(dstRow, srcRow, width);
     }
 }
 
@@ -184,52 +210,7 @@ bool OpticalFlowDetector::processFrame(const uint8_t* frameBuffer, size_t frameL
     if (_currentFrameDt == 0) _currentFrameDt = 1;
     if (_currentFrameDt > 200) _currentFrameDt = 200; // Max 200ms (min 5 FPS)
 
-    // --- ALGORITMO LITE: CENTROID TRACKING ---
-    if (_algorithm == Algorithm::CENTROID_TRACKING) {
-        // In questa modalità usiamo direttamente il frame raw per la differenza
-        // Non calcoliamo i bordi (risparmio CPU)
-        
-        if (!_hasPreviousFrame) {
-            memcpy(_previousRawFrame, frameBuffer, _frameSize);
-            _hasPreviousFrame = true;
-            return false;
-        }
-
-        // Calcola luminosità media (utile per flash)
-        _avgBrightness = _calculateAverageBrightness(frameBuffer);
-        _updateFlashIntensity();
-
-        // Calcola movimento tramite centroide
-        _computeCentroidMotion(frameBuffer);
-
-        // Filtra e aggiorna stato globale (simile a optical flow ma semplificato)
-        // Nota: _computeCentroidMotion ha già popolato _motionVectors con un vettore globale
-        _calculateGlobalMotion(); 
-
-        // Aggiorna traiettoria
-        if (_motionActive) {
-            _calculateCentroid(); // Usa i vettori popolati uniformemente
-            _updateTrajectory();
-            _motionFrameCount++;
-            _lastMotionTime = millis();
-        }
-
-        // Salva frame corrente per il prossimo ciclo
-        memcpy(_previousRawFrame, frameBuffer, _frameSize);
-        
-        _totalComputeTime += (millis() - startTime);
-        return _motionActive;
-    }
-    // -----------------------------------------
-
-    // 1. Usa buffer bordi riutilizzabile
-    uint8_t* edgeFrame = _edgeFrame;
-    if (!edgeFrame) {
-        Serial.println("[OPTICAL FLOW ERROR] Edge buffer not allocated!");
-        return false;
-    }
-
-    // Configurazione Crop/Scale
+    // Configurazione Crop/Scale (vale per tutti gli algoritmi)
     int srcFullWidth = _frameWidth;
     int offsetX = 0;
     int offsetY = 0;
@@ -246,13 +227,77 @@ bool OpticalFlowDetector::processFrame(const uint8_t* frameBuffer, size_t frameL
         }
     }
 
+    const bool useCrop = (isQVGA && _frameWidth == 240 && _frameHeight == 240);
+
+    // --- ALGORITMO LITE: CENTROID TRACKING ---
+    if (_algorithm == Algorithm::CENTROID_TRACKING) {
+        // In questa modalità usiamo direttamente il frame raw per la differenza
+        // Non calcoliamo i bordi (risparmio CPU)
+        
+        if (!_hasPreviousFrame) {
+            if (useCrop) {
+                copyCroppedRaw(frameBuffer, _previousRawFrame, _frameWidth, _frameHeight,
+                               srcFullWidth, offsetX, offsetY);
+            } else {
+                memcpy(_previousRawFrame, frameBuffer, _frameSize);
+            }
+            _hasPreviousFrame = true;
+            return false;
+        }
+
+        // Calcola luminosità media (utile per flash)
+        _avgBrightness = _calculateAverageBrightness(frameBuffer, srcFullWidth, offsetX, offsetY);
+        _updateFlashIntensity();
+
+        // Calcola movimento tramite centroide
+        _computeCentroidMotion(frameBuffer, srcFullWidth, offsetX, offsetY);
+
+        // Filtra e aggiorna stato globale (simile a optical flow ma semplificato)
+        // Nota: _computeCentroidMotion ha già popolato _motionVectors con un vettore globale
+        _calculateGlobalMotion(); 
+
+        // Aggiorna traiettoria
+        if (_motionActive) {
+            _calculateCentroid(); // Usa i vettori popolati uniformemente
+            _updateTrajectory();
+            _motionFrameCount++;
+            _lastMotionTime = millis();
+        }
+
+        // Salva frame corrente per il prossimo ciclo
+        if (useCrop) {
+            copyCroppedRaw(frameBuffer, _previousRawFrame, _frameWidth, _frameHeight,
+                           srcFullWidth, offsetX, offsetY);
+        } else {
+            memcpy(_previousRawFrame, frameBuffer, _frameSize);
+        }
+        
+        _totalComputeTime += (millis() - startTime);
+        return _motionActive;
+    }
+    // -----------------------------------------
+
+    // 1. Usa buffer bordi riutilizzabile
+    uint8_t* edgeFrame = _edgeFrame;
+    if (!edgeFrame) {
+        Serial.println("[OPTICAL FLOW ERROR] Edge buffer not allocated!");
+        return false;
+    }
+
     // 2. Calcola i bordi dal frame grezzo
-    computeEdgeImage(frameBuffer, edgeFrame, _frameWidth, _frameHeight, srcFullWidth, offsetX, offsetY, step);
+    const int edgeStep = 2; // Allinea il calcolo bordi al campionamento SAD
+    computeEdgeImage(frameBuffer, edgeFrame, _frameWidth, _frameHeight,
+                     srcFullWidth, offsetX, offsetY, step, edgeStep);
 
     // Primo frame: inizializza previous e non rilevare motion
     if (!_hasPreviousFrame) {
         memcpy(_previousFrame, edgeFrame, _frameSize); // Salva i bordi, non il raw
-        memcpy(_previousRawFrame, frameBuffer, _frameSize);
+        if (useCrop) {
+            copyCroppedRaw(frameBuffer, _previousRawFrame, _frameWidth, _frameHeight,
+                           srcFullWidth, offsetX, offsetY);
+        } else {
+            memcpy(_previousRawFrame, frameBuffer, _frameSize);
+        }
         _hasPreviousFrame = true;
         _motionActive = false;
         _motionIntensity = 0;
@@ -266,12 +311,13 @@ bool OpticalFlowDetector::processFrame(const uint8_t* frameBuffer, size_t frameL
 
     // Calcola luminosità media per auto flash
     // NOTA: Usiamo frameBuffer (raw) per la luminosità, è corretto
-    _avgBrightness = _calculateAverageBrightness(frameBuffer);
+    _avgBrightness = _calculateAverageBrightness(frameBuffer, srcFullWidth, offsetX, offsetY);
     _updateFlashIntensity();
 
     // Frame diff (fallback per occlusioni / scene change)
     // Usa raw per evitare che la mappa dei bordi risulti troppo "vuota".
-    _frameDiffAvg = _calculateFrameDiffAvg(frameBuffer, _previousRawFrame);
+    _frameDiffAvg = _calculateFrameDiffAvg(frameBuffer, _previousRawFrame,
+                                           srcFullWidth, offsetX, offsetY);
     
     // Calcola optical flow
     // NOTA: Usiamo edgeFrame. _computeOpticalFlow confronterà edgeFrame con _previousFrame (che contiene i bordi precedenti)
@@ -285,9 +331,12 @@ bool OpticalFlowDetector::processFrame(const uint8_t* frameBuffer, size_t frameL
 
     // Fallback: se l'edge flow non attiva motion ma il frame raw cambia,
     // usa il centroid tracking sul raw per aumentare la sensibilita'.
-    if (!_motionActive && _frameDiffAvg >= 10) {
-        _computeCentroidMotion(frameBuffer);
-        _calculateGlobalMotion();
+    if (_frameDiffAvg >= 10) {
+        const bool edgeWeak = (_activeBlocks < _minActiveBlocks) || (_motionConfidence < 0.2f);
+        if (!_motionActive || edgeWeak) {
+            _computeCentroidMotion(frameBuffer, srcFullWidth, offsetX, offsetY);
+            _calculateGlobalMotion();
+        }
     }
 
     // Calcola centroide se c'è movimento
@@ -307,7 +356,12 @@ bool OpticalFlowDetector::processFrame(const uint8_t* frameBuffer, size_t frameL
     // Copia frame corrente in previous
     // Salviamo i bordi per il prossimo confronto
     memcpy(_previousFrame, edgeFrame, _frameSize);
-    memcpy(_previousRawFrame, frameBuffer, _frameSize);
+    if (useCrop) {
+        copyCroppedRaw(frameBuffer, _previousRawFrame, _frameWidth, _frameHeight,
+                       srcFullWidth, offsetX, offsetY);
+    } else {
+        memcpy(_previousRawFrame, frameBuffer, _frameSize);
+    }
 
     // Aggiorna metriche timing
     unsigned long computeTime = millis() - startTime;
@@ -316,7 +370,10 @@ bool OpticalFlowDetector::processFrame(const uint8_t* frameBuffer, size_t frameL
     return _motionActive;
 }
 
-void OpticalFlowDetector::_computeCentroidMotion(const uint8_t* currentFrame) {
+void OpticalFlowDetector::_computeCentroidMotion(const uint8_t* currentFrame,
+                                                 int currentFullWidth,
+                                                 int offsetX,
+                                                 int offsetY) {
     long sumX = 0;
     long sumY = 0;
     long totalMass = 0;
@@ -328,8 +385,9 @@ void OpticalFlowDetector::_computeCentroidMotion(const uint8_t* currentFrame) {
 
     for (int y = 0; y < _frameHeight; y += step) {
         for (int x = 0; x < _frameWidth; x += step) {
-            int idx = y * _frameWidth + x;
-            int diff = abs((int)currentFrame[idx] - (int)_previousRawFrame[idx]);
+            int currentIdx = (offsetY + y) * currentFullWidth + (offsetX + x);
+            int prevIdx = y * _frameWidth + x;
+            int diff = abs((int)currentFrame[currentIdx] - (int)_previousRawFrame[prevIdx]);
 
             if (diff > threshold) {
                 sumX += x * diff;
@@ -348,8 +406,8 @@ void OpticalFlowDetector::_computeCentroidMotion(const uint8_t* currentFrame) {
         float currentCx = (float)sumX / totalMass;
         float currentCy = (float)sumY / totalMass;
 
-        if (_centroidValid) {
-            // Calcola delta rispetto al centroide precedente
+        if (_centroidSeeded) {
+            // Calcola delta rispetto al centroide precedente (anche se era "stale")
             float dx = currentCx - _centroidX;
             float dy = currentCy - _centroidY;
 
@@ -373,6 +431,7 @@ void OpticalFlowDetector::_computeCentroidMotion(const uint8_t* currentFrame) {
         _centroidX = currentCx;
         _centroidY = currentCy;
         _centroidValid = true;
+        _centroidSeeded = true;
     } else {
         _centroidValid = false; // Movimento perso o fermo
     }
@@ -583,9 +642,19 @@ void OpticalFlowDetector::_calculateGlobalMotion() {
     // NORMALIZZAZIONE VELOCITÀ: Riferimento 10 FPS (100ms)
     // Se dt=100ms -> factor=1.0. Se dt=50ms (20fps) -> factor=2.0.
     _motionSpeed = rawSpeed * (100.0f / (float)_currentFrameDt);
+    if (!_motionSpeedFilterInitialized) {
+        _smoothedMotionSpeed = _motionSpeed;
+        _motionSpeedFilterInitialized = true;
+    } else {
+        const float alpha = 0.35f;
+        _smoothedMotionSpeed = (_smoothedMotionSpeed * (1.0f - alpha)) + (_motionSpeed * alpha);
+    }
+    _motionSpeed = _smoothedMotionSpeed;
 
-    // Calcola direzione
-    _motionDirection = _vectorToDirection(avgDx, avgDy);
+    // Calcola direzione con soglia coerente alla velocità normalizzata
+    const float speedToRaw = (float)_currentFrameDt / 100.0f;
+    const float directionThreshold = max(_directionMagnitudeThreshold, _motionSpeedThreshold * speedToRaw);
+    _motionDirection = _vectorToDirection(avgDx, avgDy, directionThreshold);
 
     // Calcola confidence (0.0-1.0)
     _motionConfidence = (float)sumConfidence / (float)(validBlocks * 255);
@@ -738,17 +807,37 @@ uint8_t OpticalFlowDetector::getTrajectory(TrajectoryPoint* outPoints) const {
     return _trajectoryLength;
 }
 
-uint8_t OpticalFlowDetector::_calculateAverageBrightness(const uint8_t* frame) {
+uint8_t OpticalFlowDetector::_calculateAverageBrightness(const uint8_t* frame,
+                                                         int frameFullWidth,
+                                                         int offsetX,
+                                                         int offsetY) {
     if (!frame || _frameSize == 0) {
         return 0;
     }
 
-    // Sample 1 pixel ogni 16 per ridurre calcoli (76800 → 4800 ops, -93%)
+    if (frameFullWidth == _frameWidth && offsetX == 0 && offsetY == 0) {
+        // Sample 1 pixel ogni 16 per ridurre calcoli (76800 → 4800 ops, -93%)
+        uint64_t total = 0;
+        uint32_t sampleCount = 0;
+        for (size_t i = 0; i < _frameSize; i += 16) {
+            total += frame[i];
+            sampleCount++;
+        }
+
+        return (uint8_t)(total / sampleCount);
+    }
+
+    // Sample 1 pixel ogni 4x4 su area croppata
     uint64_t total = 0;
     uint32_t sampleCount = 0;
-    for (size_t i = 0; i < _frameSize; i += 16) {
-        total += frame[i];
-        sampleCount++;
+    const int step = 4;
+    for (int y = 0; y < _frameHeight; y += step) {
+        const int srcY = offsetY + y;
+        const uint8_t* rowPtr = frame + (srcY * frameFullWidth) + offsetX;
+        for (int x = 0; x < _frameWidth; x += step) {
+            total += rowPtr[x];
+            sampleCount++;
+        }
     }
 
     return (uint8_t)(total / sampleCount);
@@ -815,12 +904,15 @@ void OpticalFlowDetector::reset() {
     _motionIntensity = 0;
     _motionDirection = Direction::NONE;
     _motionSpeed = 0.0f;
+    _smoothedMotionSpeed = 0.0f;
+    _motionSpeedFilterInitialized = false;
     _motionConfidence = 0.0f;
     _activeBlocks = 0;
     _trajectoryLength = 0;
     _centroidX = 0.0f;
     _centroidY = 0.0f;
     _centroidValid = false;
+    _centroidSeeded = false;
     _lastMotionTime = 0;
     _totalFramesProcessed = 0;
     _motionFrameCount = 0;
@@ -895,10 +987,10 @@ OpticalFlowDetector::Metrics OpticalFlowDetector::getMetrics() const {
 // UTILITY FUNCTIONS
 // ═══════════════════════════════════════════════════════════
 
-OpticalFlowDetector::Direction OpticalFlowDetector::_vectorToDirection(float dx, float dy) {
+OpticalFlowDetector::Direction OpticalFlowDetector::_vectorToDirection(float dx, float dy, float minMagnitude) {
     // Magnitude threshold
     float magnitude = sqrtf(dx * dx + dy * dy);
-    if (magnitude < _directionMagnitudeThreshold) {  // sotto soglia = fermo
+    if (magnitude < minMagnitude) {  // sotto soglia = fermo
         return Direction::NONE;
     }
 
@@ -1055,18 +1147,43 @@ bool OpticalFlowDetector::getCentroidBlock(uint8_t* outRow, uint8_t* outCol) con
     return true;
 }
 
-uint8_t OpticalFlowDetector::_calculateFrameDiffAvg(const uint8_t* currentFrame, const uint8_t* previousFrame) const {
+uint8_t OpticalFlowDetector::_calculateFrameDiffAvg(const uint8_t* currentFrame,
+                                                    const uint8_t* previousFrame,
+                                                    int currentFullWidth,
+                                                    int offsetX,
+                                                    int offsetY) const {
     if (!currentFrame || !previousFrame || _frameSize == 0) {
         return 0;
     }
 
-    // Sample 1 pixel ogni 16: 76800 -> 4800 ops
+    if (currentFullWidth == _frameWidth && offsetX == 0 && offsetY == 0) {
+        // Sample 1 pixel ogni 16: 76800 -> 4800 ops
+        uint32_t total = 0;
+        uint32_t count = 0;
+        for (size_t i = 0; i < _frameSize; i += 16) {
+            int16_t diff = (int16_t)currentFrame[i] - (int16_t)previousFrame[i];
+            total += (uint16_t)abs(diff);
+            count++;
+        }
+
+        if (count == 0) return 0;
+        uint32_t avg = total / count;
+        return (avg > 255) ? 255 : (uint8_t)avg;
+    }
+
+    // Sample 1 pixel ogni 4x4 su area croppata
     uint32_t total = 0;
     uint32_t count = 0;
-    for (size_t i = 0; i < _frameSize; i += 16) {
-        int16_t diff = (int16_t)currentFrame[i] - (int16_t)previousFrame[i];
-        total += (uint16_t)abs(diff);
-        count++;
+    const int step = 4;
+    for (int y = 0; y < _frameHeight; y += step) {
+        const int srcY = offsetY + y;
+        const uint8_t* curRow = currentFrame + (srcY * currentFullWidth) + offsetX;
+        const uint8_t* prevRow = previousFrame + (y * _frameWidth);
+        for (int x = 0; x < _frameWidth; x += step) {
+            int16_t diff = (int16_t)curRow[x] - (int16_t)prevRow[x];
+            total += (uint16_t)abs(diff);
+            count++;
+        }
     }
 
     if (count == 0) return 0;

@@ -158,32 +158,14 @@ MotionProcessor::GestureType MotionProcessor::_detectGesture(
     const bool isDownDiagonal = (direction == OpticalFlowDetector::Direction::DOWN_LEFT) ||
         (direction == OpticalFlowDetector::Direction::DOWN_RIGHT);
 
-    // "Cerchio a spicchi": giu' lento? = retract, sinistra/destra veloce ?= clash
-    if ((isLeft || isRight) &&
-        (intensity >= clashIntensityThreshold || speed >= _config.clashSpeedThreshold) &&
-        !clashOnCooldown)
-    {
-        _gestureCooldown = true;
-        uint16_t cooldownHalf = (uint16_t)(_config.gestureCooldownMs / 2);
-        if (cooldownHalf < 200) cooldownHalf = 200;
-        const uint16_t appliedCooldown = max16(cooldownHalf, clashCooldown);
-        _gestureCooldownEnd = timestamp + appliedCooldown;
-        _clashCooldownEnd = timestamp + clashCooldown;
-        _lastGestureConfidence = 70;
-        if (_config.debugLogsEnabled) {
-            Serial.println("[MOTION] CLASH detected (direction: left/right, fast).");
-        }
-        _lastDirection = direction;
-        return GestureType::CLASH;
-    }
 
     // RETRACT: Movimento verso il basso (Camera DOWN -> Pixels UP -> isUp)
-    if ((isDown || isDownDiagonal) &&
+    if ((isDown || isDownDiagonal || isUp || isLeft || isRight) &&
         (intensity >= retractIntensityThreshold || speed >= _config.retractSpeedThreshold))
     {
         _gestureCooldown = true;
         _gestureCooldownEnd = timestamp + _config.gestureCooldownMs;
-        _lastGestureConfidence = 80;
+        _lastGestureConfidence = 60;
         if (_config.debugLogsEnabled) {
             Serial.println("[MOTION] RETRACT detected (direction: up/camera-down).");
         }
@@ -203,6 +185,25 @@ MotionProcessor::GestureType MotionProcessor::_detectGesture(
         }
         _lastDirection = direction;
         return GestureType::IGNITION;
+    }
+
+    // "Cerchio a spicchi": giu' lento? = retract, sinistra/destra veloce ?= clash
+    if ((isLeft || isRight) &&
+        (intensity >= clashIntensityThreshold || speed >= _config.clashSpeedThreshold) &&
+        !clashOnCooldown)
+    {
+        _gestureCooldown = true;
+        uint16_t cooldownHalf = (uint16_t)(_config.gestureCooldownMs / 2);
+        if (cooldownHalf < 200) cooldownHalf = 200;
+        const uint16_t appliedCooldown = max16(cooldownHalf, clashCooldown);
+        _gestureCooldownEnd = timestamp + appliedCooldown;
+        _clashCooldownEnd = timestamp + clashCooldown;
+        _lastGestureConfidence = 70;
+        if (_config.debugLogsEnabled) {
+            Serial.println("[MOTION] CLASH detected (direction: left/right, fast).");
+        }
+        _lastDirection = direction;
+        return GestureType::CLASH;
     }
 
     // No gesture detected

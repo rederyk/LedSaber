@@ -296,6 +296,8 @@ private:
     uint8_t _motionIntensity;
     Direction _motionDirection;
     float _motionSpeed;
+    float _smoothedMotionSpeed;
+    bool _motionSpeedFilterInitialized;
     float _motionConfidence;
     uint8_t _activeBlocks;
 
@@ -303,6 +305,7 @@ private:
     float _centroidX;
     float _centroidY;
     bool _centroidValid;
+    bool _centroidSeeded;
 
     // Trajectory
     TrajectoryPoint _trajectory[MAX_TRAJECTORY_POINTS];
@@ -343,7 +346,10 @@ private:
     /**
      * @brief Calcola movimento basato sul centroide della differenza (Lite Mode)
      */
-    void _computeCentroidMotion(const uint8_t* currentFrame);
+    void _computeCentroidMotion(const uint8_t* currentFrame,
+                                int currentFullWidth,
+                                int offsetX,
+                                int offsetY);
 
     /**
      * @brief Calcola motion vector per singolo blocco
@@ -387,7 +393,10 @@ private:
     /**
      * @brief Calcola luminosità media (per auto flash)
      */
-    uint8_t _calculateAverageBrightness(const uint8_t* frame);
+    uint8_t _calculateAverageBrightness(const uint8_t* frame,
+                                        int frameFullWidth,
+                                        int offsetX,
+                                        int offsetY);
 
     /**
      * @brief Aggiorna flash intensity
@@ -397,7 +406,11 @@ private:
     /**
      * @brief Calcola frame diff medio (sampled) tra previous e current
      */
-    uint8_t _calculateFrameDiffAvg(const uint8_t* currentFrame, const uint8_t* previousFrame) const;
+    uint8_t _calculateFrameDiffAvg(const uint8_t* currentFrame,
+                                   const uint8_t* previousFrame,
+                                   int currentFullWidth,
+                                   int offsetX,
+                                   int offsetY) const;
 
     // ═══════════════════════════════════════════════════════════
     // UTILITY
@@ -406,7 +419,7 @@ private:
     /**
      * @brief Converte vettore (dx, dy) in direzione
      */
-    Direction _vectorToDirection(float dx, float dy);
+    Direction _vectorToDirection(float dx, float dy, float minMagnitude);
 
     /**
      * @brief Calcola mediana di un array
