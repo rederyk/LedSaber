@@ -9,6 +9,7 @@ Stile: Resistenza Cyberpunk / BTTop
 
 import asyncio
 import json
+import time
 from datetime import datetime
 from typing import Optional, Dict, List
 from collections import deque
@@ -341,6 +342,7 @@ class MotionDirectionCard(Static):
         centroid_y = state.get('centroidY', 0.0)
         centroid_norm_x = state.get('centroidNormX', 0.0)
         centroid_norm_y = state.get('centroidNormY', 0.0)
+        centroid_norm_available = ("centroidNormX" in state) or ("centroidNormY" in state)
         trail = state.get('trail', []) or []
 
         # Direction arrows
@@ -359,7 +361,10 @@ class MotionDirectionCard(Static):
 
         if centroid_valid:
             centroid_line = f"[dim]C: {centroid_x:.1f},{centroid_y:.1f}[/]"
-            centroid_norm_line = f"[dim]N: {centroid_norm_x:.2f},{centroid_norm_y:.2f}[/]"
+            if centroid_norm_available:
+                centroid_norm_line = f"[dim]N: {centroid_norm_x:.2f},{centroid_norm_y:.2f}[/]"
+            else:
+                centroid_norm_line = "[dim]N: --[/]"
         else:
             centroid_line = "[dim]C: --[/]"
             centroid_norm_line = "[dim]N: --[/]"
@@ -444,6 +449,9 @@ class OpticalFlowCanvas(Static):
             'C': 'magenta',
             'D': 'magenta',
             'X': 'red',
+            '*': 'red',
+            'O': 'bright_red',
+            'o': 'dim red',
         }
 
         # Normalizza righe (garantisce sempre una matrice completa)
@@ -458,6 +466,39 @@ class OpticalFlowCanvas(Static):
             if len(normalized_rows) < grid_rows_count:
                 missing = grid_rows_count - len(normalized_rows)
                 normalized_rows.extend(["." * grid_cols for _ in range(missing)])
+
+        # Apply centroid trail overlay (latest point has higher priority)
+        trail = state.get('trail', []) or []
+        if trail:
+            grid_chars = [list(row) for row in normalized_rows]
+            max_points = 5
+            trail_points = trail[-max_points:]
+            for idx, point in enumerate(trail_points):
+                try:
+                    tx = float(point.get('x', 0.0))
+                    ty = float(point.get('y', 0.0))
+                except Exception:
+                    continue
+                col = int(tx * grid_cols)
+                row = int(ty * grid_rows_count)
+                if col < 0:
+                    col = 0
+                elif col >= grid_cols:
+                    col = grid_cols - 1
+                if row < 0:
+                    row = 0
+                elif row >= grid_rows_count:
+                    row = grid_rows_count - 1
+                age = len(trail_points) - 1 - idx
+                if age == 0:
+                    marker = "*"
+                elif age == 1:
+                    marker = "O"
+                else:
+                    marker = "o"
+                if grid_chars[row][col] != "X":
+                    grid_chars[row][col] = marker
+            normalized_rows = ["".join(row) for row in grid_chars]
 
         # Calculate available space
         width = self.size.width or 120
@@ -531,6 +572,7 @@ class OpticalFlowCanvas(Static):
         legend_text.append("< > left/right  ", style="yellow")
         legend_text.append("A B C D diagonals", style="green")
         legend_text.append("  X centroid", style="red")
+        legend_text.append("  o O * trail", style="red")
         legend.add_row(legend_text)
 
         pad_x = 1
@@ -1083,6 +1125,8 @@ class SaberDashboard(App):
         self.motion_config: Dict = {}
         self.last_motion_state: Dict = {}
         self.last_led_state: Dict = {}
+        self.last_motion_status_ts: float = 0.0
+        self.motion_poll_in_flight: bool = False
 
     def compose(self) -> ComposeResult:
         """Componi layout"""
@@ -1134,6 +1178,7 @@ class SaberDashboard(App):
         self._log("Quick start: Ctrl+S to scan and connect", "cyan")
         self._log("Console: Click to focus, Ctrl+A=select all, F8=copy selection, F9=copy all", "cyan")
         self._update_responsive_layout(self.size.width)
+        self.set_interval(0.7, self._poll_motion_status)
 
     def on_resize(self, event: events.Resize) -> None:
         """Aggiorna classi responsive al resize"""
@@ -1337,10 +1382,16 @@ class SaberDashboard(App):
                 if subcmd == "enable":
                     await self.client.motion_send_command("enable")
                     self._log("Motion detection enabled", "green")
+                    status = await self.client.get_motion_status()
+                    if status:
+                        self._on_motion_update(status, is_first=False, changes=None)
 
                 elif subcmd == "disable":
                     await self.client.motion_send_command("disable")
                     self._log("Motion detection disabled", "yellow")
+                    status = await self.client.get_motion_status()
+                    if status:
+                        self._on_motion_update(status, is_first=False, changes=None)
 
                 elif subcmd == "onboot":
                     if len(args) < 2:
@@ -1669,6 +1720,7 @@ class SaberDashboard(App):
     def _on_motion_update(self, state: Dict, is_first: bool = False, changes: Dict = None):
         """Callback motion state"""
         self.last_motion_state = state or {}
+        self.last_motion_status_ts = time.monotonic()
         merged_state = self._merge_motion_state(self.last_motion_state)
         if self.motion_section:
             self.motion_section.motion_state = merged_state
@@ -1712,6 +1764,29 @@ class SaberDashboard(App):
         if gesture != 'none':
             base += f" gesture:{gesture}({gesture_conf}%)"
         self._log(base, "yellow")
+        self._maybe_poll_motion_status()
+
+    def _maybe_poll_motion_status(self) -> None:
+        if self.motion_poll_in_flight:
+            return
+        now = time.monotonic()
+        if now - self.last_motion_status_ts < 1.2:
+            return
+        self.motion_poll_in_flight = True
+        self.run_worker(self._poll_motion_status_async())
+
+    def _poll_motion_status(self) -> None:
+        self._maybe_poll_motion_status()
+
+    async def _poll_motion_status_async(self) -> None:
+        try:
+            if not self.client or not self.client.client or not self.client.client.is_connected:
+                return
+            status = await self.client.get_motion_status()
+            if status:
+                self._on_motion_update(status, is_first=False, changes=None)
+        finally:
+            self.motion_poll_in_flight = False
 
     def _merge_motion_state(self, state: Dict) -> Dict:
         merged = dict(state or {})

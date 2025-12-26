@@ -73,6 +73,14 @@ void BLEMotionService::begin(BLEServer* pServer) {
 }
 
 void BLEMotionService::notifyStatus() {
+    if (!_pCharStatus) {
+        return;
+    }
+
+    // Aggiorna sempre il valore, anche se le notify non sono abilitate.
+    String statusJson = _getStatusJson();
+    _pCharStatus->setValue(statusJson.c_str());
+
     if (!_statusNotifyEnabled) {
         return;
     }
@@ -86,9 +94,6 @@ void BLEMotionService::notifyStatus() {
     }
 
     lastNotifyTime = now;
-
-    String statusJson = _getStatusJson();
-    _pCharStatus->setValue(statusJson.c_str());
     _pCharStatus->notify();
 }
 
@@ -321,18 +326,13 @@ String BLEMotionService::_getStatusJson() {
     doc["motionDetected"] = _wasMotionActive;
     doc["quality"] = _motion->getQuality();
     doc["intensity"] = metrics.currentIntensity;
-    doc["avgBrightness"] = metrics.avgBrightness;
-    doc["flashIntensity"] = metrics.flashIntensity;
-    doc["trajectoryLength"] = metrics.trajectoryLength;
+    // Keep status payload compact to fit BLE MTU limits.
 
     float centroidX = 0.0f;
     float centroidY = 0.0f;
-    float centroidNormX = 0.0f;
-    float centroidNormY = 0.0f;
     uint8_t centroidRow = 0;
     uint8_t centroidCol = 0;
     const bool centroidValid = _motion->getCentroid(&centroidX, &centroidY);
-    const bool centroidNormValid = _motion->getCentroidNormalized(&centroidNormX, &centroidNormY);
     const bool centroidBlockValid = _motion->getCentroidBlock(&centroidRow, &centroidCol);
 
     doc["centroidValid"] = centroidValid;
@@ -343,18 +343,8 @@ String BLEMotionService::_getStatusJson() {
         doc["centroidX"] = 0;
         doc["centroidY"] = 0;
     }
-    if (centroidNormValid) {
-        doc["centroidNormX"] = round(centroidNormX * 100.0f) / 100.0f;
-        doc["centroidNormY"] = round(centroidNormY * 100.0f) / 100.0f;
-    } else {
-        doc["centroidNormX"] = 0;
-        doc["centroidNormY"] = 0;
-    }
     doc["centroidRow"] = centroidBlockValid ? centroidRow : 255;
     doc["centroidCol"] = centroidBlockValid ? centroidCol : 255;
-
-    doc["totalFrames"] = metrics.totalFramesProcessed;
-    doc["motionFrames"] = metrics.motionFrameCount;
 
     // NUOVI campi optical flow
     // Rotate for display to match gesture reference (main.cpp rotates motion direction before gesture processing)
@@ -362,8 +352,6 @@ String BLEMotionService::_getStatusJson() {
     doc["speed"] = round(metrics.avgSpeed * 10.0f) / 10.0f;  // 1 decimal
     doc["confidence"] = round(metrics.avgConfidence * 100.0f);  // 0-100%
     doc["activeBlocks"] = metrics.avgActiveBlocks;
-    doc["computeTimeMs"] = metrics.avgComputeTimeMs;
-    doc["frameDiff"] = metrics.frameDiff;
 
     // Gesture fields (from MotionProcessor via update()) with expiry to avoid "stuck" UI
     const unsigned long now = millis();
@@ -396,20 +384,7 @@ String BLEMotionService::_getStatusJson() {
         gridArray.add(rowStr);
     }
 
-    // NON includere trajectory nello status (troppo grande per BLE notification)
-    // La trajectory completa è disponibile solo tramite eventi; qui inviamo solo una coda breve.
-    static constexpr uint8_t MAX_TRAIL_POINTS = 5;
-    OpticalFlowDetector::TrajectoryPoint points[OpticalFlowDetector::MAX_TRAJECTORY_POINTS];
-    const uint8_t pointCount = _motion->getTrajectory(points);
-    const uint8_t trailStart = (pointCount > MAX_TRAIL_POINTS) ? (pointCount - MAX_TRAIL_POINTS) : 0;
-    JsonArray trailArray = doc["trail"].to<JsonArray>();
-    for (uint8_t i = trailStart; i < pointCount; i++) {
-        JsonObject point = trailArray.add<JsonObject>();
-        point["x"] = round(points[i].x * 100.0f) / 100.0f;
-        point["y"] = round(points[i].y * 100.0f) / 100.0f;
-        point["t"] = points[i].timestamp;
-        point["d"] = OpticalFlowDetector::directionToString(points[i].direction);
-    }
+    // Trail removed from status to avoid oversized BLE payloads.
 
     String output;
     serializeJson(doc, output);

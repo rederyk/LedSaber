@@ -882,6 +882,8 @@ static void CameraCaptureTask(void* pvParameters) {
             }
 
             if (!motionInitialized && frameLength > 0) {
+                // Usa centroid tracking per test (più leggero) invece dell'optical flow SAD.
+                motionDetector.setAlgorithm(OpticalFlowDetector::Algorithm::CENTROID_TRACKING);
                 if (motionDetector.begin(320, 240)) {
                     motionInitialized = true;
                     Serial.println("[CAM TASK] Motion detector initialized");

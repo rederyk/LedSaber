@@ -370,40 +370,35 @@ class LedSaberClient:
                 elif old_value != new_value:
                     significant_changes[key] = {'old': old_value, 'new': new_value}
 
-            # Mostra SOLO se ci sono cambiamenti significativi
-            if significant_changes:
-                self.motion_state = new_motion_state
-                self.previous_motion_state = new_motion_state.copy()
+            # Aggiorna sempre lo stato (serve per griglia/centroide live)
+            self.motion_state = new_motion_state
+            self.previous_motion_state = new_motion_state.copy()
 
-                if self.motion_callback:
-                    self.motion_callback(self.motion_state, is_first=False, changes=significant_changes)
-                else:
-                    print(f"\n{Colors.MAGENTA}🔍 Motion Update:{Colors.RESET}")
-                    for key, change in significant_changes.items():
-                        if key == 'enabled':
-                            status = "ENABLED" if change['new'] else "DISABLED"
-                            print(f"  Motion Detection → {status}")
-                        elif key == 'motionDetected':
-                            status = "DETECTED" if change['new'] else "ENDED"
-                            print(f"  Motion → {status}")
-                        elif key == 'intensity':
-                            print(f"  Intensity → {change['new']}")
-                        elif key == 'direction':
-                            print(f"  Direction → {Colors.CYAN}{change['new']}{Colors.RESET}")
-                        elif key == 'gesture':
-                            gesture = change['new']
-                            confidence = new_motion_state.get('gestureConfidence', 0)
-                            if gesture != 'none' and confidence > 50:
-                                print(f"  {Colors.BOLD}{Colors.GREEN}⚔️  GESTURE: {gesture.upper()} ({confidence}%){Colors.RESET}")
-                        elif key == 'shakeDetected':
-                            if change['new']:
-                                print(f"  {Colors.YELLOW}🔔 SHAKE DETECTED!{Colors.RESET}")
+            if self.motion_callback:
+                self.motion_callback(self.motion_state, is_first=False, changes=significant_changes)
+            elif significant_changes:
+                print(f"\n{Colors.MAGENTA}🔍 Motion Update:{Colors.RESET}")
+                for key, change in significant_changes.items():
+                    if key == 'enabled':
+                        status = "ENABLED" if change['new'] else "DISABLED"
+                        print(f"  Motion Detection → {status}")
+                    elif key == 'motionDetected':
+                        status = "DETECTED" if change['new'] else "ENDED"
+                        print(f"  Motion → {status}")
+                    elif key == 'intensity':
+                        print(f"  Intensity → {change['new']}")
+                    elif key == 'direction':
+                        print(f"  Direction → {Colors.CYAN}{change['new']}{Colors.RESET}")
+                    elif key == 'gesture':
+                        gesture = change['new']
+                        confidence = new_motion_state.get('gestureConfidence', 0)
+                        if gesture != 'none' and confidence > 50:
+                            print(f"  {Colors.BOLD}{Colors.GREEN}⚔️  GESTURE: {gesture.upper()} ({confidence}%){Colors.RESET}")
+                    elif key == 'shakeDetected':
+                        if change['new']:
+                            print(f"  {Colors.YELLOW}🔔 SHAKE DETECTED!{Colors.RESET}")
 
-                    print(f"{Colors.BOLD}>{Colors.RESET} ", end="", flush=True)
-            else:
-                # Aggiorna stato silenziosamente
-                self.motion_state = new_motion_state
-                self.previous_motion_state = new_motion_state.copy()
+                print(f"{Colors.BOLD}>{Colors.RESET} ", end="", flush=True)
 
         except Exception as e:
             print(f"{Colors.RED}✗ Errore parsing notifica motion: {e}{Colors.RESET}")
