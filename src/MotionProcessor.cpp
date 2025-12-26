@@ -1,5 +1,6 @@
 #include "MotionProcessor.h"
 #include <cmath>
+#include <cstring>
 
 namespace {
 const uint8_t* gammaLut07() {
@@ -25,6 +26,7 @@ MotionProcessor::MotionProcessor() :
     _clashCooldownEnd(0),
     _lastGestureConfidence(0)
 {
+    _lastEffectRequest[0] = '\0';
 }
 
 MotionProcessor::ProcessedMotion MotionProcessor::process(
@@ -41,6 +43,7 @@ MotionProcessor::ProcessedMotion MotionProcessor::process(
     result.timestamp = timestamp;
     result.gesture = GestureType::NONE;
     result.gestureConfidence = 0;
+    result.effectRequest[0] = '\0';
 
     // Calculate perturbation grid
     if (_config.perturbationEnabled) {
@@ -54,6 +57,10 @@ MotionProcessor::ProcessedMotion MotionProcessor::process(
         result.gesture = _detectGesture(motionIntensity, direction, speed, timestamp, detector);
         result.gestureConfidence = (result.gesture != GestureType::NONE) ? _lastGestureConfidence : 0;
     }
+    if (_lastEffectRequest[0] != '\0') {
+        strncpy(result.effectRequest, _lastEffectRequest, sizeof(result.effectRequest) - 1);
+        result.effectRequest[sizeof(result.effectRequest) - 1] = '\0';
+    }
 
     return result;
 }
@@ -66,6 +73,7 @@ MotionProcessor::GestureType MotionProcessor::_detectGesture(
     const OpticalFlowDetector& detector)
 {
     _lastGestureConfidence = 0;
+    _lastEffectRequest[0] = '\0';
 
     (void)speed;
 
@@ -155,16 +163,14 @@ MotionProcessor::GestureType MotionProcessor::_detectGesture(
     GestureType mappedGesture = GestureType::NONE;
     switch (dir4) {
         case CardinalDirection::UP:
-            mappedGesture = _config.gestureOnUp;
+            mappedGesture = GestureType::IGNITION;
             break;
         case CardinalDirection::DOWN:
-            mappedGesture = _config.gestureOnDown;
+            mappedGesture = GestureType::RETRACT;
             break;
         case CardinalDirection::LEFT:
-            mappedGesture = _config.gestureOnLeft;
-            break;
         case CardinalDirection::RIGHT:
-            mappedGesture = _config.gestureOnRight;
+            mappedGesture = GestureType::CLASH;
             break;
         default:
             break;
@@ -212,6 +218,38 @@ MotionProcessor::GestureType MotionProcessor::_detectGesture(
         }
         _lastDirection = direction;
         return GestureType::CLASH;
+    }
+
+    const bool effectTrigger = (intensity >= _config.gestureThreshold ||
+                                speed >= _config.ignitionSpeedThreshold);
+    if (effectTrigger) {
+        const String* effectName = nullptr;
+        switch (dir4) {
+            case CardinalDirection::UP:
+                effectName = &_config.effectOnUp;
+                break;
+            case CardinalDirection::DOWN:
+                effectName = &_config.effectOnDown;
+                break;
+            case CardinalDirection::LEFT:
+                effectName = &_config.effectOnLeft;
+                break;
+            case CardinalDirection::RIGHT:
+                effectName = &_config.effectOnRight;
+                break;
+            default:
+                break;
+        }
+        if (effectName && effectName->length() > 0) {
+            _gestureCooldown = true;
+            _gestureCooldownEnd = timestamp + _config.gestureCooldownMs;
+            _lastGestureConfidence = 40;
+            strncpy(_lastEffectRequest, effectName->c_str(), sizeof(_lastEffectRequest) - 1);
+            _lastEffectRequest[sizeof(_lastEffectRequest) - 1] = '\0';
+            if (_config.debugLogsEnabled) {
+                Serial.printf("[MOTION] EFFECT change requested: %s\n", _lastEffectRequest);
+            }
+        }
     }
 
     // No gesture detected
@@ -308,6 +346,7 @@ void MotionProcessor::reset() {
     _gestureCooldownEnd = 0;
     _clashCooldownEnd = 0;
     _lastGestureConfidence = 0;
+    _lastEffectRequest[0] = '\0';
 }
 
 const char* MotionProcessor::gestureToString(GestureType gesture) {

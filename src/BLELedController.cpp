@@ -44,24 +44,46 @@ public:
         DeserializationError error = deserializeJson(doc, value);
 
         if (!error) {
-            controller->ledState->effect = doc["mode"] | "solid";
-            controller->ledState->speed = doc["speed"] | 50;
+            bool updated = false;
+            if (!doc["mode"].isNull()) {
+                controller->ledState->effect = doc["mode"].as<String>();
+                updated = true;
+            }
+            if (!doc["speed"].isNull()) {
+                controller->ledState->speed = doc["speed"];
+                updated = true;
+            }
 
             // Chrono themes (opzionale, solo se presenti nel JSON)
             if (!doc["chronoHourTheme"].isNull()) {
                 controller->ledState->chronoHourTheme = doc["chronoHourTheme"];
+                updated = true;
             }
             if (!doc["chronoSecondTheme"].isNull()) {
                 controller->ledState->chronoSecondTheme = doc["chronoSecondTheme"];
+                updated = true;
             }
 
-            Serial.printf("[BLE] Effect set to %s (speed: %d, chrono_h: %d, chrono_s: %d)\n",
-                controller->ledState->effect.c_str(),
-                controller->ledState->speed,
-                controller->ledState->chronoHourTheme,
-                controller->ledState->chronoSecondTheme);
+            if (!doc["gestureClashEffect"].isNull()) {
+                controller->ledState->gestureClashEffect = doc["gestureClashEffect"].as<String>();
+                updated = true;
+            }
+            if (!doc["gestureClashDurationMs"].isNull()) {
+                uint16_t duration = (uint16_t)doc["gestureClashDurationMs"];
+                controller->ledState->gestureClashDurationMs = (uint16_t)constrain(duration, 50, 5000);
+                updated = true;
+            }
 
-            controller->setConfigDirty(true);
+            if (updated) {
+                Serial.printf("[BLE] Effect updated: mode=%s speed=%d chrono_h=%d chrono_s=%d clash_fx=%s clash_ms=%u\n",
+                    controller->ledState->effect.c_str(),
+                    controller->ledState->speed,
+                    controller->ledState->chronoHourTheme,
+                    controller->ledState->chronoSecondTheme,
+                    controller->ledState->gestureClashEffect.c_str(),
+                    controller->ledState->gestureClashDurationMs);
+                controller->setConfigDirty(true);
+            }
         }
     }
 };
@@ -511,6 +533,8 @@ void BLELedController::notifyState() {
     doc["autoIgnitionOnBoot"] = ledState->autoIgnitionOnBoot;
     doc["autoIgnitionDelayMs"] = ledState->autoIgnitionDelayMs;
     doc["motionEnabled"] = ledState->motionOnBoot;
+    doc["gestureClashEffect"] = ledState->gestureClashEffect;
+    doc["gestureClashDurationMs"] = ledState->gestureClashDurationMs;
 
     String jsonString;
     serializeJson(doc, jsonString);

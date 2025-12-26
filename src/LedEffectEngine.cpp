@@ -11,6 +11,8 @@ LedEffectEngine::LedEffectEngine(CRGB* leds, uint16_t numLeds) :
     _mode(Mode::IDLE),
     _modeStartTime(0),
     _suppressGestureOverrides(false),
+    _gestureEffectName(""),
+    _gestureEffectDurationMs(500),
     _deepSleepRequested(false),
     _ledStateRef(nullptr),
     _hue(0),
@@ -117,7 +119,14 @@ void LedEffectEngine::render(const LedState& state, const MotionProcessor::Proce
 
     // Handle gesture triggers (if motion available)
     if (motion != nullptr) {
-        handleGestureTriggers(motion->gesture, now);
+        handleGestureTriggers(motion->gesture, now, state);
+    }
+
+    if (_mode == Mode::IDLE && motion != nullptr &&
+        motion->effectRequest[0] != '\0' &&
+        _ledStateRef != nullptr && state.bladeEnabled) {
+        _ledStateRef->effect = String(motion->effectRequest);
+        Serial.printf("[LED] Effect changed by gesture: %s\n", motion->effectRequest);
     }
 
     // Check mode timeout
@@ -142,6 +151,10 @@ void LedEffectEngine::render(const LedState& state, const MotionProcessor::Proce
 
         case Mode::CLASH_ACTIVE:
             renderClash(state);
+            break;
+
+        case Mode::GESTURE_EFFECT:
+            renderBaseEffect(state, motion, _gestureEffectName);
             break;
 
         case Mode::IDLE:
@@ -2631,12 +2644,15 @@ bool LedEffectEngine::checkModeTimeout(uint32_t now) {
         case Mode::CLASH_ACTIVE:
             return (now - _modeStartTime) > 500;   // 500ms
 
+        case Mode::GESTURE_EFFECT:
+            return (now - _modeStartTime) > _gestureEffectDurationMs;
+
         default:
             return false;
     }
 }
 
-void LedEffectEngine::handleGestureTriggers(MotionProcessor::GestureType gesture, uint32_t now) {
+void LedEffectEngine::handleGestureTriggers(MotionProcessor::GestureType gesture, uint32_t now, const LedState& state) {
     if (_mode != Mode::IDLE) {
         // Already in override mode, ignore new gestures
         return;
@@ -2660,12 +2676,23 @@ void LedEffectEngine::handleGestureTriggers(MotionProcessor::GestureType gesture
             break;
 
         case MotionProcessor::GestureType::CLASH:
-            _mode = Mode::CLASH_ACTIVE;
-            _modeStartTime = now;
-            _clashActive = true;
-            _clashBrightness = 255;
-            _lastClashTrigger = now;
-            Serial.println("[LED] CLASH effect triggered by gesture!");
+            if (state.gestureClashEffect.length() == 0 ||
+                state.gestureClashEffect == "clash") {
+                _mode = Mode::CLASH_ACTIVE;
+                _modeStartTime = now;
+                _clashActive = true;
+                _clashBrightness = 255;
+                _lastClashTrigger = now;
+                Serial.println("[LED] CLASH effect triggered by gesture!");
+            } else {
+                _gestureEffectName = state.gestureClashEffect;
+                _gestureEffectDurationMs = max<uint16_t>(100, state.gestureClashDurationMs);
+                _mode = Mode::GESTURE_EFFECT;
+                _modeStartTime = now;
+                Serial.printf("[LED] Gesture effect override: %s (%ums)\n",
+                              _gestureEffectName.c_str(),
+                              _gestureEffectDurationMs);
+            }
             break;
 
         default:

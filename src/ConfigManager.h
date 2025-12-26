@@ -29,6 +29,8 @@ private:
         bool autoIgnitionOnBoot = true;
         uint32_t autoIgnitionDelayMs = 2000;
         bool motionOnBoot = false;
+        String gestureClashEffect = "clash";
+        uint16_t gestureClashDurationMs = 500;
         // Motion defaults
         uint8_t motionQuality = 160;
         uint8_t motionIntensityMin = 6;
@@ -36,10 +38,10 @@ private:
         uint8_t gestureIgnitionMin = 15;
         uint8_t gestureRetractMin = 15;
         uint8_t gestureClashMin = 15;
-        MotionProcessor::GestureType gestureMapUp = MotionProcessor::GestureType::IGNITION;
-        MotionProcessor::GestureType gestureMapDown = MotionProcessor::GestureType::RETRACT;
-        MotionProcessor::GestureType gestureMapLeft = MotionProcessor::GestureType::CLASH;
-        MotionProcessor::GestureType gestureMapRight = MotionProcessor::GestureType::CLASH;
+        String effectMapUp = "";
+        String effectMapDown = "";
+        String effectMapLeft = "";
+        String effectMapRight = "";
     };
     DefaultConfig defaults;
 

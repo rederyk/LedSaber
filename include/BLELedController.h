@@ -48,6 +48,10 @@ struct LedState {
     // Chrono themes (modulare: marker ore + cursori secondi/minuti)
     uint8_t chronoHourTheme = 0;   // 0=Classic, 1=Neon, 2=Plasma, 3=Digital
     uint8_t chronoSecondTheme = 0; // 0=Classic, 1=TimeSpiral, 2=FireClock, 3=Lightning, 4=Particle, 5=Quantum
+
+    // Gesture effect override (per CLASH gesture)
+    String gestureClashEffect = "clash";
+    uint16_t gestureClashDurationMs = 500;
 };
 
 // Forward declaration

@@ -27,6 +27,7 @@ public:
         OpticalFlowDetector::Direction direction;
         float speed;                   // px/frame
         uint32_t timestamp;
+        char effectRequest[32];       // Requested effect id (empty = none)
 
         // Localized perturbation data (6x6 grid matching optical flow)
         uint8_t perturbationGrid[OpticalFlowDetector::GRID_ROWS][OpticalFlowDetector::GRID_COLS];
@@ -52,11 +53,11 @@ public:
         float ignitionSpeedThreshold;
         float retractSpeedThreshold;
         float clashSpeedThreshold;
-        // Direction -> gesture mapping (4-way, 90 degrees)
-        GestureType gestureOnUp;
-        GestureType gestureOnDown;
-        GestureType gestureOnLeft;
-        GestureType gestureOnRight;
+        // Direction -> effect mapping (4-way, 90 degrees)
+        String effectOnUp;
+        String effectOnDown;
+        String effectOnLeft;
+        String effectOnRight;
 
         Config() :
             gesturesEnabled(true),
@@ -75,10 +76,10 @@ public:
             ignitionSpeedThreshold(0.4f),  // Ridotto a 0.5 per facilitare ignition
             retractSpeedThreshold(0.4f),   // Ridotto a 0.4 per facilitare retract
             clashSpeedThreshold(2.0f),
-            gestureOnUp(GestureType::IGNITION),
-            gestureOnDown(GestureType::RETRACT),
-            gestureOnLeft(GestureType::CLASH),
-            gestureOnRight(GestureType::CLASH) {}
+            effectOnUp(""),
+            effectOnDown(""),
+            effectOnLeft(""),
+            effectOnRight("") {}
     };
 
     MotionProcessor();
@@ -126,6 +127,7 @@ private:
     uint32_t _gestureCooldownEnd;
     uint32_t _clashCooldownEnd;
     uint8_t _lastGestureConfidence;
+    char _lastEffectRequest[32];
 
     /**
      * @brief Detect gesture from motion data

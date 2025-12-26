@@ -1,31 +1,6 @@
 #include "ConfigManager.h"
 
-namespace {
-bool parseGestureString(const char* value, MotionProcessor::GestureType* outGesture) {
-    if (!outGesture || !value) {
-        return false;
-    }
-    String lower = String(value);
-    lower.toLowerCase();
-    if (lower == "none") {
-        *outGesture = MotionProcessor::GestureType::NONE;
-        return true;
-    }
-    if (lower == "ignition") {
-        *outGesture = MotionProcessor::GestureType::IGNITION;
-        return true;
-    }
-    if (lower == "retract") {
-        *outGesture = MotionProcessor::GestureType::RETRACT;
-        return true;
-    }
-    if (lower == "clash") {
-        *outGesture = MotionProcessor::GestureType::CLASH;
-        return true;
-    }
-    return false;
-}
-}
+ 
 
 ConfigManager::ConfigManager(LedState* state) {
     ledState = state;
@@ -103,6 +78,8 @@ bool ConfigManager::loadConfig() {
     ledState->autoIgnitionOnBoot = doc["autoIgnitionOnBoot"] | defaults.autoIgnitionOnBoot;
     ledState->autoIgnitionDelayMs = doc["autoIgnitionDelayMs"] | defaults.autoIgnitionDelayMs;
     ledState->motionOnBoot = doc["motionOnBoot"] | defaults.motionOnBoot;
+    ledState->gestureClashEffect = doc["gestureClashEffect"] | defaults.gestureClashEffect;
+    ledState->gestureClashDurationMs = doc["gestureClashDurationMs"] | defaults.gestureClashDurationMs;
 
     // Carica parametri Motion se i componenti sono stati collegati
     if (motionDetector) {
@@ -120,14 +97,10 @@ bool ConfigManager::loadConfig() {
         cfg.ignitionIntensityThreshold = doc["gestureIgnitionMin"] | defaults.gestureIgnitionMin;
         cfg.retractIntensityThreshold = doc["gestureRetractMin"] | defaults.gestureRetractMin;
         cfg.clashIntensityThreshold = doc["gestureClashMin"] | defaults.gestureClashMin;
-        const char* mapUp = doc["gestureMapUp"] | MotionProcessor::gestureToString(defaults.gestureMapUp);
-        const char* mapDown = doc["gestureMapDown"] | MotionProcessor::gestureToString(defaults.gestureMapDown);
-        const char* mapLeft = doc["gestureMapLeft"] | MotionProcessor::gestureToString(defaults.gestureMapLeft);
-        const char* mapRight = doc["gestureMapRight"] | MotionProcessor::gestureToString(defaults.gestureMapRight);
-        parseGestureString(mapUp, &cfg.gestureOnUp);
-        parseGestureString(mapDown, &cfg.gestureOnDown);
-        parseGestureString(mapLeft, &cfg.gestureOnLeft);
-        parseGestureString(mapRight, &cfg.gestureOnRight);
+        cfg.effectOnUp = doc["effectMapUp"] | defaults.effectMapUp;
+        cfg.effectOnDown = doc["effectMapDown"] | defaults.effectMapDown;
+        cfg.effectOnLeft = doc["effectMapLeft"] | defaults.effectMapLeft;
+        cfg.effectOnRight = doc["effectMapRight"] | defaults.effectMapRight;
         
         motionProcessor->setConfig(cfg);
     }
@@ -148,6 +121,11 @@ bool ConfigManager::loadConfig() {
     // Validazione foldPoint: deve essere tra 1 e 143 (NUM_LEDS-1)
     if (ledState->foldPoint == 0 || ledState->foldPoint >= 144) {
         ledState->foldPoint = 72;  // Fallback a metà di 144
+    }
+
+    // Validazione gesture clash duration
+    if (ledState->gestureClashDurationMs < 50 || ledState->gestureClashDurationMs > 5000) {
+        ledState->gestureClashDurationMs = defaults.gestureClashDurationMs;
     }
 
     Serial.printf("[CONFIG] Loaded: brightness=%d, r=%d, g=%d, b=%d, effect=%s, speed=%d\n",
@@ -217,6 +195,14 @@ bool ConfigManager::saveConfig() {
         doc["motionOnBoot"] = ledState->motionOnBoot;
         modifiedCount++;
     }
+    if (ledState->gestureClashEffect != defaults.gestureClashEffect) {
+        doc["gestureClashEffect"] = ledState->gestureClashEffect;
+        modifiedCount++;
+    }
+    if (ledState->gestureClashDurationMs != defaults.gestureClashDurationMs) {
+        doc["gestureClashDurationMs"] = ledState->gestureClashDurationMs;
+        modifiedCount++;
+    }
 
     // Salva parametri Motion
     if (motionDetector) {
@@ -248,20 +234,20 @@ bool ConfigManager::saveConfig() {
             doc["gestureClashMin"] = cfg.clashIntensityThreshold;
             modifiedCount++;
         }
-        if (cfg.gestureOnUp != defaults.gestureMapUp) {
-            doc["gestureMapUp"] = MotionProcessor::gestureToString(cfg.gestureOnUp);
+        if (cfg.effectOnUp != defaults.effectMapUp) {
+            doc["effectMapUp"] = cfg.effectOnUp;
             modifiedCount++;
         }
-        if (cfg.gestureOnDown != defaults.gestureMapDown) {
-            doc["gestureMapDown"] = MotionProcessor::gestureToString(cfg.gestureOnDown);
+        if (cfg.effectOnDown != defaults.effectMapDown) {
+            doc["effectMapDown"] = cfg.effectOnDown;
             modifiedCount++;
         }
-        if (cfg.gestureOnLeft != defaults.gestureMapLeft) {
-            doc["gestureMapLeft"] = MotionProcessor::gestureToString(cfg.gestureOnLeft);
+        if (cfg.effectOnLeft != defaults.effectMapLeft) {
+            doc["effectMapLeft"] = cfg.effectOnLeft;
             modifiedCount++;
         }
-        if (cfg.gestureOnRight != defaults.gestureMapRight) {
-            doc["gestureMapRight"] = MotionProcessor::gestureToString(cfg.gestureOnRight);
+        if (cfg.effectOnRight != defaults.effectMapRight) {
+            doc["effectMapRight"] = cfg.effectOnRight;
             modifiedCount++;
         }
     }
@@ -313,6 +299,8 @@ void ConfigManager::resetToDefaults() {
     ledState->autoIgnitionOnBoot = defaults.autoIgnitionOnBoot;
     ledState->autoIgnitionDelayMs = defaults.autoIgnitionDelayMs;
     ledState->motionOnBoot = defaults.motionOnBoot;
+    ledState->gestureClashEffect = defaults.gestureClashEffect;
+    ledState->gestureClashDurationMs = defaults.gestureClashDurationMs;
 
     if (motionDetector) {
         motionDetector->setQuality(defaults.motionQuality);
@@ -324,10 +312,10 @@ void ConfigManager::resetToDefaults() {
         cfg.ignitionIntensityThreshold = defaults.gestureIgnitionMin;
         cfg.retractIntensityThreshold = defaults.gestureRetractMin;
         cfg.clashIntensityThreshold = defaults.gestureClashMin;
-        cfg.gestureOnUp = defaults.gestureMapUp;
-        cfg.gestureOnDown = defaults.gestureMapDown;
-        cfg.gestureOnLeft = defaults.gestureMapLeft;
-        cfg.gestureOnRight = defaults.gestureMapRight;
+        cfg.effectOnUp = defaults.effectMapUp;
+        cfg.effectOnDown = defaults.effectMapDown;
+        cfg.effectOnLeft = defaults.effectMapLeft;
+        cfg.effectOnRight = defaults.effectMapRight;
         motionProcessor->setConfig(cfg);
     }
 
@@ -386,6 +374,8 @@ void ConfigManager::createDefaultConfig() {
     ledState->autoIgnitionOnBoot = defaults.autoIgnitionOnBoot;
     ledState->autoIgnitionDelayMs = defaults.autoIgnitionDelayMs;
     ledState->motionOnBoot = defaults.motionOnBoot;
+    ledState->gestureClashEffect = defaults.gestureClashEffect;
+    ledState->gestureClashDurationMs = defaults.gestureClashDurationMs;
 
     if (motionDetector) {
         motionDetector->setQuality(defaults.motionQuality);
@@ -397,10 +387,10 @@ void ConfigManager::createDefaultConfig() {
         cfg.ignitionIntensityThreshold = defaults.gestureIgnitionMin;
         cfg.retractIntensityThreshold = defaults.gestureRetractMin;
         cfg.clashIntensityThreshold = defaults.gestureClashMin;
-        cfg.gestureOnUp = defaults.gestureMapUp;
-        cfg.gestureOnDown = defaults.gestureMapDown;
-        cfg.gestureOnLeft = defaults.gestureMapLeft;
-        cfg.gestureOnRight = defaults.gestureMapRight;
+        cfg.effectOnUp = defaults.effectMapUp;
+        cfg.effectOnDown = defaults.effectMapDown;
+        cfg.effectOnLeft = defaults.effectMapLeft;
+        cfg.effectOnRight = defaults.effectMapRight;
         motionProcessor->setConfig(cfg);
     }
 }

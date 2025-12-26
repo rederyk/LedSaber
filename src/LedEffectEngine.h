@@ -21,6 +21,7 @@ public:
         IGNITION_ACTIVE,   // Override: ignition in corso
         RETRACT_ACTIVE,    // Override: retraction in corso
         CLASH_ACTIVE,      // Override: clash flash
+        GESTURE_EFFECT,    // Override: base effect temporaneo
     };
 
     /**
@@ -85,6 +86,8 @@ private:
     Mode _mode;
     uint32_t _modeStartTime;
     bool _suppressGestureOverrides;
+    String _gestureEffectName;
+    uint16_t _gestureEffectDurationMs;
 
     // Power state management
     bool _deepSleepRequested;     // true = enter deep sleep after retraction completes
@@ -227,7 +230,7 @@ private:
     // ═══════════════════════════════════════════════════════════
 
     bool checkModeTimeout(uint32_t now);
-    void handleGestureTriggers(MotionProcessor::GestureType gesture, uint32_t now);
+    void handleGestureTriggers(MotionProcessor::GestureType gesture, uint32_t now, const LedState& state);
 };
 
 #endif // LED_EFFECT_ENGINE_H
