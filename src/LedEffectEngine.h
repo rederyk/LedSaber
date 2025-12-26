@@ -88,6 +88,7 @@ private:
     bool _suppressGestureOverrides;
     String _gestureEffectName;
     uint16_t _gestureEffectDurationMs;
+    String _lastBaseEffect;
 
     // Power state management
     bool _deepSleepRequested;     // true = enter deep sleep after retraction completes

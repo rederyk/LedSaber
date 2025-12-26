@@ -13,6 +13,7 @@ LedEffectEngine::LedEffectEngine(CRGB* leds, uint16_t numLeds) :
     _suppressGestureOverrides(false),
     _gestureEffectName(""),
     _gestureEffectDurationMs(500),
+    _lastBaseEffect("solid"),
     _deepSleepRequested(false),
     _ledStateRef(nullptr),
     _hue(0),
@@ -72,6 +73,10 @@ void LedEffectEngine::render(const LedState& state, const MotionProcessor::Proce
         return;
     }
 
+    if (state.effect != "ignition" && state.effect != "retraction" && state.effect != "clash") {
+        _lastBaseEffect = state.effect;
+    }
+
     // Auto-IGNITION when blade is off: any direction ("spicchio") triggers ignition
     if (!state.bladeEnabled && motion != nullptr) {
         const unsigned long AUTO_IGNITION_DEBOUNCE_MS = 300; // Ridotto da 600ms per maggiore reattività
@@ -119,12 +124,17 @@ void LedEffectEngine::render(const LedState& state, const MotionProcessor::Proce
 
     // Handle gesture triggers (if motion available)
     if (motion != nullptr) {
-        handleGestureTriggers(motion->gesture, now, state);
+        const bool hasEffectRequest = (motion->effectRequest[0] != '\0');
+        const bool effectMatches = hasEffectRequest && (state.effect == motion->effectRequest);
+        if (!hasEffectRequest || effectMatches) {
+            handleGestureTriggers(motion->gesture, now, state);
+        }
     }
 
     if (_mode == Mode::IDLE && motion != nullptr &&
         motion->effectRequest[0] != '\0' &&
-        _ledStateRef != nullptr && state.bladeEnabled) {
+        _ledStateRef != nullptr && state.bladeEnabled &&
+        state.effect != motion->effectRequest) {
         _ledStateRef->effect = String(motion->effectRequest);
         Serial.printf("[LED] Effect changed by gesture: %s\n", motion->effectRequest);
     }
@@ -2344,7 +2354,12 @@ void LedEffectEngine::renderIgnition(const LedState& state, const MotionProcesso
         }
     }
 
-    if (state.effect == "storm_lightning") {
+    String baseEffect = state.effect;
+    if (baseEffect == "ignition" || baseEffect == "retraction" || baseEffect == "clash") {
+        baseEffect = _lastBaseEffect.length() ? _lastBaseEffect : String("solid");
+    }
+
+    if (baseEffect == "storm_lightning") {
         renderStormLightning(state, motion ? motion->perturbationGrid : nullptr);
 
         auto addLedPair = [&](uint16_t logicalIndex, CRGB color) {
@@ -2381,10 +2396,8 @@ void LedEffectEngine::renderIgnition(const LedState& state, const MotionProcesso
                 }
             }
         }
-    } else if (state.effect == "ignition" || state.effect == "retraction" || state.effect == "clash") {
-        renderSolid(state, motion ? motion->perturbationGrid : nullptr);
     } else {
-        renderBaseEffect(state, motion, state.effect);
+        renderBaseEffect(state, motion, baseEffect);
     }
 
     applyBladeMask(_ignitionProgress, state.foldPoint);
@@ -2454,7 +2467,12 @@ void LedEffectEngine::renderRetraction(const LedState& state, const MotionProces
         }
     }
 
-    if (state.effect == "storm_lightning") {
+    String baseEffect = state.effect;
+    if (baseEffect == "ignition" || baseEffect == "retraction" || baseEffect == "clash") {
+        baseEffect = _lastBaseEffect.length() ? _lastBaseEffect : String("solid");
+    }
+
+    if (baseEffect == "storm_lightning") {
         renderStormLightning(state, motion ? motion->perturbationGrid : nullptr);
 
         auto addLedPair = [&](uint16_t logicalIndex, CRGB color) {
@@ -2491,10 +2509,8 @@ void LedEffectEngine::renderRetraction(const LedState& state, const MotionProces
                 }
             }
         }
-    } else if (state.effect == "ignition" || state.effect == "retraction" || state.effect == "clash") {
-        renderSolid(state, motion ? motion->perturbationGrid : nullptr);
     } else {
-        renderBaseEffect(state, motion, state.effect);
+        renderBaseEffect(state, motion, baseEffect);
     }
 
     applyBladeMask(_retractionProgress, state.foldPoint);

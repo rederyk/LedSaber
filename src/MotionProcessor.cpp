@@ -160,6 +160,38 @@ MotionProcessor::GestureType MotionProcessor::_detectGesture(
         }
     }
 
+    const bool effectTrigger = (intensity >= _config.gestureThreshold ||
+                                speed >= _config.ignitionSpeedThreshold);
+    if (effectTrigger) {
+        const String* effectName = nullptr;
+        switch (dir4) {
+            case CardinalDirection::UP:
+                effectName = &_config.effectOnUp;
+                break;
+            case CardinalDirection::DOWN:
+                effectName = &_config.effectOnDown;
+                break;
+            case CardinalDirection::LEFT:
+                effectName = &_config.effectOnLeft;
+                break;
+            case CardinalDirection::RIGHT:
+                effectName = &_config.effectOnRight;
+                break;
+            default:
+                break;
+        }
+        if (effectName && effectName->length() > 0) {
+            _gestureCooldown = true;
+            _gestureCooldownEnd = timestamp + _config.gestureCooldownMs;
+            _lastGestureConfidence = 40;
+            strncpy(_lastEffectRequest, effectName->c_str(), sizeof(_lastEffectRequest) - 1);
+            _lastEffectRequest[sizeof(_lastEffectRequest) - 1] = '\0';
+            if (_config.debugLogsEnabled) {
+                Serial.printf("[MOTION] EFFECT change requested: %s\n", _lastEffectRequest);
+            }
+        }
+    }
+
     GestureType mappedGesture = GestureType::NONE;
     switch (dir4) {
         case CardinalDirection::UP:
@@ -218,38 +250,6 @@ MotionProcessor::GestureType MotionProcessor::_detectGesture(
         }
         _lastDirection = direction;
         return GestureType::CLASH;
-    }
-
-    const bool effectTrigger = (intensity >= _config.gestureThreshold ||
-                                speed >= _config.ignitionSpeedThreshold);
-    if (effectTrigger) {
-        const String* effectName = nullptr;
-        switch (dir4) {
-            case CardinalDirection::UP:
-                effectName = &_config.effectOnUp;
-                break;
-            case CardinalDirection::DOWN:
-                effectName = &_config.effectOnDown;
-                break;
-            case CardinalDirection::LEFT:
-                effectName = &_config.effectOnLeft;
-                break;
-            case CardinalDirection::RIGHT:
-                effectName = &_config.effectOnRight;
-                break;
-            default:
-                break;
-        }
-        if (effectName && effectName->length() > 0) {
-            _gestureCooldown = true;
-            _gestureCooldownEnd = timestamp + _config.gestureCooldownMs;
-            _lastGestureConfidence = 40;
-            strncpy(_lastEffectRequest, effectName->c_str(), sizeof(_lastEffectRequest) - 1);
-            _lastEffectRequest[sizeof(_lastEffectRequest) - 1] = '\0';
-            if (_config.debugLogsEnabled) {
-                Serial.printf("[MOTION] EFFECT change requested: %s\n", _lastEffectRequest);
-            }
-        }
     }
 
     // No gesture detected
