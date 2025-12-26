@@ -844,36 +844,8 @@ uint8_t OpticalFlowDetector::_calculateAverageBrightness(const uint8_t* frame,
 }
 
 void OpticalFlowDetector::_updateFlashIntensity() {
-    // Modalita semplice: DAY/NIGHT con controllo raro.
-    // Primo controllo dopo una breve pausa, poi ogni 10 minuti.
-    const unsigned long checkIntervalMs = 10UL * 60UL * 1000UL;
-    const unsigned long stabilizeDelayMs = 2000UL;
-    const uint8_t dayThreshold = 140;
-
-    unsigned long now = millis();
-    if (_lastFlashCheckMs == 0) {
-        if (_flashStabilizeUntilMs == 0) {
-            _flashStabilizeUntilMs = now + stabilizeDelayMs;
-            return;
-        }
-        if (now < _flashStabilizeUntilMs) {
-            return;
-        }
-    } else {
-        if (now < _flashStabilizeUntilMs) {
-            return;
-        }
-        if ((now - _lastFlashCheckMs) < checkIntervalMs) {
-            return;
-        }
-    }
-
-    uint8_t nextIntensity = (_avgBrightness >= dayThreshold) ? 0 : 255;
-    if (nextIntensity != _flashIntensity) {
-        _flashIntensity = nextIntensity;
-        _flashStabilizeUntilMs = now + stabilizeDelayMs;
-    }
-    _lastFlashCheckMs = now;
+    // Auto flash disabilitato: intensita fissa.
+    _flashIntensity = 200;
 }
 
 void OpticalFlowDetector::setQuality(uint8_t quality) {
@@ -917,7 +889,7 @@ void OpticalFlowDetector::reset() {
     _totalFramesProcessed = 0;
     _motionFrameCount = 0;
     _totalComputeTime = 0;
-    _flashIntensity = 150;
+    _flashIntensity = 200;
     _avgBrightness = 0;
     _smoothedBrightness = 0;
     _brightnessFilterInitialized = false;
