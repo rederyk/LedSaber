@@ -3,6 +3,33 @@
 
 extern BLELedController bleController;
 
+namespace {
+bool parseGestureName(const String& name, MotionProcessor::GestureType* outGesture) {
+    if (!outGesture) {
+        return false;
+    }
+    String lower = name;
+    lower.toLowerCase();
+    if (lower == "none") {
+        *outGesture = MotionProcessor::GestureType::NONE;
+        return true;
+    }
+    if (lower == "ignition") {
+        *outGesture = MotionProcessor::GestureType::IGNITION;
+        return true;
+    }
+    if (lower == "retract") {
+        *outGesture = MotionProcessor::GestureType::RETRACT;
+        return true;
+    }
+    if (lower == "clash") {
+        *outGesture = MotionProcessor::GestureType::CLASH;
+        return true;
+    }
+    return false;
+}
+}
+
 BLEMotionService::BLEMotionService(OpticalFlowDetector* motionDetector, MotionProcessor* motionProcessor)
     : _motion(motionDetector)
     , _processor(motionProcessor)
@@ -428,6 +455,10 @@ String BLEMotionService::_getConfigJson() {
         doc["gestureIgnitionIntensity"] = cfg.ignitionIntensityThreshold;
         doc["gestureRetractIntensity"] = cfg.retractIntensityThreshold;
         doc["gestureClashIntensity"] = cfg.clashIntensityThreshold;
+        doc["gestureMapUp"] = MotionProcessor::gestureToString(cfg.gestureOnUp);
+        doc["gestureMapDown"] = MotionProcessor::gestureToString(cfg.gestureOnDown);
+        doc["gestureMapLeft"] = MotionProcessor::gestureToString(cfg.gestureOnLeft);
+        doc["gestureMapRight"] = MotionProcessor::gestureToString(cfg.gestureOnRight);
         doc["debugLogs"] = cfg.debugLogsEnabled;
     }
 
@@ -480,6 +511,50 @@ void BLEMotionService::_executeCommand(const String& command) {
         } else {
             Serial.printf("[MOTION BLE] ✗ Invalid speedmin: %.2f (must be 0-20)\n", minSpeed);
         }
+    } else if (command.startsWith("isup ") && _processor) {
+        MotionProcessor::GestureType gesture = MotionProcessor::GestureType::NONE;
+        if (parseGestureName(command.substring(5), &gesture)) {
+            MotionProcessor::Config cfg = _processor->getConfig();
+            cfg.gestureOnUp = gesture;
+            _processor->setConfig(cfg);
+            Serial.printf("[MOTION BLE] ✓ Gesture map UP set: %s\n",
+                          MotionProcessor::gestureToString(gesture));
+        } else {
+            Serial.printf("[MOTION BLE] ✗ Invalid isup gesture: %s\n", command.c_str());
+        }
+    } else if (command.startsWith("isdown ") && _processor) {
+        MotionProcessor::GestureType gesture = MotionProcessor::GestureType::NONE;
+        if (parseGestureName(command.substring(7), &gesture)) {
+            MotionProcessor::Config cfg = _processor->getConfig();
+            cfg.gestureOnDown = gesture;
+            _processor->setConfig(cfg);
+            Serial.printf("[MOTION BLE] ✓ Gesture map DOWN set: %s\n",
+                          MotionProcessor::gestureToString(gesture));
+        } else {
+            Serial.printf("[MOTION BLE] ✗ Invalid isdown gesture: %s\n", command.c_str());
+        }
+    } else if (command.startsWith("isleft ") && _processor) {
+        MotionProcessor::GestureType gesture = MotionProcessor::GestureType::NONE;
+        if (parseGestureName(command.substring(7), &gesture)) {
+            MotionProcessor::Config cfg = _processor->getConfig();
+            cfg.gestureOnLeft = gesture;
+            _processor->setConfig(cfg);
+            Serial.printf("[MOTION BLE] ✓ Gesture map LEFT set: %s\n",
+                          MotionProcessor::gestureToString(gesture));
+        } else {
+            Serial.printf("[MOTION BLE] ✗ Invalid isleft gesture: %s\n", command.c_str());
+        }
+    } else if (command.startsWith("isright ") && _processor) {
+        MotionProcessor::GestureType gesture = MotionProcessor::GestureType::NONE;
+        if (parseGestureName(command.substring(8), &gesture)) {
+            MotionProcessor::Config cfg = _processor->getConfig();
+            cfg.gestureOnRight = gesture;
+            _processor->setConfig(cfg);
+            Serial.printf("[MOTION BLE] ✓ Gesture map RIGHT set: %s\n",
+                          MotionProcessor::gestureToString(gesture));
+        } else {
+            Serial.printf("[MOTION BLE] ✗ Invalid isright gesture: %s\n", command.c_str());
+        }
 
     } else {
         Serial.printf("[MOTION BLE] ✗ Unknown command: %s\n", command.c_str());
@@ -512,7 +587,9 @@ void BLEMotionService::ConfigCallbacks::onWrite(BLECharacteristic* pCharacterist
     // Parse JSON payload: {"enabled": bool, "quality": 0-255,
     // "motionIntensityMin": 0-255, "motionSpeedMin": 0-20,
     // "gestureIgnitionIntensity": 0-255, "gestureRetractIntensity": 0-255,
-    // "gestureClashIntensity": 0-255, "debugLogs": bool}
+    // "gestureClashIntensity": 0-255, "gestureMapUp": "ignition|retract|clash|none",
+    // "gestureMapDown": "...", "gestureMapLeft": "...", "gestureMapRight": "...",
+    // "debugLogs": bool}
     JsonDocument doc;
     DeserializationError error = deserializeJson(doc, value.c_str());
 
@@ -528,6 +605,10 @@ void BLEMotionService::ConfigCallbacks::onWrite(BLECharacteristic* pCharacterist
     const bool hasIgnitionIntensity = !doc["gestureIgnitionIntensity"].isNull();
     const bool hasRetractIntensity = !doc["gestureRetractIntensity"].isNull();
     const bool hasClashIntensity = !doc["gestureClashIntensity"].isNull();
+    const bool hasMapUp = !doc["gestureMapUp"].isNull();
+    const bool hasMapDown = !doc["gestureMapDown"].isNull();
+    const bool hasMapLeft = !doc["gestureMapLeft"].isNull();
+    const bool hasMapRight = !doc["gestureMapRight"].isNull();
     const bool hasDebugLogs = !doc["debugLogs"].isNull();
 
     uint8_t quality = doc["quality"] | _service->_motion->getQuality();
@@ -548,7 +629,8 @@ void BLEMotionService::ConfigCallbacks::onWrite(BLECharacteristic* pCharacterist
         _service->_motion->setMotionSpeedThreshold(motionSpeedMin);
     }
     if (_service->_processor &&
-        (hasIgnitionIntensity || hasRetractIntensity || hasClashIntensity || hasDebugLogs)) {
+        (hasIgnitionIntensity || hasRetractIntensity || hasClashIntensity ||
+         hasMapUp || hasMapDown || hasMapLeft || hasMapRight || hasDebugLogs)) {
         MotionProcessor::Config cfg = _service->_processor->getConfig();
         if (hasIgnitionIntensity) {
             cfg.ignitionIntensityThreshold = (uint8_t)constrain((int)doc["gestureIgnitionIntensity"], 0, 255);
@@ -558,6 +640,30 @@ void BLEMotionService::ConfigCallbacks::onWrite(BLECharacteristic* pCharacterist
         }
         if (hasClashIntensity) {
             cfg.clashIntensityThreshold = (uint8_t)constrain((int)doc["gestureClashIntensity"], 0, 255);
+        }
+        if (hasMapUp) {
+            MotionProcessor::GestureType gesture = cfg.gestureOnUp;
+            if (parseGestureName(String((const char*)doc["gestureMapUp"]), &gesture)) {
+                cfg.gestureOnUp = gesture;
+            }
+        }
+        if (hasMapDown) {
+            MotionProcessor::GestureType gesture = cfg.gestureOnDown;
+            if (parseGestureName(String((const char*)doc["gestureMapDown"]), &gesture)) {
+                cfg.gestureOnDown = gesture;
+            }
+        }
+        if (hasMapLeft) {
+            MotionProcessor::GestureType gesture = cfg.gestureOnLeft;
+            if (parseGestureName(String((const char*)doc["gestureMapLeft"]), &gesture)) {
+                cfg.gestureOnLeft = gesture;
+            }
+        }
+        if (hasMapRight) {
+            MotionProcessor::GestureType gesture = cfg.gestureOnRight;
+            if (parseGestureName(String((const char*)doc["gestureMapRight"]), &gesture)) {
+                cfg.gestureOnRight = gesture;
+            }
         }
         if (hasDebugLogs) {
             cfg.debugLogsEnabled = (bool)doc["debugLogs"];

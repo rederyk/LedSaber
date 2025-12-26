@@ -226,6 +226,10 @@ class MotionStatusCard(Static):
         gi = state.get('gestureIgnitionIntensity')
         gr = state.get('gestureRetractIntensity')
         gc = state.get('gestureClashIntensity')
+        map_up = state.get('gestureMapUp')
+        map_down = state.get('gestureMapDown')
+        map_left = state.get('gestureMapLeft')
+        map_right = state.get('gestureMapRight')
 
         status_icon = "[green]◉ ENABLED[/]" if enabled else "[red]● DISABLED[/]"
         motion_icon = "[yellow]⚡[/]" if motion_detected else "[dim]○[/]"
@@ -242,13 +246,19 @@ class MotionStatusCard(Static):
             gr_val = "?" if gr is None else f"{gr}"
             gc_val = "?" if gc is None else f"{gc}"
             table.add_row(f"G-I/R/C: [dim]{gi_val}/{gr_val}/{gc_val}[/]")
+        if map_up or map_down or map_left or map_right:
+            up_val = "?" if map_up is None else f"{map_up}"
+            down_val = "?" if map_down is None else f"{map_down}"
+            left_val = "?" if map_left is None else f"{map_left}"
+            right_val = "?" if map_right is None else f"{map_right}"
+            table.add_row(f"Map U/D/L/R: [dim]{up_val}/{down_val}/{left_val}/{right_val}[/]")
 
         return Panel(
             table,
             title="[bold magenta]⚡ STATUS[/]",
             border_style="magenta",
             box=box.ROUNDED,
-            height=8
+            height=9
         )
 
 
@@ -1312,7 +1322,7 @@ class SaberDashboard(App):
             # === MOTION COMMANDS ===
             elif cmd == "motion":
                 if not args:
-                    self._log("Usage: motion <enable|disable|onboot|status|config|quality N|motionmin N|speedmin N|ignitionmin N|retractmin N|clashmin N>", "red")
+                    self._log("Usage: motion <enable|disable|onboot|status|config|quality N|motionmin N|speedmin N|ignitionmin N|retractmin N|clashmin N|isup G|isdown G|isleft G|isright G>", "red")
                     return
 
                 subcmd = args[0].lower()
@@ -1355,7 +1365,11 @@ class SaberDashboard(App):
                             f"speedMin={config.get('motionSpeedMin')} "
                             f"ignition={config.get('gestureIgnitionIntensity')} "
                             f"retract={config.get('gestureRetractIntensity')} "
-                            f"clash={config.get('gestureClashIntensity')}",
+                            f"clash={config.get('gestureClashIntensity')} "
+                            f"mapU={config.get('gestureMapUp')} "
+                            f"mapD={config.get('gestureMapDown')} "
+                            f"mapL={config.get('gestureMapLeft')} "
+                            f"mapR={config.get('gestureMapRight')}",
                             "cyan"
                         )
                     else:
@@ -1412,6 +1426,25 @@ class SaberDashboard(App):
                     self._set_motion_config_field("gestureClashIntensity", value)
                     self._log(f"Clash intensity min set: {value}", "green")
 
+                elif subcmd in ("isup", "isdown", "isleft", "isright"):
+                    if len(args) < 2:
+                        self._log("Usage: motion is<dir> <ignition|retract|clash|none>", "red")
+                        return
+                    gesture = args[1].lower()
+                    if gesture not in ("ignition", "retract", "clash", "none"):
+                        self._log("Allowed gestures: ignition, retract, clash, none", "red")
+                        return
+                    await self.client.motion_send_command(f"{subcmd} {gesture}")
+                    config_key = {
+                        "isup": "gestureMapUp",
+                        "isdown": "gestureMapDown",
+                        "isleft": "gestureMapLeft",
+                        "isright": "gestureMapRight",
+                    }.get(subcmd)
+                    if config_key:
+                        self._set_motion_config_field(config_key, gesture)
+                    self._log(f"Gesture map {subcmd[2:]} set: {gesture}", "green")
+
                 else:
                     self._log(f"Unknown motion command: {subcmd}", "red")
 
@@ -1447,7 +1480,7 @@ class SaberDashboard(App):
             elif cmd == "help":
                 self._log("Commands: scan, connect, disconnect, color, effect, brightness, on, off", "cyan")
                 self._log("          chrono <hour_theme> <second_theme> - Set chrono themes (0-3 for hours, 0-5 for seconds)", "cyan")
-                self._log("          cam <init|start|stop|status>, motion <enable|disable|status|config|quality N|motionmin N|speedmin N|ignitionmin N|retractmin N|clashmin N>", "cyan")
+                self._log("          cam <init|start|stop|status>, motion <enable|disable|status|config|quality N|motionmin N|speedmin N|ignitionmin N|retractmin N|clashmin N|isup G|isdown G|isleft G|isright G>", "cyan")
                 self._log("          ignition, retract, reboot, sleep, effects, motion onboot <on|off>", "cyan")
                 self._log("Shortcuts: Ctrl+S=scan, Ctrl+D=disconnect, F2=cam init, F3=start, F4=stop, F5=motion toggle", "cyan")
                 self._log("           F6=cycle hour theme, F7=cycle second theme, F8=ignition, F9=retract, F10=toggle motion boot", "cyan")
@@ -1557,7 +1590,11 @@ class SaberDashboard(App):
                         f"speedMin={config.get('motionSpeedMin')} "
                         f"ignition={config.get('gestureIgnitionIntensity')} "
                         f"retract={config.get('gestureRetractIntensity')} "
-                        f"clash={config.get('gestureClashIntensity')}",
+                        f"clash={config.get('gestureClashIntensity')} "
+                        f"mapU={config.get('gestureMapUp')} "
+                        f"mapD={config.get('gestureMapDown')} "
+                        f"mapL={config.get('gestureMapLeft')} "
+                        f"mapR={config.get('gestureMapRight')}",
                         "cyan"
                     )
             except Exception as e:
@@ -1661,6 +1698,10 @@ class SaberDashboard(App):
                 "gestureIgnitionIntensity",
                 "gestureRetractIntensity",
                 "gestureClashIntensity",
+                "gestureMapUp",
+                "gestureMapDown",
+                "gestureMapLeft",
+                "gestureMapRight",
             ):
                 if key in self.motion_config:
                     merged[key] = self.motion_config[key]

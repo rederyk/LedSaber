@@ -142,53 +142,61 @@ MotionProcessor::GestureType MotionProcessor::_detectGesture(
             absDy >>= shift;
         }
     }
-    // Allargato angolo di rilevamento verticale a ~56 gradi (tan(56)*256 ~= 380)
-    // Rende più facile fare RETRACT senza essere perfettamente verticali
-    static constexpr int32_t TAN_DOWN_HALF_Q8 = 380; 
-    static constexpr int32_t TAN_LR_HALF_Q8 = 215;   // tan(40 deg) * 256
+    enum class CardinalDirection : uint8_t { NONE, UP, DOWN, LEFT, RIGHT };
+    CardinalDirection dir4 = CardinalDirection::NONE;
+    if (absDx > 0 || absDy > 0) {
+        if (absDx >= absDy) {
+            dir4 = (sumDx >= 0) ? CardinalDirection::RIGHT : CardinalDirection::LEFT;
+        } else {
+            dir4 = (sumDy >= 0) ? CardinalDirection::DOWN : CardinalDirection::UP;
+        }
+    }
 
-    const bool isDown = (sumDy > 0) &&
-        ((absDx << 8) <= (TAN_DOWN_HALF_Q8 * absDy));
-    const bool isUp = (sumDy < 0) &&
-        ((absDx << 8) <= (TAN_DOWN_HALF_Q8 * absDy));
-    const bool isLeft = (sumDx < 0) &&
-        ((absDy << 8) <= (TAN_LR_HALF_Q8 * absDx));
-    const bool isRight = (sumDx > 0) &&
-        ((absDy << 8) <= (TAN_LR_HALF_Q8 * absDx));
-    const bool isDownDiagonal = (direction == OpticalFlowDetector::Direction::DOWN_LEFT) ||
-        (direction == OpticalFlowDetector::Direction::DOWN_RIGHT);
+    GestureType mappedGesture = GestureType::NONE;
+    switch (dir4) {
+        case CardinalDirection::UP:
+            mappedGesture = _config.gestureOnUp;
+            break;
+        case CardinalDirection::DOWN:
+            mappedGesture = _config.gestureOnDown;
+            break;
+        case CardinalDirection::LEFT:
+            mappedGesture = _config.gestureOnLeft;
+            break;
+        case CardinalDirection::RIGHT:
+            mappedGesture = _config.gestureOnRight;
+            break;
+        default:
+            break;
+    }
 
-
-    // RETRACT: Movimento verso il basso (Camera DOWN -> Pixels UP -> isUp)
-    if ((isDown || isDownDiagonal || isUp || isLeft || isRight) &&
+    if (mappedGesture == GestureType::RETRACT &&
         (intensity >= retractIntensityThreshold || speed >= _config.retractSpeedThreshold))
     {
         _gestureCooldown = true;
         _gestureCooldownEnd = timestamp + _config.gestureCooldownMs;
         _lastGestureConfidence = 60;
         if (_config.debugLogsEnabled) {
-            Serial.println("[MOTION] RETRACT detected (direction: up/camera-down).");
+            Serial.println("[MOTION] RETRACT detected (4-way mapping).");
         }
         _lastDirection = direction;
         return GestureType::RETRACT;
     }
 
-    // IGNITION: Movimento verso l'alto (Camera UP -> Pixels DOWN -> isDown)
-    if (isUp && 
+    if (mappedGesture == GestureType::IGNITION &&
         (intensity >= _config.ignitionIntensityThreshold || speed >= _config.ignitionSpeedThreshold))
     {
         _gestureCooldown = true;
         _gestureCooldownEnd = timestamp + _config.gestureCooldownMs;
         _lastGestureConfidence = 85;
         if (_config.debugLogsEnabled) {
-            Serial.println("[MOTION] IGNITION detected (direction: down/camera-up).");
+            Serial.println("[MOTION] IGNITION detected (4-way mapping).");
         }
         _lastDirection = direction;
         return GestureType::IGNITION;
     }
 
-    // "Cerchio a spicchi": giu' lento? = retract, sinistra/destra veloce ?= clash
-    if ((isLeft || isRight) &&
+    if (mappedGesture == GestureType::CLASH &&
         (intensity >= clashIntensityThreshold || speed >= _config.clashSpeedThreshold) &&
         !clashOnCooldown)
     {
@@ -200,7 +208,7 @@ MotionProcessor::GestureType MotionProcessor::_detectGesture(
         _clashCooldownEnd = timestamp + clashCooldown;
         _lastGestureConfidence = 70;
         if (_config.debugLogsEnabled) {
-            Serial.println("[MOTION] CLASH detected (direction: left/right, fast).");
+            Serial.println("[MOTION] CLASH detected (4-way mapping).");
         }
         _lastDirection = direction;
         return GestureType::CLASH;

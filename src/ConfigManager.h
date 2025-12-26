@@ -36,6 +36,10 @@ private:
         uint8_t gestureIgnitionMin = 15;
         uint8_t gestureRetractMin = 15;
         uint8_t gestureClashMin = 15;
+        MotionProcessor::GestureType gestureMapUp = MotionProcessor::GestureType::IGNITION;
+        MotionProcessor::GestureType gestureMapDown = MotionProcessor::GestureType::RETRACT;
+        MotionProcessor::GestureType gestureMapLeft = MotionProcessor::GestureType::CLASH;
+        MotionProcessor::GestureType gestureMapRight = MotionProcessor::GestureType::CLASH;
     };
     DefaultConfig defaults;
 

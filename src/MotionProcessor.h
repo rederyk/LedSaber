@@ -52,6 +52,11 @@ public:
         float ignitionSpeedThreshold;
         float retractSpeedThreshold;
         float clashSpeedThreshold;
+        // Direction -> gesture mapping (4-way, 90 degrees)
+        GestureType gestureOnUp;
+        GestureType gestureOnDown;
+        GestureType gestureOnLeft;
+        GestureType gestureOnRight;
 
         Config() :
             gesturesEnabled(true),
@@ -69,7 +74,11 @@ public:
             debugLogsEnabled(false),
             ignitionSpeedThreshold(0.4f),  // Ridotto a 0.5 per facilitare ignition
             retractSpeedThreshold(0.4f),   // Ridotto a 0.4 per facilitare retract
-            clashSpeedThreshold(2.0f) {}
+            clashSpeedThreshold(2.0f),
+            gestureOnUp(GestureType::IGNITION),
+            gestureOnDown(GestureType::RETRACT),
+            gestureOnLeft(GestureType::CLASH),
+            gestureOnRight(GestureType::CLASH) {}
     };
 
     MotionProcessor();

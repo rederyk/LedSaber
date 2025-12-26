@@ -1,5 +1,32 @@
 #include "ConfigManager.h"
 
+namespace {
+bool parseGestureString(const char* value, MotionProcessor::GestureType* outGesture) {
+    if (!outGesture || !value) {
+        return false;
+    }
+    String lower = String(value);
+    lower.toLowerCase();
+    if (lower == "none") {
+        *outGesture = MotionProcessor::GestureType::NONE;
+        return true;
+    }
+    if (lower == "ignition") {
+        *outGesture = MotionProcessor::GestureType::IGNITION;
+        return true;
+    }
+    if (lower == "retract") {
+        *outGesture = MotionProcessor::GestureType::RETRACT;
+        return true;
+    }
+    if (lower == "clash") {
+        *outGesture = MotionProcessor::GestureType::CLASH;
+        return true;
+    }
+    return false;
+}
+}
+
 ConfigManager::ConfigManager(LedState* state) {
     ledState = state;
 }
@@ -93,6 +120,14 @@ bool ConfigManager::loadConfig() {
         cfg.ignitionIntensityThreshold = doc["gestureIgnitionMin"] | defaults.gestureIgnitionMin;
         cfg.retractIntensityThreshold = doc["gestureRetractMin"] | defaults.gestureRetractMin;
         cfg.clashIntensityThreshold = doc["gestureClashMin"] | defaults.gestureClashMin;
+        const char* mapUp = doc["gestureMapUp"] | MotionProcessor::gestureToString(defaults.gestureMapUp);
+        const char* mapDown = doc["gestureMapDown"] | MotionProcessor::gestureToString(defaults.gestureMapDown);
+        const char* mapLeft = doc["gestureMapLeft"] | MotionProcessor::gestureToString(defaults.gestureMapLeft);
+        const char* mapRight = doc["gestureMapRight"] | MotionProcessor::gestureToString(defaults.gestureMapRight);
+        parseGestureString(mapUp, &cfg.gestureOnUp);
+        parseGestureString(mapDown, &cfg.gestureOnDown);
+        parseGestureString(mapLeft, &cfg.gestureOnLeft);
+        parseGestureString(mapRight, &cfg.gestureOnRight);
         
         motionProcessor->setConfig(cfg);
     }
@@ -201,10 +236,34 @@ bool ConfigManager::saveConfig() {
 
     if (motionProcessor) {
         MotionProcessor::Config cfg = motionProcessor->getConfig();
-        if (cfg.ignitionIntensityThreshold != defaults.gestureIgnitionMin) doc["gestureIgnitionMin"] = cfg.ignitionIntensityThreshold;
-        if (cfg.retractIntensityThreshold != defaults.gestureRetractMin) doc["gestureRetractMin"] = cfg.retractIntensityThreshold;
-        if (cfg.clashIntensityThreshold != defaults.gestureClashMin) doc["gestureClashMin"] = cfg.clashIntensityThreshold;
-        // Nota: modifiedCount incrementato implicitamente se salviamo
+        if (cfg.ignitionIntensityThreshold != defaults.gestureIgnitionMin) {
+            doc["gestureIgnitionMin"] = cfg.ignitionIntensityThreshold;
+            modifiedCount++;
+        }
+        if (cfg.retractIntensityThreshold != defaults.gestureRetractMin) {
+            doc["gestureRetractMin"] = cfg.retractIntensityThreshold;
+            modifiedCount++;
+        }
+        if (cfg.clashIntensityThreshold != defaults.gestureClashMin) {
+            doc["gestureClashMin"] = cfg.clashIntensityThreshold;
+            modifiedCount++;
+        }
+        if (cfg.gestureOnUp != defaults.gestureMapUp) {
+            doc["gestureMapUp"] = MotionProcessor::gestureToString(cfg.gestureOnUp);
+            modifiedCount++;
+        }
+        if (cfg.gestureOnDown != defaults.gestureMapDown) {
+            doc["gestureMapDown"] = MotionProcessor::gestureToString(cfg.gestureOnDown);
+            modifiedCount++;
+        }
+        if (cfg.gestureOnLeft != defaults.gestureMapLeft) {
+            doc["gestureMapLeft"] = MotionProcessor::gestureToString(cfg.gestureOnLeft);
+            modifiedCount++;
+        }
+        if (cfg.gestureOnRight != defaults.gestureMapRight) {
+            doc["gestureMapRight"] = MotionProcessor::gestureToString(cfg.gestureOnRight);
+            modifiedCount++;
+        }
     }
 
     // Se tutti i valori sono uguali ai default, elimina il file config
@@ -265,6 +324,10 @@ void ConfigManager::resetToDefaults() {
         cfg.ignitionIntensityThreshold = defaults.gestureIgnitionMin;
         cfg.retractIntensityThreshold = defaults.gestureRetractMin;
         cfg.clashIntensityThreshold = defaults.gestureClashMin;
+        cfg.gestureOnUp = defaults.gestureMapUp;
+        cfg.gestureOnDown = defaults.gestureMapDown;
+        cfg.gestureOnLeft = defaults.gestureMapLeft;
+        cfg.gestureOnRight = defaults.gestureMapRight;
         motionProcessor->setConfig(cfg);
     }
 
@@ -334,6 +397,10 @@ void ConfigManager::createDefaultConfig() {
         cfg.ignitionIntensityThreshold = defaults.gestureIgnitionMin;
         cfg.retractIntensityThreshold = defaults.gestureRetractMin;
         cfg.clashIntensityThreshold = defaults.gestureClashMin;
+        cfg.gestureOnUp = defaults.gestureMapUp;
+        cfg.gestureOnDown = defaults.gestureMapDown;
+        cfg.gestureOnLeft = defaults.gestureMapLeft;
+        cfg.gestureOnRight = defaults.gestureMapRight;
         motionProcessor->setConfig(cfg);
     }
 }
