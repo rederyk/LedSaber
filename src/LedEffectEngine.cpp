@@ -160,7 +160,7 @@ void LedEffectEngine::render(const LedState& state, const MotionProcessor::Proce
             break;
 
         case Mode::CLASH_ACTIVE:
-            renderClash(state);
+            renderClash(state, motion);
             break;
 
         case Mode::GESTURE_EFFECT:
@@ -202,7 +202,7 @@ void LedEffectEngine::render(const LedState& state, const MotionProcessor::Proce
                 renderRetraction(state, motion);
             } else if (state.effect == "clash") {
                 // Manual clash effect (user triggered)
-                renderClash(state);
+                renderClash(state, motion);
             } else {
                 // Unknown effect: fallback to solid
                 renderSolid(state, nullptr);
@@ -2516,7 +2516,7 @@ void LedEffectEngine::renderRetraction(const LedState& state, const MotionProces
     applyBladeMask(_retractionProgress, state.foldPoint);
 }
 
-void LedEffectEngine::renderClash(const LedState& state) {
+void LedEffectEngine::renderClash(const LedState& state, const MotionProcessor::ProcessedMotion* motion) {
     const unsigned long now = millis();
 
     // Trigger clash periodically (for manual effect mode)
@@ -2533,14 +2533,19 @@ void LedEffectEngine::renderClash(const LedState& state) {
         }
     }
 
-    CRGB baseColor = CRGB(state.r, state.g, state.b);
-    CRGB flashColor = CRGB(255, 255, 255);
-    uint8_t safeBrightness = min(state.brightness, MAX_SAFE_BRIGHTNESS);
+    String baseEffect = state.effect;
+    if (baseEffect == "ignition" || baseEffect == "retraction" || baseEffect == "clash") {
+        baseEffect = _lastBaseEffect.length() ? _lastBaseEffect : String("solid");
+    }
+    renderBaseEffect(state, motion, baseEffect);
 
-    for (uint16_t i = 0; i < state.foldPoint; i++) {
-        CRGB clashColor = blend(baseColor, flashColor, _clashBrightness);
-        clashColor = scaleColorByBrightness(clashColor, safeBrightness);
-        setLedPair(i, state.foldPoint, clashColor);
+    if (_clashBrightness > 0) {
+        for (uint16_t i = 0; i < state.foldPoint; i++) {
+            uint16_t led1 = i;
+            uint16_t led2 = (_numLeds - 1) - i;
+            _leds[led1] = blend(_leds[led1], CRGB::White, _clashBrightness);
+            _leds[led2] = blend(_leds[led2], CRGB::White, _clashBrightness);
+        }
     }
 
     // Note: Brightness scaling already applied, will be set globally in render()

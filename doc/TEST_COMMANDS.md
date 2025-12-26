@@ -50,6 +50,18 @@ Verifica: Il LED fisico sul pin 4 dovrebbe accendersi/spegnersi
 
 Verifica: Controlla che il valore cambi nello stato
 
+#### Test Motion Mapping
+```
+> motion enable
+> motion isup rainbow
+> motion isdown flicker
+> motion isleft unstable
+> motion isright pulse
+> motion config
+```
+
+Verifica: il config mostra `effectMapUp/Down/Left/Right` con i valori impostati
+
 #### Test Sincronizzazione Tempo **[NUOVO]**
 ```
 > sync

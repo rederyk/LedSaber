@@ -52,6 +52,18 @@ chmod +x ledsaber_control.py
 - `help` - Mostra menu comandi
 - `quit` o `exit` - Esci dallo script
 
+### Motion Detection
+- `motion enable|disable` - Abilita/disabilita motion detection
+- `motion status` - Stato motion (intensita, direzione, gesture)
+- `motion config` - Configurazione motion (soglie + mapping)
+- `motion quality <0-255>` - Qualita optical flow
+- `motion motionmin <0-255>` - Soglia intensita per motion active
+- `motion speedmin <0-20>` - Soglia velocita (px/frame)
+- `motion ignitionmin <0-255>` - Soglia intensita ignition
+- `motion retractmin <0-255>` - Soglia intensita retract
+- `motion clashmin <0-255>` - Soglia intensita clash
+- `motion isup|isdown|isleft|isright <effect_id>` - Mappa effetto su gesture 4-way
+
 ## Esempio Sessione
 
 ```
