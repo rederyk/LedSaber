@@ -25,6 +25,7 @@ LedEffectEngine::LedEffectEngine(CRGB* leds, uint16_t numLeds) :
     _lastRetractionUpdate(0),
     _retractionOneShot(false),
     _retractionCompleted(false),
+    _retractionDisableBlade(true),
     _pulsePosition(0),
     _lastPulseUpdate(0),
     _pulseCharge(0),
@@ -133,10 +134,28 @@ void LedEffectEngine::render(const LedState& state, const MotionProcessor::Proce
 
     if (_mode == Mode::IDLE && motion != nullptr &&
         motion->effectRequest[0] != '\0' &&
-        _ledStateRef != nullptr && state.bladeEnabled &&
-        state.effect != motion->effectRequest) {
-        _ledStateRef->effect = String(motion->effectRequest);
-        Serial.printf("[LED] Effect changed by gesture: %s\n", motion->effectRequest);
+        _ledStateRef != nullptr && state.bladeEnabled) {
+        if (strcmp(motion->effectRequest, "retraction") == 0) {
+            triggerRetractionOneShot(false);
+            Serial.println("[LED] Retraction triggered by gesture map (visual only)");
+        } else if (strcmp(motion->effectRequest, "ignition") == 0) {
+            if (!state.bladeEnabled) {
+                powerOn();
+            } else {
+                triggerIgnitionOneShot();
+            }
+            Serial.println("[LED] Ignition triggered by gesture map");
+        } else if (strcmp(motion->effectRequest, "clash") == 0) {
+            _mode = Mode::CLASH_ACTIVE;
+            _modeStartTime = now;
+            _clashActive = true;
+            _clashBrightness = 255;
+            _lastClashTrigger = now;
+            Serial.println("[LED] Clash triggered by gesture map");
+        } else if (state.effect != motion->effectRequest) {
+            _ledStateRef->effect = String(motion->effectRequest);
+            Serial.printf("[LED] Effect changed by gesture: %s\n", motion->effectRequest);
+        }
     }
 
     // Check mode timeout
@@ -2407,7 +2426,9 @@ void LedEffectEngine::renderRetraction(const LedState& state, const MotionProces
     // If one-shot mode and already completed, keep all LEDs off
     // (Deep sleep is handled in the animation completion block below)
     if (_retractionOneShot && _retractionCompleted) {
-        fill_solid(_leds, _numLeds, CRGB::Black);
+        if (_retractionDisableBlade) {
+            fill_solid(_leds, _numLeds, CRGB::Black);
+        }
         return;
     }
 
@@ -2428,15 +2449,17 @@ void LedEffectEngine::renderRetraction(const LedState& state, const MotionProces
             // One-shot mode: mark as completed and disable blade
             _retractionCompleted = true;
 
-            // CRITICAL: Disable blade BEFORE returning to IDLE mode
-            if (_ledStateRef && _ledStateRef->bladeEnabled) {
-                _ledStateRef->bladeEnabled = false;
-                Serial.println("[LED POWER] Blade disabled after retraction");
-            }
+            if (_retractionDisableBlade) {
+                // CRITICAL: Disable blade BEFORE returning to IDLE mode
+                if (_ledStateRef && _ledStateRef->bladeEnabled) {
+                    _ledStateRef->bladeEnabled = false;
+                    Serial.println("[LED POWER] Blade disabled after retraction");
+                }
 
-            // Start counting "time off" from this moment
-            _bladeOffTimestamp = now;
-            Serial.printf("[LED] Retraction complete. Blade OFF timer started (now=%lu)\n", now);
+                // Start counting "time off" from this moment
+                _bladeOffTimestamp = now;
+                Serial.printf("[LED] Retraction complete. Blade OFF timer started (now=%lu)\n", now);
+            }
 
             // Handle deep sleep if requested (must be done BEFORE returning to IDLE)
             if (_deepSleepRequested) {
@@ -2460,7 +2483,11 @@ void LedEffectEngine::renderRetraction(const LedState& state, const MotionProces
             }
 
             _mode = Mode::IDLE;
-            Serial.println("[LED] Retraction complete - all LEDs off");
+            if (_retractionDisableBlade) {
+                Serial.println("[LED] Retraction complete - all LEDs off");
+            } else {
+                Serial.println("[LED] Retraction complete - visual only");
+            }
         } else {
             // Normal mode: loop
             _modeStartTime = now;  // Restart animation
@@ -2565,9 +2592,10 @@ void LedEffectEngine::triggerIgnitionOneShot() {
     Serial.println("[LED] Ignition ONE-SHOT triggered!");
 }
 
-void LedEffectEngine::triggerRetractionOneShot() {
+void LedEffectEngine::triggerRetractionOneShot(bool disableBlade) {
     _retractionOneShot = true;
     _retractionCompleted = false;
+    _retractionDisableBlade = disableBlade;
     _retractionProgress = 0;  // Will be initialized in renderRetraction
     _mode = Mode::RETRACT_ACTIVE;
     _modeStartTime = millis();
@@ -2631,6 +2659,7 @@ void LedEffectEngine::powerOff(bool deepSleep) {
     // Step 2: Trigger retraction animation (one-shot)
     _retractionOneShot = true;
     _retractionCompleted = false;
+    _retractionDisableBlade = true;
     _retractionProgress = 0;
     _mode = Mode::RETRACT_ACTIVE;
     _modeStartTime = millis();

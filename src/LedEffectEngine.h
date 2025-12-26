@@ -77,7 +77,7 @@ public:
      * @brief Trigger retraction effect (one-shot mode)
      * Used for shutdown/power-off - LEGACY, prefer powerOff()
      */
-    void triggerRetractionOneShot();
+    void triggerRetractionOneShot(bool disableBlade = true);
 
 private:
     CRGB* _leds;
@@ -104,6 +104,7 @@ private:
     unsigned long _lastRetractionUpdate;
     bool _retractionOneShot;      // true = retraction runs once
     bool _retractionCompleted;    // true = cycle completed
+    bool _retractionDisableBlade; // true = retraction disables blade at completion
     uint16_t _pulsePosition;
     unsigned long _lastPulseUpdate;
     uint8_t _pulseCharge;          // 0-255 charge level at base
