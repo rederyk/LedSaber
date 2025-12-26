@@ -135,6 +135,7 @@ private:
 
     uint8_t _mainPulseWidth;    // Width of the main pulse (locked per cycle)
     unsigned long _bladeOffTimestamp; // Timestamp when blade turned off (for auto-ignition debounce)
+    unsigned long _lastIgnitionTimestamp; // Timestamp when ignition completed (debounce)
     unsigned long _lastUpdate;
 
     // ChronoHybrid effect state

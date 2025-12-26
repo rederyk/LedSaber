@@ -40,6 +40,7 @@ LedEffectEngine::LedEffectEngine(CRGB* leds, uint16_t numLeds) :
     _rainbowHue(0),
     _breathOverride(255),
     _bladeOffTimestamp(0),
+    _lastIgnitionTimestamp(0),
     _lastUpdate(0),
     _lastSecondarySpawn(0),
     _mainPulseWidth(20),
@@ -80,7 +81,7 @@ void LedEffectEngine::render(const LedState& state, const MotionProcessor::Proce
 
     // Auto-IGNITION when blade is off: any direction ("spicchio") triggers ignition
     if (!state.bladeEnabled && motion != nullptr) {
-        const unsigned long AUTO_IGNITION_DEBOUNCE_MS = 300; // Ridotto da 600ms per maggiore reattività
+        const unsigned long AUTO_IGNITION_DEBOUNCE_MS = 1000; // Debounce per evitare riaccensioni immediate
         
         // Accendi se c'è movimento generico (anche senza direzione chiara se intenso) 
         // OPPURE se viene rilevata una gesture specifica
@@ -88,10 +89,14 @@ void LedEffectEngine::render(const LedState& state, const MotionProcessor::Proce
         bool validGesture = (motion->gesture == MotionProcessor::GestureType::IGNITION) || 
                             (motion->gesture == MotionProcessor::GestureType::RETRACT);
 
-        if ((validMotion || validGesture) && (now - _bladeOffTimestamp) >= AUTO_IGNITION_DEBOUNCE_MS)
+        unsigned long lastPowerEvent = _bladeOffTimestamp;
+        if (_lastIgnitionTimestamp > lastPowerEvent) {
+            lastPowerEvent = _lastIgnitionTimestamp;
+        }
+        if ((validMotion || validGesture) && (now - lastPowerEvent) >= AUTO_IGNITION_DEBOUNCE_MS)
         {
             Serial.printf("[LED] Auto ignition on motion while blade off. OffTime: %lu, Now: %lu\n",
-                _bladeOffTimestamp, now);
+                lastPowerEvent, now);
             powerOn();
         }
     }
@@ -136,8 +141,8 @@ void LedEffectEngine::render(const LedState& state, const MotionProcessor::Proce
         motion->effectRequest[0] != '\0' &&
         _ledStateRef != nullptr && state.bladeEnabled) {
         if (strcmp(motion->effectRequest, "retraction") == 0) {
-            triggerRetractionOneShot(false);
-            Serial.println("[LED] Retraction triggered by gesture map (visual only)");
+            powerOff(false);
+            Serial.println("[LED] Retraction triggered by gesture map (power off)");
         } else if (strcmp(motion->effectRequest, "ignition") == 0) {
             if (!state.bladeEnabled) {
                 powerOn();
@@ -2366,6 +2371,7 @@ void LedEffectEngine::renderIgnition(const LedState& state, const MotionProcesso
             // One-shot mode: mark as completed and return to IDLE
             _ignitionCompleted = true;
             _mode = Mode::IDLE;
+            _lastIgnitionTimestamp = now;
             Serial.println("[LED] Ignition complete - blade fully ignited");
         } else {
             // Normal mode: loop
