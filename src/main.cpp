@@ -160,6 +160,7 @@ class MainServerCallbacks: public BLEServerCallbacks {
         Serial.println("[BLE] Client connected!");
         // Note: Blade remains in its current state (on/off)
         // User must explicitly send 'ignition' command to turn on
+        bleController.notifyState();
     }
 
     void onConnect(BLEServer* pServer, esp_ble_gatts_cb_param_t *param) override {
@@ -687,7 +688,6 @@ void setup() {
 
 void loop() {
     static bool wasOtaInProgress = false;
-    static unsigned long lastBleNotify = 0;
     static unsigned long lastLoopDebug = 0;
     static unsigned long lastConfigSave = 0;
     static unsigned long lastCameraUpdate = 0;
@@ -810,10 +810,9 @@ void loop() {
         // Render LED strip with motion integration
         effectEngine.render(ledState, processedMotion);
 
-        // Notifica stato BLE ogni 500ms se c'è una connessione
-        if (bleConnected && now - lastBleNotify > 500) {
-            bleController.notifyState();
-            lastBleNotify = now;
+        // Notifica stato BLE solo su cambio bladeState, con heartbeat lento
+        if (bleConnected) {
+            bleController.notifyStateIfNeeded(now, 1500);
         }
 
         // Salvataggio ritardato della configurazione (ogni 5 secondi se config dirty)

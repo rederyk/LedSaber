@@ -363,6 +363,9 @@ BLELedController::BLELedController(LedState* state) {
     pCharDeviceControl = nullptr;
     pCharEffectsList = nullptr;
     effectEngine = nullptr;
+    lastNotifiedBladeState = "";
+    lastNotifyMs = 0;
+    hasNotified = false;
 }
 
 // Inizializzazione BLE
@@ -503,20 +506,7 @@ void BLELedController::begin(BLEServer* server) {
     Serial.println("[BLE OK] LED Service initialized with 9 characteristics!");
 }
 
-// Notifica stato LED ai client connessi
-void BLELedController::notifyState() {
-    if (!deviceConnected) return;
-
-    JsonDocument doc;
-    doc["r"] = ledState->r;
-    doc["g"] = ledState->g;
-    doc["b"] = ledState->b;
-    doc["brightness"] = ledState->brightness;
-    doc["effect"] = ledState->effect;
-    doc["speed"] = ledState->speed;
-    doc["enabled"] = ledState->enabled;
-
-    // Campo bladeState: "off" | "igniting" | "on" | "retracting"
+String BLELedController::getBladeState() const {
     String bladeState = "off";
     if (effectEngine) {
         LedEffectEngine::Mode mode = effectEngine->getMode();
@@ -530,6 +520,20 @@ void BLELedController::notifyState() {
     } else if (ledState->enabled) {
         bladeState = "on";
     }
+    return bladeState;
+}
+
+void BLELedController::sendState(const String& bladeState, unsigned long nowMs) {
+    if (!deviceConnected) return;
+
+    JsonDocument doc;
+    doc["r"] = ledState->r;
+    doc["g"] = ledState->g;
+    doc["b"] = ledState->b;
+    doc["brightness"] = ledState->brightness;
+    doc["effect"] = ledState->effect;
+    doc["speed"] = ledState->speed;
+    doc["enabled"] = ledState->enabled;
     doc["bladeState"] = bladeState;
 
     doc["statusLedEnabled"] = ledState->statusLedEnabled;
@@ -546,6 +550,26 @@ void BLELedController::notifyState() {
 
     pCharState->setValue(jsonString.c_str());
     pCharState->notify();
+
+    lastNotifiedBladeState = bladeState;
+    lastNotifyMs = nowMs;
+    hasNotified = true;
+}
+
+// Notifica stato LED ai client connessi
+void BLELedController::notifyState() {
+    sendState(getBladeState(), millis());
+}
+
+void BLELedController::notifyStateIfNeeded(unsigned long nowMs, unsigned long heartbeatMs) {
+    if (!deviceConnected) return;
+
+    String bladeState = getBladeState();
+    const bool bladeStateChanged = !hasNotified || bladeState != lastNotifiedBladeState;
+    const bool heartbeatDue = heartbeatMs > 0 && (!hasNotified || (nowMs - lastNotifyMs >= heartbeatMs));
+    if (!bladeStateChanged && !heartbeatDue) return;
+
+    sendState(bladeState, nowMs);
 }
 
 bool BLELedController::isConnected() {
@@ -554,6 +578,11 @@ bool BLELedController::isConnected() {
 
 void BLELedController::setConnected(bool connected) {
     deviceConnected = connected;
+    if (!connected) {
+        lastNotifiedBladeState = "";
+        lastNotifyMs = 0;
+        hasNotified = false;
+    }
 }
 
 void BLELedController::setConfigDirty(bool dirty) {

@@ -13,6 +13,12 @@ class LedProvider extends ChangeNotifier {
 
   StreamSubscription<LedState>? _stateSubscription;
 
+  /// Timer per debounce delle notifiche durante animazioni
+  Timer? _debounceTimer;
+
+  /// Ultimo stato bladeState per rilevare cambi significativi
+  String? _lastBladeState;
+
   // Getters
   LedState? get currentState => _currentState;
   EffectsList? get effectsList => _effectsList;
@@ -30,19 +36,50 @@ class LedProvider extends ChangeNotifier {
       // Ascolta i cambiamenti dello stato LED
       _stateSubscription?.cancel();
       _stateSubscription = _ledService!.ledStateStream.listen((state) {
-        _currentState = state;
-        notifyListeners();
+        _handleStateUpdate(state);
       });
 
       // Carica la lista degli effetti
       _loadEffectsList();
     } else {
       _stateSubscription?.cancel();
+      _debounceTimer?.cancel();
       _currentState = null;
       _effectsList = null;
+      _lastBladeState = null;
     }
 
     notifyListeners();
+  }
+
+  /// Gestisce gli aggiornamenti di stato con debounce intelligente
+  void _handleStateUpdate(LedState state) {
+    final currentBladeState = state.bladeState;
+    final isAnimating = currentBladeState == 'igniting' || currentBladeState == 'retracting';
+
+    // Verifica se c'è un cambio significativo di bladeState
+    final bladeStateChanged = _lastBladeState != currentBladeState;
+
+    if (bladeStateChanged) {
+      // Cambio di stato significativo - notifica immediatamente
+      _lastBladeState = currentBladeState;
+      _currentState = state;
+      _debounceTimer?.cancel();
+      notifyListeners();
+    } else if (isAnimating) {
+      // Durante animazione - applica debounce (solo ogni 100ms)
+      _currentState = state;
+
+      if (_debounceTimer == null || !_debounceTimer!.isActive) {
+        _debounceTimer = Timer(const Duration(milliseconds: 100), () {
+          notifyListeners();
+        });
+      }
+    } else {
+      // Stato stabile (on/off) - notifica normalmente
+      _currentState = state;
+      notifyListeners();
+    }
   }
 
   /// Carica la lista degli effetti dal dispositivo
@@ -174,6 +211,7 @@ class LedProvider extends ChangeNotifier {
   @override
   void dispose() {
     _stateSubscription?.cancel();
+    _debounceTimer?.cancel();
     super.dispose();
   }
 }

@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import 'providers/ble_provider.dart';
 import 'providers/led_provider.dart';
 import 'screens/home_screen.dart';
+import 'theme/app_theme.dart';
 
 void main() {
   runApp(const MyApp());
@@ -20,17 +21,8 @@ class MyApp extends StatelessWidget {
       ],
       child: MaterialApp(
         title: 'LED Saber Controller',
-        theme: ThemeData(
-          colorScheme: ColorScheme.fromSeed(seedColor: Colors.red),
-          useMaterial3: true,
-        ),
-        darkTheme: ThemeData(
-          colorScheme: ColorScheme.fromSeed(
-            seedColor: Colors.red,
-            brightness: Brightness.dark,
-          ),
-          useMaterial3: true,
-        ),
+        theme: AppTheme.lightTheme,
+        darkTheme: AppTheme.darkTheme,
         themeMode: ThemeMode.system,
         home: const HomeScreen(),
       ),

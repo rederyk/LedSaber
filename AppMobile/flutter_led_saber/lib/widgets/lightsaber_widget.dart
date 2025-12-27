@@ -1,0 +1,263 @@
+import 'package:flutter/material.dart';
+import 'lightsaber_painter.dart';
+
+/// Widget custom della spada laser
+/// Renderizza elsa, lama con glow effect triplo, power button e animazioni
+class LightsaberWidget extends StatefulWidget {
+  /// Colore RGB della lama
+  final Color bladeColor;
+
+  /// Luminosità (0.0-1.0)
+  final double brightness;
+
+  /// Stato della lama: "off" | "igniting" | "on" | "retracting"
+  final String bladeState;
+
+  /// Effetto corrente (per future implementazioni visive)
+  final String currentEffect;
+
+  /// Callback quando si preme il power button
+  final VoidCallback? onPowerTap;
+
+  /// Altezza massima disponibile per il widget
+  final double maxHeight;
+
+  /// Se il dispositivo è connesso via BLE (per badge)
+  final bool isConnected;
+
+  const LightsaberWidget({
+    super.key,
+    required this.bladeColor,
+    required this.brightness,
+    required this.bladeState,
+    required this.currentEffect,
+    this.onPowerTap,
+    required this.maxHeight,
+    this.isConnected = false,
+  });
+
+  @override
+  State<LightsaberWidget> createState() => _LightsaberWidgetState();
+}
+
+class _LightsaberWidgetState extends State<LightsaberWidget>
+    with TickerProviderStateMixin {
+  /// Controller per animazione ignition/retract
+  late AnimationController _ignitionController;
+
+  /// Animazione altezza lama (0.0 → 1.0)
+  late Animation<double> _bladeHeightAnimation;
+
+  /// Controller per animazione pulse (quando lama è ON)
+  late AnimationController _pulseController;
+
+  /// Animazione pulse glow opacity
+  late Animation<double> _pulseAnimation;
+
+  /// Ultimo stato processato per evitare duplicati
+  String _lastProcessedState = '';
+
+  @override
+  void initState() {
+    super.initState();
+
+    // Setup ignition controller
+    _ignitionController = AnimationController(
+      duration: const Duration(milliseconds: 1500), // Ignition: 1.5s
+      reverseDuration: const Duration(milliseconds: 1000), // Retract: 1.0s
+      vsync: this,
+    );
+
+    _bladeHeightAnimation = Tween<double>(
+      begin: 0.0, // Lama nascosta
+      end: 1.0, // Lama completa
+    ).animate(CurvedAnimation(
+      parent: _ignitionController,
+      curve: Curves.easeOutCubic, // Ignition smooth
+      reverseCurve: Curves.easeInCubic, // Retract più rapido
+    ));
+
+    // Listener per aggiornare _lastProcessedState quando l'animazione finisce
+    _ignitionController.addStatusListener((status) {
+      if (status == AnimationStatus.completed) {
+        _lastProcessedState = 'on';
+      } else if (status == AnimationStatus.dismissed) {
+        _lastProcessedState = 'off';
+      }
+    });
+
+    // Setup pulse controller (loop infinito)
+    _pulseController = AnimationController(
+      duration: const Duration(milliseconds: 2000), // Pulse cycle: 2s
+      vsync: this,
+    )..repeat(reverse: true);
+
+    _pulseAnimation = Tween<double>(
+      begin: 0.8, // Glow minimo
+      end: 1.0, // Glow massimo
+    ).animate(CurvedAnimation(
+      parent: _pulseController,
+      curve: Curves.easeInOut,
+    ));
+
+    // Inizializza stato in base a bladeState corrente
+    _updateAnimationState(widget.bladeState);
+  }
+
+  @override
+  void didUpdateWidget(LightsaberWidget oldWidget) {
+    super.didUpdateWidget(oldWidget);
+
+    // Reagisci a cambi di bladeState solo se effettivamente diverso
+    // e non stiamo già animando verso quello stato
+    if (oldWidget.bladeState != widget.bladeState &&
+        widget.bladeState != _lastProcessedState) {
+      _updateAnimationState(widget.bladeState);
+    }
+  }
+
+  /// Aggiorna stato animazione in base a bladeState
+  void _updateAnimationState(String state) {
+    switch (state) {
+      case 'igniting':
+        // Avvia animazione ignition solo se non già in corso o completata
+        if (!_ignitionController.isAnimating && !_ignitionController.isCompleted) {
+          _lastProcessedState = state;
+          _ignitionController.forward();
+        }
+        break;
+      case 'retracting':
+        // Avvia animazione retraction solo se non già in corso o a zero
+        if (!_ignitionController.isAnimating && !_ignitionController.isDismissed) {
+          _lastProcessedState = state;
+          _ignitionController.reverse();
+        }
+        break;
+      case 'on':
+        // Se non è già ON, completa l'animazione
+        if (_lastProcessedState != 'on') {
+          _lastProcessedState = state;
+          if (!_ignitionController.isCompleted) {
+            _ignitionController.forward();
+          }
+        }
+        break;
+      case 'off':
+        // Se non è già OFF, completa l'animazione
+        if (_lastProcessedState != 'off') {
+          _lastProcessedState = state;
+          if (!_ignitionController.isDismissed) {
+            _ignitionController.reverse();
+          }
+        }
+        break;
+    }
+  }
+
+  @override
+  void dispose() {
+    _ignitionController.dispose();
+    _pulseController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return RepaintBoundary(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.end,
+        children: [
+          // Spada (lama + elsa + power button)
+          Expanded(
+            child: AnimatedBuilder(
+              animation: Listenable.merge([
+                _bladeHeightAnimation,
+                _pulseAnimation,
+              ]),
+              builder: (context, child) {
+                return CustomPaint(
+                  painter: LightsaberPainter(
+                    bladeColor: widget.bladeColor,
+                    brightness: widget.brightness,
+                    bladeHeightFactor: _bladeHeightAnimation.value,
+                    pulseOpacity: _pulseAnimation.value,
+                    bladeState: widget.bladeState,
+                    isConnected: widget.isConnected,
+                  ),
+                  size: Size(
+                    100, // Larghezza fissa
+                    widget.maxHeight,
+                  ),
+                );
+              },
+            ),
+          ),
+
+          // Power Button (sotto la spada)
+          const SizedBox(height: 8),
+          _buildPowerButton(),
+          const SizedBox(height: 16),
+        ],
+      ),
+    );
+  }
+
+  /// Costruisce il power button
+  Widget _buildPowerButton() {
+    // Determina colore bordo in base a stato
+    Color borderColor;
+    Color iconColor;
+
+    switch (widget.bladeState) {
+      case 'on':
+        borderColor = const Color(0xFF00FF88); // Verde neon
+        iconColor = Colors.white;
+        break;
+      case 'igniting':
+      case 'retracting':
+        borderColor = const Color(0xFFFFCC00); // Arancione
+        iconColor = Colors.white;
+        break;
+      case 'off':
+      default:
+        borderColor = const Color(0xFFFF3B30); // Rosso
+        iconColor = Colors.grey;
+        break;
+    }
+
+    return GestureDetector(
+      onTap: widget.onPowerTap,
+      child: Container(
+        width: 70,
+        height: 70,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          gradient: const RadialGradient(
+            colors: [
+              Color(0xFF2A2A2A),
+              Color(0xFF0D0D0D),
+            ],
+          ),
+          border: Border.all(
+            color: borderColor,
+            width: 3,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: borderColor.withValues(alpha: 0.5),
+              blurRadius: 10,
+              spreadRadius: 2,
+            ),
+          ],
+        ),
+        child: Center(
+          child: Icon(
+            Icons.bolt,
+            size: 32,
+            color: iconColor,
+          ),
+        ),
+      ),
+    );
+  }
+}

@@ -73,11 +73,18 @@ private:
     LedState* ledState;
     bool configDirty;
     LedEffectEngine* effectEngine;
+    String lastNotifiedBladeState;
+    unsigned long lastNotifyMs;
+    bool hasNotified;
+
+    String getBladeState() const;
+    void sendState(const String& bladeState, unsigned long nowMs);
 
 public:
     explicit BLELedController(LedState* state);
     void begin(BLEServer* server);
     void notifyState();
+    void notifyStateIfNeeded(unsigned long nowMs, unsigned long heartbeatMs);
     bool isConnected();
     void setConnected(bool connected);
     void setConfigDirty(bool dirty);
