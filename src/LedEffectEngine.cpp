@@ -2189,16 +2189,34 @@ void LedEffectEngine::renderStormLightning(const LedState& state, const uint8_t 
         _leds[led2] += color;
     };
 
-    uint8_t motionActivity = 0;
+    // 1. Analisi Movimento (Posizione media pesata)
+    uint8_t maxMotion = 0;
+    uint32_t weightedSum = 0;
+    uint32_t totalWeight = 0;
+
     if (perturbationGrid != nullptr) {
-        for (uint8_t row = 2; row <= 4; row++) {
-            for (uint8_t col = 0; col < GRID_COLS; col++) {
-                motionActivity = max(motionActivity, perturbationGrid[row][col]);
+        for (uint8_t col = 0; col < GRID_COLS; col++) {
+            uint8_t colMax = 0;
+            for (uint8_t row = 2; row <= 4; row++) {
+                colMax = max(colMax, perturbationGrid[row][col]);
+            }
+            if (colMax > 5) {  // Soglia rumore
+                weightedSum += col * colMax;
+                totalWeight += colMax;
+                maxMotion = max(maxMotion, colMax);
             }
         }
     }
 
-    // Sfondo: nuvole scure in movimento (Storm theme)
+    uint16_t motionPos = 0;
+    if (totalWeight > 0) {
+        float centerCol = (float)weightedSum / totalWeight;
+        motionPos = map((long)(centerCol * 100), 0, (GRID_COLS - 1) * 100, 0, foldPoint - 1);
+    } else {
+        motionPos = foldPoint / 2;
+    }
+
+    // 2. Sfondo: nuvole scure in movimento (Storm theme)
     uint16_t timeShift = now / 12;
     uint8_t cloudFlashPhase = now / 180;
     for (uint16_t i = 0; i < foldPoint; i++) {
@@ -2217,23 +2235,10 @@ void LedEffectEngine::renderStormLightning(const LedState& state, const uint8_t 
             cloudColor = CHSV(hue, sat, bri);
         }
 
-        if (perturbationGrid != nullptr) {
-            uint8_t col = map(i, 0, foldPoint - 1, 0, GRID_COLS - 1);
-            uint8_t maxPerturbation = 0;
-            for (uint8_t row = 2; row <= 4; row++) {
-                maxPerturbation = max(maxPerturbation, perturbationGrid[row][col]);
-            }
-            if (maxPerturbation > 4 && random8() < scale8(maxPerturbation, 240)) {
-                CRGB spark = boltColor;
-                spark.nscale8(qadd8(scale8(maxPerturbation, 200), 60));
-                addLedPair(i, spark);
-            }
-        }
-
         setLedPair(i, foldPoint, cloudColor);
     }
 
-    // Fulmine cinematografico: scatto, corsa verso la punta, impatto e scintille
+    // 3. Logica Fulmine: Controllato (Motion) vs Periodico (Idle)
     static uint8_t boltStage = 0;  // 0 idle, 1 travel, 2 impact flash, 3 afterglow
     static unsigned long stageStart = 0;
     static unsigned long nextBoltTime = 0;
@@ -2243,127 +2248,170 @@ void LedEffectEngine::renderStormLightning(const LedState& state, const uint8_t 
     static uint8_t boltWidth = 1;
     static uint8_t boltEnergy = 200;
 
-    uint16_t minGap = map(state.speed, 1, 255, 2800, 700);
-    uint16_t maxGap = map(state.speed, 1, 255, 9000, 2600);
-    uint8_t stepMs = map(state.speed, 1, 255, 18, 6);
-    uint8_t stepSize = 1 + (state.speed / 90);
+    // Stato Arco Controllato (Motion Reactive)
+    static uint8_t arcIntensity = 0;
+    static uint16_t arcPos = 0;
 
-    if (motionActivity > 0) {
-        uint16_t gapCut = map(motionActivity, 0, 255, 0, minGap > 250 ? (minGap - 250) : 0);
-        minGap = max<uint16_t>(180, (uint16_t)(minGap - gapCut));
-        maxGap = max<uint16_t>((uint16_t)(minGap + 320), (uint16_t)(maxGap - gapCut * 2));
-        uint8_t stepCut = map(motionActivity, 0, 255, 0, 6);
-        stepMs = (stepMs > stepCut) ? (uint8_t)(stepMs - stepCut) : 3;
-        if (motionActivity > 180) {
-            stepSize += 1;
+    const uint8_t CONTROL_THRESHOLD = 25;
+
+    if (maxMotion > CONTROL_THRESHOLD) {
+        // MOTION DETECTED: Attiva arco sfrigolante sulla posizione del movimento
+        arcIntensity = qadd8(arcIntensity, 15);
+
+        // Smooth follow
+        if (arcIntensity < 50) arcPos = motionPos;
+        else arcPos = (arcPos * 3 + motionPos) / 4;
+
+        // Resetta fulmine periodico
+        boltStage = 0;
+        nextBoltTime = now + random16(1000, 3000);
+    } else {
+        // NO MOTION: Decay
+        if (arcIntensity > 0) {
+            arcIntensity = qsub8(arcIntensity, 10);
         }
     }
 
-    if (nextBoltTime == 0) {
-        nextBoltTime = now + random16(minGap, maxGap);
-    }
+    // Render Arco Controllato
+    if (arcIntensity > 0) {
+        uint8_t width = map(arcIntensity, 0, 255, 2, 6);
 
-    if (boltStage == 0 && motionActivity > 200 && (nextBoltTime - now) > 200) {
-        nextBoltTime = now + random16(120, 360);
-    }
+        // Core Sizzle
+        for (int16_t i = -width; i <= width; i++) {
+            int16_t pos = (int16_t)arcPos + i;
+            if (pos >= 0 && pos < foldPoint) {
+                uint8_t dist = abs(i);
+                uint8_t bri = scale8(arcIntensity, random8(150, 255));
+                if (dist > 0) bri = scale8(bri, 255 - (dist * 200 / width));
 
-    if (boltStage == 0 && now >= nextBoltTime) {
-        boltStage = 1;
-        stageStart = now;
-        lastBoltStep = now;
-        boltHead = 0;
-        uint16_t baseLen = max<uint16_t>(6, foldPoint / 10);
-        uint16_t maxLen = max<uint16_t>(baseLen + 4, foldPoint / 3);
-        boltLength = random16(baseLen, maxLen);
-        boltWidth = random8(1, 3);
-        boltEnergy = random8(180, 255);
-    }
-
-    if (boltStage == 1) {
-        if (now - lastBoltStep >= stepMs) {
-            uint16_t nextHead = boltHead + stepSize;
-            boltHead = (nextHead >= foldPoint) ? (foldPoint - 1) : nextHead;
-            lastBoltStep = now;
-        }
-
-        if (boltHead < foldPoint) {
-            setLedPair(boltHead, foldPoint, coreColor);
-        }
-
-        for (uint16_t i = 1; i <= boltLength; i++) {
-            int16_t pos = (int16_t)boltHead - i;
-            if (pos < 0) {
-                break;
+                CRGB color = (dist <= 1) ? coreColor : boltColor;
+                color.nscale8(bri);
+                addLedPair(pos, color);
             }
-            if (random8() < 200) {
-                uint8_t falloff = map(i, 1, boltLength, boltEnergy, 40);
-                uint8_t bri = qadd8(falloff, random8(40));
-                CRGB trail = boltColor;
-                trail.nscale8(bri);
-                setLedPair(pos, foldPoint, trail);
+        }
 
-                if (boltWidth > 1 && random8() < 70) {
-                    int16_t side = pos + ((random8() & 1) ? 1 : -1);
-                    if (side >= 0 && side < (int16_t)foldPoint) {
-                        CRGB sideColor = boltColor;
-                        sideColor.nscale8(bri / 2);
-                        addLedPair((uint16_t)side, sideColor);
+        // Scintille esterne
+        if (random8() < arcIntensity) {
+            int16_t offset = random16(width * 2, width * 8) * (random8(2) ? 1 : -1);
+            int16_t pos = (int16_t)arcPos + offset;
+            if (pos >= 0 && pos < foldPoint) {
+                CRGB spark = boltColor;
+                spark.nscale8(random8(100, 200));
+                addLedPair(pos, spark);
+            }
+        }
+    }
+
+    // Render Fulmine Periodico (solo se l'arco controllato non è dominante)
+    if (arcIntensity < 100) {
+        uint16_t minGap = map(state.speed, 1, 255, 2800, 700);
+        uint16_t maxGap = map(state.speed, 1, 255, 9000, 2600);
+
+        if (nextBoltTime == 0) {
+            nextBoltTime = now + random16(minGap, maxGap);
+        }
+
+        if (boltStage == 0 && now >= nextBoltTime) {
+            boltStage = 1;
+            stageStart = now;
+            lastBoltStep = now;
+            boltHead = 0;
+            uint16_t baseLen = max<uint16_t>(6, foldPoint / 10);
+            uint16_t maxLen = max<uint16_t>(baseLen + 4, foldPoint / 3);
+            boltLength = random16(baseLen, maxLen);
+            boltWidth = random8(1, 3);
+            boltEnergy = random8(180, 255);
+        }
+
+        if (boltStage == 1) {
+            uint8_t stepMs = map(state.speed, 1, 255, 18, 6);
+            uint8_t stepSize = 1 + (state.speed / 90);
+
+            if (now - lastBoltStep >= stepMs) {
+                uint16_t nextHead = boltHead + stepSize;
+                boltHead = (nextHead >= foldPoint) ? (foldPoint - 1) : nextHead;
+                lastBoltStep = now;
+            }
+
+            if (boltHead < foldPoint) {
+                setLedPair(boltHead, foldPoint, coreColor);
+            }
+
+            for (uint16_t i = 1; i <= boltLength; i++) {
+                int16_t pos = (int16_t)boltHead - i;
+                if (pos < 0) {
+                    break;
+                }
+                if (random8() < 200) {
+                    uint8_t falloff = map(i, 1, boltLength, boltEnergy, 40);
+                    uint8_t bri = qadd8(falloff, random8(40));
+                    CRGB trail = boltColor;
+                    trail.nscale8(bri);
+                    setLedPair(pos, foldPoint, trail);
+
+                    if (boltWidth > 1 && random8() < 70) {
+                        int16_t side = pos + ((random8() & 1) ? 1 : -1);
+                        if (side >= 0 && side < (int16_t)foldPoint) {
+                            CRGB sideColor = boltColor;
+                            sideColor.nscale8(bri / 2);
+                            addLedPair((uint16_t)side, sideColor);
+                        }
                     }
                 }
             }
-        }
 
-        if (random8() < 120 && boltHead > 2) {
-            int16_t forkPos = (int16_t)boltHead - random8(1, 6);
-            if (forkPos >= 0) {
-                CRGB fork = boltColor;
-                fork.nscale8(random8(120, 200));
-                setLedPair((uint16_t)forkPos, foldPoint, fork);
-            }
-        }
-
-        if (boltHead >= foldPoint - 1) {
-            boltStage = 2;
-            stageStart = now;
-        }
-    } else if (boltStage == 2) {
-        const uint16_t impactDuration = 160;
-        uint32_t elapsed = now - stageStart;
-        if (elapsed < impactDuration) {
-            uint8_t flash = map(elapsed, 0, impactDuration, 200, 0);
-            uint8_t tipWidth = min<uint16_t>(6, foldPoint);
-
-            for (int16_t i = (int16_t)foldPoint - 1; i >= 0 && i >= (int16_t)(foldPoint - tipWidth); i--) {
-                CRGB tip = coreColor;
-                tip.nscale8(flash);
-                setLedPair((uint16_t)i, foldPoint, tip);
+            if (random8() < 120 && boltHead > 2) {
+                int16_t forkPos = (int16_t)boltHead - random8(1, 6);
+                if (forkPos >= 0) {
+                    CRGB fork = boltColor;
+                    fork.nscale8(random8(120, 200));
+                    setLedPair((uint16_t)forkPos, foldPoint, fork);
+                }
             }
 
-            uint8_t scatterCount = max<uint8_t>(3, foldPoint / 18);
-            for (uint8_t s = 0; s < scatterCount; s++) {
-                uint16_t pos = random16(foldPoint);
-                CRGB scatter = boltColor;
-                scatter.nscale8(flash / 2);
-                addLedPair(pos, scatter);
+            if (boltHead >= foldPoint - 1) {
+                boltStage = 2;
+                stageStart = now;
             }
-        } else {
-            boltStage = 3;
-            stageStart = now;
-        }
-    } else if (boltStage == 3) {
-        const uint16_t afterDuration = 240;
-        uint32_t elapsed = now - stageStart;
-        if (elapsed < afterDuration) {
-            uint8_t glow = map(elapsed, 0, afterDuration, 120, 0);
-            for (uint8_t s = 0; s < 4; s++) {
-                uint16_t pos = random16(foldPoint);
-                CRGB spark = boltColor;
-                spark.nscale8(glow);
-                addLedPair(pos, spark);
+        } else if (boltStage == 2) {
+            const uint16_t impactDuration = 160;
+            uint32_t elapsed = now - stageStart;
+            if (elapsed < impactDuration) {
+                uint8_t flash = map(elapsed, 0, impactDuration, 200, 0);
+                uint8_t tipWidth = min<uint16_t>(6, foldPoint);
+
+                for (int16_t i = (int16_t)foldPoint - 1; i >= 0 && i >= (int16_t)(foldPoint - tipWidth); i--) {
+                    CRGB tip = coreColor;
+                    tip.nscale8(flash);
+                    setLedPair((uint16_t)i, foldPoint, tip);
+                }
+
+                uint8_t scatterCount = max<uint8_t>(3, foldPoint / 18);
+                for (uint8_t s = 0; s < scatterCount; s++) {
+                    uint16_t pos = random16(foldPoint);
+                    CRGB scatter = boltColor;
+                    scatter.nscale8(flash / 2);
+                    addLedPair(pos, scatter);
+                }
+            } else {
+                boltStage = 3;
+                stageStart = now;
             }
-        } else {
-            boltStage = 0;
-            nextBoltTime = now + random16(minGap, maxGap);
+        } else if (boltStage == 3) {
+            const uint16_t afterDuration = 240;
+            uint32_t elapsed = now - stageStart;
+            if (elapsed < afterDuration) {
+                uint8_t glow = map(elapsed, 0, afterDuration, 120, 0);
+                for (uint8_t s = 0; s < 4; s++) {
+                    uint16_t pos = random16(foldPoint);
+                    CRGB spark = boltColor;
+                    spark.nscale8(glow);
+                    addLedPair(pos, spark);
+                }
+            } else {
+                boltStage = 0;
+                nextBoltTime = now + random16(minGap, maxGap);
+            }
         }
     }
 }
