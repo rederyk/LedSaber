@@ -2189,6 +2189,15 @@ void LedEffectEngine::renderStormLightning(const LedState& state, const uint8_t 
         _leds[led2] += color;
     };
 
+    uint8_t motionActivity = 0;
+    if (perturbationGrid != nullptr) {
+        for (uint8_t row = 2; row <= 4; row++) {
+            for (uint8_t col = 0; col < GRID_COLS; col++) {
+                motionActivity = max(motionActivity, perturbationGrid[row][col]);
+            }
+        }
+    }
+
     // Sfondo: nuvole scure in movimento (Storm theme)
     uint16_t timeShift = now / 12;
     uint8_t cloudFlashPhase = now / 180;
@@ -2214,9 +2223,9 @@ void LedEffectEngine::renderStormLightning(const LedState& state, const uint8_t 
             for (uint8_t row = 2; row <= 4; row++) {
                 maxPerturbation = max(maxPerturbation, perturbationGrid[row][col]);
             }
-            if (maxPerturbation > 8 && random8() < scale8(maxPerturbation, 200)) {
+            if (maxPerturbation > 4 && random8() < scale8(maxPerturbation, 240)) {
                 CRGB spark = boltColor;
-                spark.nscale8(qadd8(scale8(maxPerturbation, 180), 40));
+                spark.nscale8(qadd8(scale8(maxPerturbation, 200), 60));
                 addLedPair(i, spark);
             }
         }
@@ -2239,8 +2248,23 @@ void LedEffectEngine::renderStormLightning(const LedState& state, const uint8_t 
     uint8_t stepMs = map(state.speed, 1, 255, 18, 6);
     uint8_t stepSize = 1 + (state.speed / 90);
 
+    if (motionActivity > 0) {
+        uint16_t gapCut = map(motionActivity, 0, 255, 0, minGap > 250 ? (minGap - 250) : 0);
+        minGap = max<uint16_t>(180, (uint16_t)(minGap - gapCut));
+        maxGap = max<uint16_t>((uint16_t)(minGap + 320), (uint16_t)(maxGap - gapCut * 2));
+        uint8_t stepCut = map(motionActivity, 0, 255, 0, 6);
+        stepMs = (stepMs > stepCut) ? (uint8_t)(stepMs - stepCut) : 3;
+        if (motionActivity > 180) {
+            stepSize += 1;
+        }
+    }
+
     if (nextBoltTime == 0) {
         nextBoltTime = now + random16(minGap, maxGap);
+    }
+
+    if (boltStage == 0 && motionActivity > 200 && (nextBoltTime - now) > 200) {
+        nextBoltTime = now + random16(120, 360);
     }
 
     if (boltStage == 0 && now >= nextBoltTime) {

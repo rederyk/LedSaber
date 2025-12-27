@@ -94,6 +94,7 @@ bool ConfigManager::loadConfig() {
 
     if (motionProcessor) {
         MotionProcessor::Config cfg = motionProcessor->getConfig();
+        cfg.gesturesEnabled = doc["gesturesEnabled"] | defaults.gesturesEnabled;
         cfg.ignitionIntensityThreshold = doc["gestureIgnitionMin"] | defaults.gestureIgnitionMin;
         cfg.retractIntensityThreshold = doc["gestureRetractMin"] | defaults.gestureRetractMin;
         cfg.clashIntensityThreshold = doc["gestureClashMin"] | defaults.gestureClashMin;
@@ -222,6 +223,10 @@ bool ConfigManager::saveConfig() {
 
     if (motionProcessor) {
         MotionProcessor::Config cfg = motionProcessor->getConfig();
+        if (cfg.gesturesEnabled != defaults.gesturesEnabled) {
+            doc["gesturesEnabled"] = cfg.gesturesEnabled;
+            modifiedCount++;
+        }
         if (cfg.ignitionIntensityThreshold != defaults.gestureIgnitionMin) {
             doc["gestureIgnitionMin"] = cfg.ignitionIntensityThreshold;
             modifiedCount++;
@@ -309,6 +314,7 @@ void ConfigManager::resetToDefaults() {
     }
     if (motionProcessor) {
         MotionProcessor::Config cfg;
+        cfg.gesturesEnabled = defaults.gesturesEnabled;
         cfg.ignitionIntensityThreshold = defaults.gestureIgnitionMin;
         cfg.retractIntensityThreshold = defaults.gestureRetractMin;
         cfg.clashIntensityThreshold = defaults.gestureClashMin;
@@ -384,6 +390,7 @@ void ConfigManager::createDefaultConfig() {
     }
     if (motionProcessor) {
         MotionProcessor::Config cfg;
+        cfg.gesturesEnabled = defaults.gesturesEnabled;
         cfg.ignitionIntensityThreshold = defaults.gestureIgnitionMin;
         cfg.retractIntensityThreshold = defaults.gestureRetractMin;
         cfg.clashIntensityThreshold = defaults.gestureClashMin;
