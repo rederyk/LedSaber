@@ -19,10 +19,59 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
+  final Map<String, ConnectionStatus> _previousStatus = {};
+
   @override
   void initState() {
     super.initState();
     _checkPermissions();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _checkConnectionStatusChanges();
+  }
+
+  /// Monitora cambiamenti dello stato connessione e mostra notifiche
+  void _checkConnectionStatusChanges() {
+    final bleProvider = Provider.of<BleProvider>(context, listen: true);
+
+    for (final device in bleProvider.connectedDevices) {
+      final previousStatus = _previousStatus[device.id];
+      final currentStatus = device.connectionStatus;
+
+      // Notifica solo se lo stato è cambiato
+      if (previousStatus != null && previousStatus != currentStatus) {
+        String message;
+        Color backgroundColor;
+
+        switch (currentStatus) {
+          case ConnectionStatus.connected:
+            message = '${device.name} riconnesso!';
+            backgroundColor = Colors.green;
+            break;
+          case ConnectionStatus.unstable:
+            message = '${device.name} connessione instabile';
+            backgroundColor = Colors.orange;
+            break;
+          case ConnectionStatus.disconnected:
+            message = '${device.name} disconnesso. Tentativo riconnessione...';
+            backgroundColor = Colors.red;
+            break;
+        }
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(message),
+            backgroundColor: backgroundColor,
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+
+      _previousStatus[device.id] = currentStatus;
+    }
   }
 
   /// Verifica e richiede i permessi necessari
@@ -297,38 +346,117 @@ class _HomeScreenState extends State<HomeScreen> {
     final isActive = device.isActive;
     final timeFormatter = DateFormat('HH:mm');
 
-    return GestureDetector(
-      onTap: () => _setActiveAndNavigate(bleProvider, device),
-      child: Container(
-        width: 160,
-        margin: const EdgeInsets.symmetric(horizontal: 4),
-        child: Card(
-          elevation: isActive ? 4 : 2,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-            side: BorderSide(
-              color: isActive ? Colors.green : Colors.grey.shade300,
-              width: isActive ? 2 : 1,
+    // Colore basato sullo stato della connessione
+    Color statusColor;
+    switch (device.connectionStatus) {
+      case ConnectionStatus.connected:
+        statusColor = Colors.green;
+        break;
+      case ConnectionStatus.unstable:
+        statusColor = Colors.orange;
+        break;
+      case ConnectionStatus.disconnected:
+        statusColor = Colors.red;
+        break;
+    }
+
+    return Container(
+      width: 160,
+      margin: const EdgeInsets.symmetric(horizontal: 4),
+      child: Dismissible(
+        key: Key(device.id),
+        direction: DismissDirection.up,
+        confirmDismiss: (direction) async {
+          // Mostra conferma
+          return await showDialog<bool>(
+            context: context,
+            builder: (context) => AlertDialog(
+              title: const Text('Disconnetti'),
+              content: Text('Vuoi disconnettere ${device.name}?'),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context, false),
+                  child: const Text('Annulla'),
+                ),
+                ElevatedButton(
+                  onPressed: () => Navigator.pop(context, true),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.red,
+                    foregroundColor: Colors.white,
+                  ),
+                  child: const Text('Disconnetti'),
+                ),
+              ],
             ),
+          );
+        },
+        onDismissed: (direction) async {
+          await bleProvider.disconnectDevice(device.id);
+        },
+        background: Container(
+          decoration: BoxDecoration(
+            color: Colors.red,
+            borderRadius: BorderRadius.circular(12),
           ),
-          child: Padding(
-            padding: const EdgeInsets.all(12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
+          child: const Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.delete, color: Colors.white),
+              SizedBox(height: 4),
+              Text(
+                'Disconnetti',
+                style: TextStyle(color: Colors.white, fontSize: 10),
+              ),
+            ],
+          ),
+        ),
+        child: GestureDetector(
+          onTap: () => _setActiveAndNavigate(bleProvider, device),
+          child: Card(
+            elevation: isActive ? 4 : 2,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+              side: BorderSide(
+                color: isActive ? statusColor : Colors.grey.shade300,
+                width: isActive ? 2 : 1,
+              ),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
                 Row(
                   children: [
-                    Icon(
-                      Icons.bluetooth_connected,
-                      color: isActive ? Colors.green : Colors.grey,
-                      size: 20,
+                    // Indicatore stato connessione
+                    Stack(
+                      children: [
+                        Icon(
+                          Icons.bluetooth_connected,
+                          color: isActive ? statusColor : Colors.grey,
+                          size: 20,
+                        ),
+                        Positioned(
+                          right: 0,
+                          bottom: 0,
+                          child: Container(
+                            width: 8,
+                            height: 8,
+                            decoration: BoxDecoration(
+                              color: statusColor,
+                              shape: BoxShape.circle,
+                              border: Border.all(color: Colors.white, width: 1),
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                     const Spacer(),
                     if (isActive)
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                         decoration: BoxDecoration(
-                          color: Colors.green,
+                          color: statusColor,
                           borderRadius: BorderRadius.circular(8),
                         ),
                         child: const Text(
@@ -379,7 +507,8 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                   ),
                 ),
-              ],
+                ],
+              ),
             ),
           ),
         ),

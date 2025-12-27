@@ -4,6 +4,8 @@ import '../providers/ble_provider.dart';
 import '../providers/led_provider.dart';
 import '../widgets/lightsaber_widget.dart';
 import 'device_list_screen.dart';
+import 'tabs/colors_tab.dart';
+import 'tabs/effects_tab.dart';
 
 /// Schermata principale di controllo LED
 class ControlScreen extends StatefulWidget {
@@ -13,7 +15,20 @@ class ControlScreen extends StatefulWidget {
   State<ControlScreen> createState() => _ControlScreenState();
 }
 
-class _ControlScreenState extends State<ControlScreen> {
+class _ControlScreenState extends State<ControlScreen> with SingleTickerProviderStateMixin {
+  late TabController _tabController;
+
+  @override
+  void initState() {
+    super.initState();
+    _tabController = TabController(length: 2, vsync: this);
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
+  }
   @override
   Widget build(BuildContext context) {
     final bleProvider = Provider.of<BleProvider>(context);
@@ -86,32 +101,47 @@ class _ControlScreenState extends State<ControlScreen> {
     );
   }
 
-  /// Layout Portrait: Menu a sinistra (25%), Spada a destra (75%)
+  /// Layout Portrait: Menu a sinistra (40%), Spada a destra (60%)
   Widget _buildPortraitLayout(
       BleProvider bleProvider, LedProvider ledProvider) {
     final screenHeight = MediaQuery.of(context).size.height;
 
     return Row(
       children: [
-        // Menu laterale sinistro
+        // Menu laterale sinistro con TabBar
         Expanded(
-          flex: 25,
+          flex: 40,
           child: Container(
             color: Theme.of(context).scaffoldBackgroundColor,
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(8),
-              child: Column(
-                children: [
-                  _buildPlaceholderMenu('Sprint 2:\nMenu\nControlli'),
-                ],
-              ),
+            child: Column(
+              children: [
+                // TabBar con font più piccolo
+                TabBar(
+                  controller: _tabController,
+                  labelStyle: const TextStyle(fontSize: 11),
+                  tabs: const [
+                    Tab(icon: Icon(Icons.palette, size: 18), text: 'Colors'),
+                    Tab(icon: Icon(Icons.auto_awesome, size: 18), text: 'Effects'),
+                  ],
+                ),
+                // TabBarView
+                Expanded(
+                  child: TabBarView(
+                    controller: _tabController,
+                    children: const [
+                      ColorsTab(),
+                      EffectsTab(),
+                    ],
+                  ),
+                ),
+              ],
             ),
           ),
         ),
 
         // Spada a destra
         Expanded(
-          flex: 75,
+          flex: 60,
           child: Container(
             color: Theme.of(context).scaffoldBackgroundColor,
             child: _buildLightsaberSection(
@@ -122,7 +152,7 @@ class _ControlScreenState extends State<ControlScreen> {
     );
   }
 
-  /// Layout Landscape: Spada a sinistra (30%), Menu a destra (70%)
+  /// Layout Landscape: Spada a sinistra (35%), Menu a destra (65%)
   Widget _buildLandscapeLayout(
       BleProvider bleProvider, LedProvider ledProvider) {
     final screenHeight = MediaQuery.of(context).size.height;
@@ -131,7 +161,7 @@ class _ControlScreenState extends State<ControlScreen> {
       children: [
         // Spada a sinistra
         Expanded(
-          flex: 30,
+          flex: 35,
           child: Container(
             color: Theme.of(context).scaffoldBackgroundColor,
             child: _buildLightsaberSection(
@@ -139,48 +169,36 @@ class _ControlScreenState extends State<ControlScreen> {
           ),
         ),
 
-        // Menu a destra
+        // Menu a destra con TabBar
         Expanded(
-          flex: 70,
+          flex: 65,
           child: Container(
             color: Theme.of(context).scaffoldBackgroundColor,
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                children: [
-                  _buildPlaceholderMenu(
-                      'Sprint 2: Pannelli Controllo\n\n• Color Panel\n• Effects Panel\n• Advanced Panel'),
-                ],
-              ),
+            child: Column(
+              children: [
+                // TabBar
+                TabBar(
+                  controller: _tabController,
+                  tabs: const [
+                    Tab(icon: Icon(Icons.palette), text: 'Colors'),
+                    Tab(icon: Icon(Icons.auto_awesome), text: 'Effects'),
+                  ],
+                ),
+                // TabBarView
+                Expanded(
+                  child: TabBarView(
+                    controller: _tabController,
+                    children: const [
+                      ColorsTab(),
+                      EffectsTab(),
+                    ],
+                  ),
+                ),
+              ],
             ),
           ),
         ),
       ],
-    );
-  }
-
-  /// Placeholder per menu (Sprint 2)
-  Widget _buildPlaceholderMenu(String text) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Theme.of(context).cardColor,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: Colors.grey.withValues(alpha: 0.3),
-          width: 2,
-          style: BorderStyle.solid,
-        ),
-      ),
-      child: Center(
-        child: Text(
-          text,
-          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: Colors.grey,
-              ),
-          textAlign: TextAlign.center,
-        ),
-      ),
     );
   }
 

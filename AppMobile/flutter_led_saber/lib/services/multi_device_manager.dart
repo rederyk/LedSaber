@@ -16,6 +16,7 @@ class MultiDeviceManager extends ChangeNotifier {
   String? _activeDeviceId;
   final Map<String, StreamSubscription<BluetoothConnectionState>>
       _connectionSubscriptions = {};
+  Timer? _healthCheckTimer;
 
   // Getters
   List<ConnectedDevice> get connectedDevices => _connectedDevices.values.toList()
@@ -31,6 +32,54 @@ class MultiDeviceManager extends ChangeNotifier {
   /// Inizializza e ricarica devices salvati
   Future<void> initialize() async {
     await _loadSavedDevices();
+    _startHealthCheck();
+  }
+
+  /// Avvia il monitoraggio periodico dello stato dei dispositivi
+  void _startHealthCheck() {
+    _healthCheckTimer?.cancel();
+    _healthCheckTimer = Timer.periodic(const Duration(seconds: 5), (_) {
+      _checkDevicesHealth();
+    });
+  }
+
+  /// Controlla lo stato di salute di tutti i dispositivi
+  Future<void> _checkDevicesHealth() async {
+    bool hasChanges = false;
+
+    for (final device in _connectedDevices.values) {
+      try {
+        final state = await device.device.connectionState.first
+            .timeout(const Duration(seconds: 2));
+
+        if (state == BluetoothConnectionState.connected) {
+          // Aggiorna lastSeen
+          device.lastSeen = DateTime.now();
+
+          // Verifica se il segnale è stabile
+          if (device.connectionStatus != ConnectionStatus.connected) {
+            device.connectionStatus = ConnectionStatus.connected;
+            hasChanges = true;
+          }
+        } else {
+          // Dispositivo disconnesso
+          if (device.connectionStatus != ConnectionStatus.disconnected) {
+            device.connectionStatus = ConnectionStatus.disconnected;
+            hasChanges = true;
+          }
+        }
+      } catch (e) {
+        // Timeout o errore = connessione instabile
+        if (device.connectionStatus != ConnectionStatus.unstable) {
+          device.connectionStatus = ConnectionStatus.unstable;
+          hasChanges = true;
+        }
+      }
+    }
+
+    if (hasChanges) {
+      notifyListeners();
+    }
   }
 
   /// Carica i device salvati da SharedPreferences e tenta reconnect
@@ -192,10 +241,38 @@ class MultiDeviceManager extends ChangeNotifier {
     }
   }
 
-  /// Gestisce disconnessione automatica
+  /// Gestisce disconnessione automatica con retry
   void _handleDeviceDisconnected(String deviceId) {
     debugPrint('[MultiDeviceManager] Device $deviceId disconnesso');
 
+    final device = _connectedDevices[deviceId];
+    if (device != null) {
+      // Marca come disconnesso ma NON rimuovere subito
+      device.connectionStatus = ConnectionStatus.disconnected;
+      notifyListeners();
+
+      // Tenta reconnect automatico dopo 3 secondi
+      Future.delayed(const Duration(seconds: 3), () async {
+        if (_connectedDevices.containsKey(deviceId)) {
+          debugPrint('[MultiDeviceManager] Tentativo auto-reconnect a $deviceId...');
+          try {
+            await device.device.connect(timeout: const Duration(seconds: 10));
+            device.connectionStatus = ConnectionStatus.connected;
+            device.lastSeen = DateTime.now();
+            debugPrint('[MultiDeviceManager] Auto-reconnect riuscito per $deviceId');
+            notifyListeners();
+          } catch (e) {
+            debugPrint('[MultiDeviceManager] Auto-reconnect fallito per $deviceId: $e');
+            // Rimuovi definitivamente dopo fallimento
+            _removeDeviceCompletely(deviceId);
+          }
+        }
+      });
+    }
+  }
+
+  /// Rimuove completamente un device (chiamato dopo retry fallito)
+  void _removeDeviceCompletely(String deviceId) {
     final device = _connectedDevices[deviceId];
     if (device != null) {
       device.ledService.dispose();
@@ -271,6 +348,7 @@ class MultiDeviceManager extends ChangeNotifier {
 
   @override
   void dispose() {
+    _healthCheckTimer?.cancel();
     for (final subscription in _connectionSubscriptions.values) {
       subscription.cancel();
     }

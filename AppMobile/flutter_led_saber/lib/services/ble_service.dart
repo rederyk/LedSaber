@@ -93,18 +93,14 @@ class BleService {
     _scanSubscription?.cancel();
   }
 
-  /// Connette a un dispositivo BLE
+  /// Connette a un dispositivo BLE (Multi-device safe)
   Future<void> connectToDevice(BluetoothDevice device) async {
     try {
       // Ferma la scansione se in corso
       await stopScan();
 
-      // Disconnetti da eventuali dispositivi precedenti
-      if (_connectedDevice != null) {
-        await disconnect();
-      }
-
-      _connectedDevice = device;
+      // NON disconnettere dispositivi precedenti (gestito da MultiDeviceManager)
+      // Ogni device mantiene la propria connessione
 
       // Connetti al dispositivo
       await device.connect(
@@ -118,9 +114,12 @@ class BleService {
           device.connectionState.listen(_connectionStateController.add);
 
       // Scopri i servizi disponibili
-      _services = await device.discoverServices();
+      final services = await device.discoverServices();
+
+      // Aggiorna i riferimenti legacy (mantenuti per compatibilità)
+      _connectedDevice = device;
+      _services = services;
     } catch (e) {
-      _connectedDevice = null;
       throw Exception('Errore durante la connessione: $e');
     }
   }
