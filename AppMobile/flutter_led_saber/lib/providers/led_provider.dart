@@ -105,15 +105,50 @@ class LedProvider extends ChangeNotifier {
     return jsonEncode(state.toJson());
   }
 
-  /// Carica la lista degli effetti dal dispositivo
+  /// Ricarica manualmente la lista degli effetti (metodo pubblico)
+  Future<void> reloadEffectsList() async {
+    await _loadEffectsList();
+  }
+
+  /// Carica la lista degli effetti dal dispositivo con retry automatico
   Future<void> _loadEffectsList() async {
-    try {
-      _effectsList = await _ledService?.getEffectsList();
-      _errorMessage = null;
-      notifyListeners();
-    } catch (e) {
-      _errorMessage = 'Errore caricando lista effetti: $e';
-      notifyListeners();
+    const int maxRetries = 3;
+    const int delayMs = 500; // Delay iniziale prima del primo tentativo
+    const int retryDelayMs = 1000; // Delay tra i retry
+
+    // Aspetta un po' per permettere alla connessione BLE di stabilizzarsi
+    await Future.delayed(const Duration(milliseconds: delayMs));
+
+    for (int attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        debugPrint('[LedProvider] Tentativo $attempt/$maxRetries di caricamento lista effetti...');
+        _effectsList = await _ledService?.getEffectsList();
+
+        if (_effectsList != null && _effectsList!.effects.isNotEmpty) {
+          debugPrint('[LedProvider] Lista effetti caricata con successo: ${_effectsList!.effects.length} effetti');
+          _errorMessage = null;
+          notifyListeners();
+          return; // Successo, esci dal loop
+        } else {
+          debugPrint('[LedProvider] Lista effetti vuota o null al tentativo $attempt');
+        }
+      } catch (e) {
+        debugPrint('[LedProvider] Errore al tentativo $attempt: $e');
+
+        if (attempt == maxRetries) {
+          // Ultimo tentativo fallito
+          _errorMessage = 'Errore caricando lista effetti dopo $maxRetries tentativi: $e';
+          debugPrint('[LedProvider] Tutti i tentativi falliti');
+          notifyListeners();
+          return;
+        }
+      }
+
+      // Aspetta prima del prossimo retry
+      if (attempt < maxRetries) {
+        debugPrint('[LedProvider] Attendo ${retryDelayMs}ms prima del prossimo tentativo...');
+        await Future.delayed(const Duration(milliseconds: retryDelayMs));
+      }
     }
   }
 

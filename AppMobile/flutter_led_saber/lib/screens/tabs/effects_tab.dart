@@ -25,7 +25,7 @@ class _EffectsTabState extends State<EffectsTab> {
   @override
   void initState() {
     super.initState();
-    // Inizializza con effetto corrente
+    // Inizializza con effetto corrente e carica lista se necessario
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final ledProvider = Provider.of<LedProvider>(context, listen: false);
       final state = ledProvider.currentState;
@@ -35,6 +35,12 @@ class _EffectsTabState extends State<EffectsTab> {
           // Clamp speed to valid range (1-100) to avoid slider assertion error
           _speed = state.speed.toDouble().clamp(1.0, 100.0);
         });
+      }
+
+      // Se la lista effetti non è ancora caricata, richiedila
+      if (ledProvider.effectsList == null || ledProvider.effectsList!.effects.isEmpty) {
+        debugPrint('[EffectsTab] Lista effetti non disponibile, richiedo caricamento...');
+        ledProvider.reloadEffectsList();
       }
     });
   }

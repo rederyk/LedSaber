@@ -320,30 +320,11 @@ public:
     explicit EffectsListCallbacks(BLELedController* ctrl) : controller(ctrl) {}
 
     void onRead(BLECharacteristic *pChar) override {
-        // Costruisci JSON con lista effetti e parametri
-        const char* effectsList = R"({
-  "version": "1.0.0",
-  "effects": [
-    {"id":"solid","name":"Solid Color","params":["color"],"icon":"🟢"},
-    {"id":"rainbow","name":"Rainbow","params":["speed"],"icon":"🌈"},
-    {"id":"pulse","name":"Pulse Wave","params":["speed","color"],"icon":"⚡"},
-    {"id":"breathe","name":"Breathing","params":["speed"],"icon":"💨"},
-    {"id":"flicker","name":"Kylo Ren Flicker","params":["speed"],"icon":"🔥"},
-    {"id":"unstable","name":"Kylo Ren Advanced","params":["speed"],"icon":"💥"},
-    {"id":"dual_pulse","name":"Dual Pulse","params":["speed"],"icon":"⚔️"},
-    {"id":"dual_pulse_simple","name":"Dual Pulse Simple","params":["speed"],"icon":"⚔️"},
-    {"id":"rainbow_blade","name":"Rainbow Blade","params":["speed"],"icon":"🌟"},
-    {"id":"rainbow_effect","name":"Rainbow Effect","params":["speed"],"icon":"🌈"},
-    {"id":"storm_lightning","name":"Storm Lightning","params":["speed"],"icon":"⚡"},
-    {"id":"chrono_hybrid","name":"Chrono Clock","params":["chronoHourTheme","chronoSecondTheme"],"themes":{"hour":["Classic","Neon","Plasma","Digital","Inferno","Storm"],"second":["Classic","Spiral","Fire","Lightning","Particle","Quantum"]},"icon":"🕐"},
-    {"id":"ignition","name":"Ignition","params":["speed"],"icon":"🔥"},
-    {"id":"retraction","name":"Retraction","params":["speed"],"icon":"❌"},
-    {"id":"clash","name":"Clash","params":["speed"],"icon":"💥"}
-  ]
-})";
+        // JSON ultra-compatto per rimanere sotto MTU 512 byte
+        const char* effectsList = R"({"v":"1.0","fx":[{"i":"solid","n":"Solid"},{"i":"rainbow","n":"Rainbow"},{"i":"pulse","n":"Pulse"},{"i":"breathe","n":"Breathe"},{"i":"flicker","n":"Flicker"},{"i":"unstable","n":"Unstable"},{"i":"dual_pulse","n":"Dual"},{"i":"dual_pulse_simple","n":"Dual2"},{"i":"rainbow_blade","n":"RBlade"},{"i":"rainbow_effect","n":"REffect"},{"i":"storm_lightning","n":"Storm"},{"i":"chrono_hybrid","n":"Clock"},{"i":"ignition","n":"Ignite"},{"i":"retraction","n":"Retract"},{"i":"clash","n":"Clash"}]})";
 
         pChar->setValue(effectsList);
-        Serial.println("[BLE] Effects list sent to client");
+        Serial.printf("[BLE] Effects list sent (%d bytes)\n", strlen(effectsList));
     }
 };
 

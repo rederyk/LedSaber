@@ -1,5 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import '../models/led_state.dart';
 import '../models/effect.dart';
@@ -105,16 +107,30 @@ class LedService {
   /// Legge la lista degli effetti disponibili
   Future<EffectsList?> getEffectsList() async {
     if (_effectsListChar == null) {
+      debugPrint('[LedService] ERROR: Effects List characteristic non trovata');
       throw Exception('Effects List characteristic non trovata');
     }
 
     try {
+      debugPrint('[LedService] Lettura characteristic Effects List...');
       final value = await _effectsListChar!.read();
-      if (value.isEmpty) return null;
+      debugPrint('[LedService] Ricevuti ${value.length} byte dalla characteristic');
 
-      final json = jsonDecode(utf8.decode(value));
-      return EffectsList.fromJson(json);
+      if (value.isEmpty) {
+        debugPrint('[LedService] WARNING: Valore vuoto dalla characteristic');
+        return null;
+      }
+
+      final decodedString = utf8.decode(value);
+      debugPrint('[LedService] JSON ricevuto: ${decodedString.substring(0, min(100, decodedString.length))}...');
+
+      final json = jsonDecode(decodedString);
+      final effectsList = EffectsList.fromJson(json);
+      debugPrint('[LedService] Parsificati ${effectsList.effects.length} effetti dalla lista');
+
+      return effectsList;
     } catch (e) {
+      debugPrint('[LedService] ERROR durante lettura lista effetti: $e');
       throw Exception('Errore leggendo lista effetti: $e');
     }
   }

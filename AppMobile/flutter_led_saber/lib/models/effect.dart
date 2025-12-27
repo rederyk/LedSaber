@@ -13,10 +13,15 @@ class Effect {
   });
 
   /// Crea un Effect da JSON ricevuto via BLE
+  /// Supporta sia formato esteso che compatto
   factory Effect.fromJson(Map<String, dynamic> json) {
+    // Supporta sia 'id'/'name' che 'i'/'n' (formato compatto)
+    final id = (json['id'] ?? json['i']) as String;
+    final name = (json['name'] ?? json['n']) as String;
+
     return Effect(
-      id: json['id'] as String,
-      name: json['name'] as String,
+      id: id,
+      name: name,
       params: (json['params'] as List<dynamic>?)
               ?.map((e) => e.toString())
               .toList() ??
@@ -65,10 +70,15 @@ class EffectsList {
   });
 
   /// Crea una EffectsList da JSON ricevuto via BLE
+  /// Supporta sia formato esteso che compatto
   factory EffectsList.fromJson(Map<String, dynamic> json) {
+    // Supporta sia 'version'/'effects' che 'v'/'fx' (formato compatto)
+    final version = (json['version'] ?? json['v'] ?? '1.0') as String;
+    final effectsKey = json.containsKey('effects') ? 'effects' : 'fx';
+
     return EffectsList(
-      version: json['version'] as String,
-      effects: (json['effects'] as List<dynamic>)
+      version: version,
+      effects: (json[effectsKey] as List<dynamic>)
           .map((e) => Effect.fromJson(e as Map<String, dynamic>))
           .toList(),
     );
