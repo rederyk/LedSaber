@@ -22,6 +22,7 @@ class _ControlScreenState extends State<ControlScreen> {
     if (!bleProvider.isConnected) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) {
+          ledProvider.setLedService(null);
           Navigator.of(context).pop();
         }
       });
@@ -39,6 +40,7 @@ class _ControlScreenState extends State<ControlScreen> {
             icon: const Icon(Icons.bluetooth_connected),
             onPressed: () async {
               final navigator = Navigator.of(context);
+              ledProvider.setLedService(null);
               await bleProvider.disconnect();
               if (mounted) {
                 navigator.pop();
@@ -180,6 +182,9 @@ class _ControlScreenState extends State<ControlScreen> {
         maxHeight: maxHeight,
         isConnected: bleProvider.isConnected,
         onPowerTap: () {
+          if (bladeState == 'igniting' || bladeState == 'retracting') {
+            return;
+          }
           // Toggle ignite/retract
           if (bladeState == 'off' || bladeState == 'retracting') {
             ledProvider.ignite();

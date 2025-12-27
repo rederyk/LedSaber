@@ -204,6 +204,9 @@ class _LightsaberWidgetState extends State<LightsaberWidget>
 
   /// Costruisce il power button
   Widget _buildPowerButton() {
+    final bool isAnimating =
+        widget.bladeState == 'igniting' || widget.bladeState == 'retracting';
+
     // Determina colore bordo in base a stato
     Color borderColor;
     Color iconColor;
@@ -226,7 +229,7 @@ class _LightsaberWidgetState extends State<LightsaberWidget>
     }
 
     return GestureDetector(
-      onTap: widget.onPowerTap,
+      onTap: isAnimating ? null : widget.onPowerTap,
       child: Container(
         width: 70,
         height: 70,

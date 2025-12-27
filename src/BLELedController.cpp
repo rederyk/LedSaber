@@ -514,10 +514,10 @@ String BLELedController::getBladeState() const {
             bladeState = "igniting";
         } else if (mode == LedEffectEngine::Mode::RETRACT_ACTIVE) {
             bladeState = "retracting";
-        } else if (ledState->enabled) {
+        } else if (ledState->bladeEnabled) {
             bladeState = "on";
         }
-    } else if (ledState->enabled) {
+    } else if (ledState->bladeEnabled) {
         bladeState = "on";
     }
     return bladeState;

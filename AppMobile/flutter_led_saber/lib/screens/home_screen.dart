@@ -146,7 +146,7 @@ class _HomeScreenState extends State<HomeScreen> {
         child: Column(
           children: [
             // Stato connessione
-            _buildConnectionStatus(bleProvider),
+            _buildConnectionStatus(bleProvider, ledProvider),
 
             const SizedBox(height: 20),
 
@@ -166,7 +166,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   /// Widget stato connessione
-  Widget _buildConnectionStatus(BleProvider bleProvider) {
+  Widget _buildConnectionStatus(BleProvider bleProvider, LedProvider ledProvider) {
     final isConnected = bleProvider.isConnected;
     final connectedDevice = bleProvider.connectedDevice;
 
@@ -215,7 +215,10 @@ class _HomeScreenState extends State<HomeScreen> {
           if (isConnected)
             IconButton(
               icon: const Icon(Icons.close),
-              onPressed: () => bleProvider.disconnect(),
+              onPressed: () {
+                ledProvider.setLedService(null);
+                bleProvider.disconnect();
+              },
               tooltip: 'Disconnetti',
             ),
         ],

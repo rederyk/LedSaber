@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import '../models/led_state.dart';
 import '../models/effect.dart';
@@ -18,6 +19,7 @@ class LedProvider extends ChangeNotifier {
 
   /// Ultimo stato bladeState per rilevare cambi significativi
   String? _lastBladeState;
+  String? _lastStateSignature;
 
   // Getters
   LedState? get currentState => _currentState;
@@ -47,6 +49,7 @@ class LedProvider extends ChangeNotifier {
       _currentState = null;
       _effectsList = null;
       _lastBladeState = null;
+      _lastStateSignature = null;
     }
 
     notifyListeners();
@@ -54,6 +57,11 @@ class LedProvider extends ChangeNotifier {
 
   /// Gestisce gli aggiornamenti di stato con debounce intelligente
   void _handleStateUpdate(LedState state) {
+    final stateSignature = _buildStateSignature(state);
+    if (stateSignature == _lastStateSignature) {
+      return;
+    }
+
     final currentBladeState = state.bladeState;
     final isAnimating = currentBladeState == 'igniting' || currentBladeState == 'retracting';
 
@@ -63,11 +71,13 @@ class LedProvider extends ChangeNotifier {
     if (bladeStateChanged) {
       // Cambio di stato significativo - notifica immediatamente
       _lastBladeState = currentBladeState;
+      _lastStateSignature = stateSignature;
       _currentState = state;
       _debounceTimer?.cancel();
       notifyListeners();
     } else if (isAnimating) {
       // Durante animazione - applica debounce (solo ogni 100ms)
+      _lastStateSignature = stateSignature;
       _currentState = state;
 
       if (_debounceTimer == null || !_debounceTimer!.isActive) {
@@ -77,9 +87,15 @@ class LedProvider extends ChangeNotifier {
       }
     } else {
       // Stato stabile (on/off) - notifica normalmente
+      _lastStateSignature = stateSignature;
       _currentState = state;
+      _debounceTimer?.cancel();
       notifyListeners();
     }
+  }
+
+  String _buildStateSignature(LedState state) {
+    return jsonEncode(state.toJson());
   }
 
   /// Carica la lista degli effetti dal dispositivo
