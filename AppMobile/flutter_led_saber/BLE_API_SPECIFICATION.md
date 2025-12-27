@@ -565,7 +565,12 @@ class LedSaberOTA {
     {"id":"dual_pulse","name":"Dual Pulse","params":["speed"],"icon":"⚔️"},
     {"id":"dual_pulse_simple","name":"Dual Pulse Simple","params":["speed"],"icon":"⚔️"},
     {"id":"rainbow_blade","name":"Rainbow Blade","params":["speed"],"icon":"🌟"},
-    {"id":"chrono_hybrid","name":"Chrono Clock","params":["chronoHourTheme","chronoSecondTheme"],"themes":{"hour":["Classic","Neon","Plasma","Digital","Inferno","Storm"],"second":["Classic","Spiral","Fire","Lightning","Particle","Quantum"]},"icon":"🕐"}
+    {"id":"rainbow_effect","name":"Rainbow Effect","params":["speed"],"icon":"🌈"},
+    {"id":"storm_lightning","name":"Storm Lightning","params":["speed"],"icon":"⚡"},
+    {"id":"chrono_hybrid","name":"Chrono Clock","params":["chronoHourTheme","chronoSecondTheme"],"themes":{"hour":["Classic","Neon","Plasma","Digital","Inferno","Storm"],"second":["Classic","Spiral","Fire","Lightning","Particle","Quantum"]},"icon":"🕐"},
+    {"id":"ignition","name":"Ignition","params":["speed"],"icon":"🔥"},
+    {"id":"retraction","name":"Retraction","params":["speed"],"icon":"❌"},
+    {"id":"clash","name":"Clash","params":["speed"],"icon":"💥"}
   ]
 }
 ```
