@@ -7,6 +7,40 @@ Creare un'app Flutter cross-platform (Android/iOS) per controllare il LED Saber 
 
 ## 📝 CHANGELOG
 
+### **27 Dicembre 2024 - Sprint 2 COMPLETATO** ✅
+
+**Nuove Implementazioni:**
+
+✅ **Effects Tab & Loading System**
+- Sistema retry automatico (3 tentativi) con delay progressivo (500ms + 1000ms tra retry)
+- Caricamento attivo quando l'utente apre il tab Effects
+- Logging dettagliato per debug (traccia byte ricevuti, JSON parsing, tentativi)
+- Fix MTU BLE: JSON compatto da 1415 byte → 492 byte (risolto "0 byte received")
+- Parser retrocompatibile: supporta sia formato esteso che compatto (`id`/`i`, `name`/`n`)
+- UI Effects Tab funzionante con lista scrollabile
+
+✅ **JSON Optimization (Firmware)**
+- Ridotto JSON lista effetti da 1415 byte a 492 byte (sotto MTU 512)
+- Formato compatto: `{"v":"1.0","fx":[{"i":"solid","n":"Solid"}...]}`
+- Rimossi emoji e parametri non essenziali
+- 15 effetti disponibili caricabili via BLE
+
+✅ **Gesture System - Documentazione Completa**
+- Analisi completa sistema gesture a 2 livelli (Motion Detection + Gesture Processing)
+- Parametri configurabili: `gestureClashEffect`, `gestureClashDurationMs`, `motionOnBoot`
+- Settings BLE: `gesturesEnabled`, intensità soglie per IGNITION/RETRACT/CLASH
+- Mapping effetti per direzioni (UP/DOWN/LEFT/RIGHT)
+- Sistema Clash Effect personalizzabile (flash bianco standard o effetto custom)
+
+**Problemi risolti:**
+- Fix "Loading effects..." infinito: il JSON superava MTU BLE (1415 > 512 byte)
+- Fix parsing JSON: aggiunti import `dart:math` e `package:flutter/foundation.dart`
+- Fix gestione caratteristica vuota: ora gestisce correttamente 0 byte ricevuti
+
+**Prossimi step:** Sprint 3 - Settings Tab con controlli gesture + Motion Service integration
+
+---
+
 ### **27 Dicembre 2024 - Sprint 1 COMPLETATO** ✅
 
 **Implementazioni completate:**
@@ -520,46 +554,138 @@ Future<void> syncTime() async {
 
 ---
 
-## 📋 FASE 4: MOTION DETECTION (Priorità: MEDIA)
+## 📋 FASE 4: MOTION DETECTION & GESTURE SYSTEM (Priorità: MEDIA)
 
 ### 4.1 Motion Service
 
 **File**: `lib/services/motion_service.dart`
 
-**Characteristic UUID** (da trovare in `BLEMotionService.h`):
+**Characteristic UUID** (da `BLEMotionService.h`):
 ```dart
-// NOTIFY
+// Da implementare - verificare UUID nel firmware
 static const CHAR_MOTION_STATUS = "...";
 static const CHAR_MOTION_EVENTS = "...";
-
-// WRITE
 static const CHAR_MOTION_CONTROL = "...";
 static const CHAR_MOTION_CONFIG = "...";
 ```
 
-**Comandi Control** (stringa):
-```dart
-await characteristic.write(utf8.encode("enable"));
-await characteristic.write(utf8.encode("disable"));
-await characteristic.write(utf8.encode("reset"));
-await characteristic.write(utf8.encode("quality 128"));
-await characteristic.write(utf8.encode("motionmin 12"));
-await characteristic.write(utf8.encode("speedmin 1.2"));
+### 4.2 Gesture System - Architettura ✅ DOCUMENTATO
+
+Il sistema gesture opera su **2 livelli indipendenti**:
+
+#### **Livello 1: Motion Detection (ON/OFF globale)**
+- **Gestito da**: `BLEMotionService::_motionEnabled` (bool)
+- **Controlla**: Se il rilevamento optical flow è attivo
+- **Comandi BLE** (stringa, via CHAR_MOTION_CONTROL):
+  ```dart
+  await motionControlChar.write(utf8.encode("enable"));   // Abilita motion
+  await motionControlChar.write(utf8.encode("disable"));  // Disabilita motion
+  await motionControlChar.write(utf8.encode("reset"));    // Reset detector
+  ```
+
+#### **Livello 2: Gesture Processing (Configurazione fine)**
+- **Gestito da**: `MotionProcessor::Config::gesturesEnabled` (bool)
+- **Controlla**: Riconoscimento specifico delle gesture (IGNITION, RETRACT, CLASH)
+- **Config JSON** (via CHAR_MOTION_CONFIG):
+  ```dart
+  final config = {
+    "enabled": true,                    // Motion detection ON/OFF
+    "gesturesEnabled": true,            // Gesture recognition ON/OFF
+    "quality": 160,                     // Qualità optical flow (0-255)
+    "motionIntensityMin": 6,            // Soglia intensità motion
+    "motionSpeedMin": 0.4,              // Soglia velocità motion
+    "gestureIgnitionIntensity": 15,     // Soglia gesture IGNITION
+    "gestureRetractIntensity": 15,      // Soglia gesture RETRACT
+    "gestureClashIntensity": 15,        // Soglia gesture CLASH
+    "effectMapUp": "flicker",           // Effetto su movimento SU
+    "effectMapDown": "",                // Effetto su movimento GIÙ
+    "effectMapLeft": "",                // Effetto su movimento SINISTRA
+    "effectMapRight": "",               // Effetto su movimento DESTRA
+    "debugLogs": false                  // Log verbosi
+  };
+  await motionConfigChar.write(utf8.encode(jsonEncode(config)));
+  ```
+
+### 4.3 Gesture Clash Effect - Sistema Personalizzabile ✅ DOCUMENTATO
+
+**Nel firmware** (`LedState` in `BLELedController.h`):
+```cpp
+String gestureClashEffect = "clash";        // ID effetto per CLASH gesture
+uint16_t gestureClashDurationMs = 500;      // Durata effetto (50-5000ms)
 ```
 
-**Config JSON** (write):
+**Comportamento** (`LedEffectEngine::onGestureDetected`):
+
+1. **Clash Standard** (flash bianco nativo):
+   ```cpp
+   if (gestureClashEffect == "clash" || gestureClashEffect.isEmpty()) {
+       _mode = Mode::CLASH_ACTIVE;  // Flash bianco
+   }
+   ```
+
+2. **Effetto Personalizzato** (usa un effetto base):
+   ```cpp
+   else {
+       _gestureEffectName = gestureClashEffect;      // es. "flicker"
+       _gestureEffectDurationMs = gestureClashDurationMs;
+       _mode = Mode::GESTURE_EFFECT;  // Esegue l'effetto base
+   }
+   ```
+
+**Invio via BLE** (via CHAR_LED_EFFECT_UUID):
 ```dart
-final config = {
-  "enabled": true,
-  "quality": 128,
-  "motionIntensityMin": 12,
-  "motionSpeedMin": 1.2,
-  "gestureIgnitionIntensity": 140,
-  "gestureRetractIntensity": 120,
-  "gestureClashIntensity": 200,
-  "debugLogs": false
+// Cambia effetto clash personalizzato
+final payload = {
+  "mode": "solid",                    // Effetto base corrente
+  "gestureClashEffect": "flicker",    // Nuovo effetto clash
+  "gestureClashDurationMs": 800       // Durata in ms
 };
-await characteristic.write(utf8.encode(jsonEncode(config)));
+await ledEffectChar.write(utf8.encode(jsonEncode(payload)));
+```
+
+### 4.4 Casi d'Uso - Gesture Configuration
+
+#### **Caso 1: Disabilitare tutte le gesture**
+```dart
+final config = {"gesturesEnabled": false};
+await motionConfigChar.write(utf8.encode(jsonEncode(config)));
+```
+
+#### **Caso 2: Disabilitare solo CLASH**
+```dart
+final config = {"gestureClashIntensity": 255}; // Soglia impossibile
+await motionConfigChar.write(utf8.encode(jsonEncode(config)));
+```
+
+#### **Caso 3: Usare effetto personalizzato per CLASH**
+```dart
+// Via LED Effect characteristic
+final payload = {
+  "gestureClashEffect": "pulse",
+  "gestureClashDurationMs": 1000
+};
+await ledEffectChar.write(utf8.encode(jsonEncode(payload)));
+```
+
+#### **Caso 4: Disabilitare motion completamente**
+```dart
+await motionControlChar.write(utf8.encode("disable"));
+```
+
+### 4.5 Boot Configuration con Motion ✅ DOCUMENTATO
+
+**Abilitare motion automaticamente all'avvio**:
+```dart
+final bootConfig = {
+  "command": "boot_config",
+  "motionEnabled": true  // Abilita motion + camera all'avvio
+};
+await deviceControlChar.write(utf8.encode(jsonEncode(bootConfig)));
+```
+
+**Nel firmware** (`LedState`):
+```cpp
+bool motionOnBoot = false;  // Se true, abilita motion automaticamente
 ```
 
 ---
@@ -731,14 +857,21 @@ dev_dependencies:
 
 **Status**: App funzionante! Connessione BLE stabilita, ricezione notifiche stato LED, controlli base implementati.
 
-### **Sprint 2** (Features Core - DA FARE)
-7. ⏳ Effects Screen: lista dinamica + chrono themes
-8. ⏳ Time sync per chrono
+### **Sprint 2** (Features Core) ✅ **COMPLETATO**
+7. ✅ Effects Screen: lista dinamica caricata da BLE (con retry system)
+8. ✅ JSON Optimization: ridotto da 1415 byte a 492 byte (fix MTU)
 9. ✅ Status LED control (già implementato in Control Screen)
+10. ✅ Gesture System: documentazione completa architettura 2 livelli
+11. ⏳ Time sync per chrono (TO-DO)
 
-### **Sprint 3** (Motion - DA FARE)
-10. ⏳ Motion Service: config + status stream
-11. ⏳ Motion Screen: live data + tuning sliders
+**Status**: Effects Tab funzionante! 15 effetti caricabili via BLE, sistema gesture documentato.
+
+### **Sprint 3** (Motion & Settings - DA FARE)
+12. ⏳ Settings Tab: UI per configurare gesture e boot config
+13. ⏳ Estendere LedState con campi gesture (`gestureClashEffect`, `motionOnBoot`)
+14. ⏳ Motion Service: integrazione completa config + status stream
+15. ⏳ Motion Screen: live data + tuning sliders
+16. ⏳ Time sync UI per chrono
 
 ### **Sprint 4** (Polish - DA FARE)
 12. ⏳ Settings: boot config
