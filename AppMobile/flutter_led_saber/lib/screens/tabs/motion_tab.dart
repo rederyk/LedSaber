@@ -72,8 +72,8 @@ class _MotionTabState extends State<MotionTab> {
     if (currentConfig == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Configuration not loaded yet'),
-          duration: Duration(seconds: 2),
+          content: Text('Config not loaded'),
+          duration: Duration(seconds: 1),
         ),
       );
       return;
@@ -93,8 +93,8 @@ class _MotionTabState extends State<MotionTab> {
 
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
-        content: Text('Motion configuration applied!'),
-        duration: Duration(seconds: 2),
+        content: Text('Applied!'),
+        duration: Duration(seconds: 1),
       ),
     );
   }
@@ -120,54 +120,41 @@ class _MotionTabState extends State<MotionTab> {
     }
 
     return SingleChildScrollView(
-      padding: const EdgeInsets.all(8),
+      padding: const EdgeInsets.all(6),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Titolo sezione
-          Text(
-            'Motion Detection',
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-          const SizedBox(height: 8),
-
-          // Motion Detection Toggle
+          // Motion Detection Toggle (compatto)
           _buildMotionToggle(state, config, motionProvider),
+          const SizedBox(height: 6),
 
-          const SizedBox(height: 12),
-
-          // Live Motion Data
+          // Live Motion Data (solo se abilitato)
           if (state?.enabled ?? false) ...[
             _buildLiveMotionData(state!),
-            const SizedBox(height: 12),
+            const SizedBox(height: 6),
           ],
 
-          // Gestures Enable Toggle
+          // Gestures Enable Toggle (compatto)
           _buildGesturesToggle(config, motionProvider),
+          const SizedBox(height: 6),
 
-          const SizedBox(height: 12),
-
-          // Motion Tuning Sliders
+          // Motion Tuning Sliders (compatti)
           _buildMotionTuning(),
-
-          const SizedBox(height: 12),
+          const SizedBox(height: 6),
 
           // Advanced Settings (Collapsable)
           _buildAdvancedSettings(),
+          const SizedBox(height: 8),
 
-          const SizedBox(height: 16),
-
-          // Apply Button
+          // Apply Button (compatto)
           _buildApplyButton(motionProvider),
 
           // Error message
           if (motionProvider.errorMessage != null) ...[
-            const SizedBox(height: 8),
+            const SizedBox(height: 4),
             Text(
               motionProvider.errorMessage!,
-              style: const TextStyle(color: Colors.red, fontSize: 12),
+              style: const TextStyle(color: Colors.red, fontSize: 10),
             ),
           ],
         ],
@@ -175,13 +162,14 @@ class _MotionTabState extends State<MotionTab> {
     );
   }
 
-  /// Motion Detection Toggle
+  /// Motion Detection Toggle (compatto)
   Widget _buildMotionToggle(MotionState? state, MotionConfig? config, MotionProvider provider) {
     final isEnabled = state?.enabled ?? config?.enabled ?? false;
 
     return Card(
+      margin: EdgeInsets.zero,
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
@@ -190,20 +178,24 @@ class _MotionTabState extends State<MotionTab> {
                 Icon(
                   isEnabled ? Icons.motion_photos_on : Icons.motion_photos_off,
                   color: isEnabled ? Colors.green : Colors.grey,
-                  size: 20,
+                  size: 16,
                 ),
-                const SizedBox(width: 8),
+                const SizedBox(width: 6),
                 Text(
-                  'Motion Detection',
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  'Motion',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
                     fontWeight: FontWeight.bold,
+                    fontSize: 11,
                   ),
                 ),
               ],
             ),
-            Switch(
-              value: isEnabled,
-              onChanged: (value) => _toggleMotionDetection(value, provider),
+            Transform.scale(
+              scale: 0.8,
+              child: Switch(
+                value: isEnabled,
+                onChanged: (value) => _toggleMotionDetection(value, provider),
+              ),
             ),
           ],
         ),
@@ -211,13 +203,14 @@ class _MotionTabState extends State<MotionTab> {
     );
   }
 
-  /// Gestures Enable Toggle
+  /// Gestures Enable Toggle (compatto)
   Widget _buildGesturesToggle(MotionConfig? config, MotionProvider provider) {
     final isEnabled = config?.gesturesEnabled ?? true;
 
     return Card(
+      margin: EdgeInsets.zero,
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
@@ -226,20 +219,24 @@ class _MotionTabState extends State<MotionTab> {
                 Icon(
                   isEnabled ? Icons.gesture : Icons.block,
                   color: isEnabled ? Colors.blue : Colors.grey,
-                  size: 20,
+                  size: 16,
                 ),
-                const SizedBox(width: 8),
+                const SizedBox(width: 6),
                 Text(
-                  'Gesture Recognition',
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  'Gestures',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
                     fontWeight: FontWeight.bold,
+                    fontSize: 11,
                   ),
                 ),
               ],
             ),
-            Switch(
-              value: isEnabled,
-              onChanged: (value) => _toggleGestures(value, provider),
+            Transform.scale(
+              scale: 0.8,
+              child: Switch(
+                value: isEnabled,
+                onChanged: (value) => _toggleGestures(value, provider),
+              ),
             ),
           ],
         ),
@@ -247,68 +244,65 @@ class _MotionTabState extends State<MotionTab> {
     );
   }
 
-  /// Live Motion Data Display
+  /// Live Motion Data Display (ultra-compatto)
   Widget _buildLiveMotionData(MotionState state) {
     return Card(
+      margin: EdgeInsets.zero,
       color: Theme.of(context).cardColor.withValues(alpha: 0.5),
       child: Padding(
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.all(8),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              'Live Motion',
-              style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const SizedBox(height: 8),
-
-            // Direction
-            _buildLiveDataRow(
-              'Direction:',
-              state.direction,
-              _getDirectionIcon(state.direction),
-            ),
-            const SizedBox(height: 4),
-
-            // Speed
-            _buildLiveDataRow(
-              'Speed:',
-              state.speed.toStringAsFixed(1),
-              Icons.speed,
+            // Header compatto
+            Row(
+              children: [
+                const Icon(Icons.sensors, size: 12, color: Colors.grey),
+                const SizedBox(width: 4),
+                Text(
+                  'Live',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 10,
+                  ),
+                ),
+              ],
             ),
             const SizedBox(height: 4),
 
-            // Confidence
-            _buildLiveDataRow(
-              'Confidence:',
-              '${state.confidence}%',
-              Icons.percent,
-            ),
-
-            const Divider(height: 16),
-
-            // Last Gesture
-            Text(
-              'Last Gesture',
-              style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const SizedBox(height: 8),
-
-            _buildLiveDataRow(
-              'Type:',
-              state.lastGesture,
-              _getGestureIcon(state.lastGesture),
+            // Dati in griglia compatta 2x2
+            Row(
+              children: [
+                Expanded(
+                  child: _buildCompactDataItem(
+                    _getDirectionIcon(state.direction),
+                    state.direction,
+                  ),
+                ),
+                Expanded(
+                  child: _buildCompactDataItem(
+                    Icons.speed,
+                    state.speed.toStringAsFixed(1),
+                  ),
+                ),
+              ],
             ),
             const SizedBox(height: 4),
-
-            _buildLiveDataRow(
-              'Confidence:',
-              '${state.gestureConfidence}%',
-              Icons.percent,
+            Row(
+              children: [
+                Expanded(
+                  child: _buildCompactDataItem(
+                    _getGestureIcon(state.lastGesture),
+                    state.lastGesture,
+                  ),
+                ),
+                Expanded(
+                  child: _buildCompactDataItem(
+                    Icons.percent,
+                    '${state.confidence}%',
+                  ),
+                ),
+              ],
             ),
           ],
         ),
@@ -316,23 +310,21 @@ class _MotionTabState extends State<MotionTab> {
     );
   }
 
-  /// Live Data Row
-  Widget _buildLiveDataRow(String label, String value, IconData icon) {
+  /// Item dati compatto
+  Widget _buildCompactDataItem(IconData icon, String value) {
     return Row(
+      mainAxisSize: MainAxisSize.min,
       children: [
-        Icon(icon, size: 16, color: Colors.grey),
-        const SizedBox(width: 6),
-        Text(
-          label,
-          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-            color: Colors.grey,
-          ),
-        ),
-        const SizedBox(width: 8),
-        Text(
-          value,
-          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-            fontWeight: FontWeight.bold,
+        Icon(icon, size: 12, color: Colors.grey),
+        const SizedBox(width: 4),
+        Flexible(
+          child: Text(
+            value,
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              fontSize: 10,
+              fontWeight: FontWeight.w600,
+            ),
+            overflow: TextOverflow.ellipsis,
           ),
         ),
       ],
@@ -369,22 +361,14 @@ class _MotionTabState extends State<MotionTab> {
     }
   }
 
-  /// Motion Tuning Sliders
+  /// Motion Tuning Sliders (compatti)
   Widget _buildMotionTuning() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          'Motion Tuning',
-          style: Theme.of(context).textTheme.titleSmall?.copyWith(
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-        const SizedBox(height: 8),
-
         // Quality
-        _buildSlider(
-          'Quality',
+        _buildCompactSlider(
+          'Qual',
           _quality,
           0,
           255,
@@ -392,11 +376,9 @@ class _MotionTabState extends State<MotionTab> {
           Icons.high_quality,
         ),
 
-        const SizedBox(height: 8),
-
         // Motion Intensity Min
-        _buildSlider(
-          'Motion Min',
+        _buildCompactSlider(
+          'MinInt',
           _motionIntensityMin,
           0,
           50,
@@ -404,11 +386,9 @@ class _MotionTabState extends State<MotionTab> {
           Icons.vibration,
         ),
 
-        const SizedBox(height: 8),
-
         // Motion Speed Min
-        _buildSlider(
-          'Speed Min',
+        _buildCompactSlider(
+          'MinSpd',
           _motionSpeedMin,
           0.0,
           5.0,
@@ -421,7 +401,7 @@ class _MotionTabState extends State<MotionTab> {
     );
   }
 
-  /// Advanced Settings (Collapsable)
+  /// Advanced Settings (Collapsable, compatto)
   Widget _buildAdvancedSettings() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -437,13 +417,14 @@ class _MotionTabState extends State<MotionTab> {
             children: [
               Icon(
                 _showAdvanced ? Icons.expand_less : Icons.expand_more,
-                size: 20,
+                size: 16,
               ),
               const SizedBox(width: 4),
               Text(
                 'Gesture Thresholds',
-                style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
                   fontWeight: FontWeight.bold,
+                  fontSize: 10,
                 ),
               ),
             ],
@@ -452,11 +433,11 @@ class _MotionTabState extends State<MotionTab> {
 
         // Contenuto collapsabile
         if (_showAdvanced) ...[
-          const SizedBox(height: 8),
+          const SizedBox(height: 4),
 
           // Ignition Threshold
-          _buildSlider(
-            'Ignition',
+          _buildCompactSlider(
+            'Ignit',
             _gestureIgnitionIntensity,
             0,
             255,
@@ -464,11 +445,9 @@ class _MotionTabState extends State<MotionTab> {
             Icons.flash_on,
           ),
 
-          const SizedBox(height: 8),
-
           // Retract Threshold
-          _buildSlider(
-            'Retract',
+          _buildCompactSlider(
+            'Retrc',
             _gestureRetractIntensity,
             0,
             255,
@@ -476,10 +455,8 @@ class _MotionTabState extends State<MotionTab> {
             Icons.flash_off,
           ),
 
-          const SizedBox(height: 8),
-
           // Clash Threshold
-          _buildSlider(
+          _buildCompactSlider(
             'Clash',
             _gestureClashIntensity,
             0,
@@ -488,25 +465,30 @@ class _MotionTabState extends State<MotionTab> {
             Icons.warning,
           ),
 
-          const SizedBox(height: 12),
+          const SizedBox(height: 4),
 
           // Debug Logs Toggle
           Row(
             children: [
-              const Icon(Icons.bug_report, size: 16, color: Colors.grey),
-              const SizedBox(width: 6),
+              const Icon(Icons.bug_report, size: 12, color: Colors.grey),
+              const SizedBox(width: 4),
               Text(
-                'Debug Logs',
-                style: Theme.of(context).textTheme.bodySmall,
+                'Debug',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  fontSize: 10,
+                ),
               ),
               const Spacer(),
-              Switch(
-                value: _debugLogs,
-                onChanged: (value) {
-                  setState(() {
-                    _debugLogs = value;
-                  });
-                },
+              Transform.scale(
+                scale: 0.7,
+                child: Switch(
+                  value: _debugLogs,
+                  onChanged: (value) {
+                    setState(() {
+                      _debugLogs = value;
+                    });
+                  },
+                ),
               ),
             ],
           ),
@@ -515,8 +497,8 @@ class _MotionTabState extends State<MotionTab> {
     );
   }
 
-  /// Generic Slider Builder
-  Widget _buildSlider(
+  /// Compact Slider Builder
+  Widget _buildCompactSlider(
     String label,
     double value,
     double min,
@@ -531,12 +513,13 @@ class _MotionTabState extends State<MotionTab> {
       children: [
         Row(
           children: [
-            Icon(icon, size: 16, color: Colors.grey),
-            const SizedBox(width: 6),
+            Icon(icon, size: 12, color: Colors.grey),
+            const SizedBox(width: 4),
             Text(
               label,
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
                 fontWeight: FontWeight.bold,
+                fontSize: 10,
               ),
             ),
             const Spacer(),
@@ -547,31 +530,39 @@ class _MotionTabState extends State<MotionTab> {
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
                 color: Colors.grey,
                 fontWeight: FontWeight.w600,
+                fontSize: 10,
               ),
             ),
           ],
         ),
-        Slider(
-          value: value,
-          min: min,
-          max: max,
-          divisions: divisions ?? (max - min).round(),
-          onChanged: onChanged,
+        SizedBox(
+          height: 24,
+          child: Slider(
+            value: value,
+            min: min,
+            max: max,
+            divisions: divisions ?? (max - min).round(),
+            onChanged: onChanged,
+          ),
         ),
       ],
     );
   }
 
-  /// Apply Configuration Button
+  /// Apply Configuration Button (compatto)
   Widget _buildApplyButton(MotionProvider provider) {
     return SizedBox(
       width: double.infinity,
+      height: 32,
       child: ElevatedButton.icon(
         onPressed: () => _applyMotionConfig(provider),
-        icon: const Icon(Icons.check),
-        label: const Text('Apply Configuration'),
+        icon: const Icon(Icons.check, size: 14),
+        label: const Text(
+          'Apply',
+          style: TextStyle(fontSize: 11),
+        ),
         style: ElevatedButton.styleFrom(
-          padding: const EdgeInsets.symmetric(vertical: 12),
+          padding: const EdgeInsets.symmetric(horizontal: 12),
         ),
       ),
     );
