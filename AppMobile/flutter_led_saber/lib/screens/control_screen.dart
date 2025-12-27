@@ -6,6 +6,7 @@ import '../widgets/lightsaber_widget.dart';
 import 'device_list_screen.dart';
 import 'tabs/colors_tab.dart';
 import 'tabs/effects_tab.dart';
+import 'tabs/motion_tab.dart';
 
 /// Schermata principale di controllo LED
 class ControlScreen extends StatefulWidget {
@@ -21,7 +22,7 @@ class _ControlScreenState extends State<ControlScreen> with SingleTickerProvider
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
+    _tabController = TabController(length: 3, vsync: this);
   }
 
   @override
@@ -122,6 +123,7 @@ class _ControlScreenState extends State<ControlScreen> with SingleTickerProvider
                   tabs: const [
                     Tab(icon: Icon(Icons.palette, size: 18), text: 'Colors'),
                     Tab(icon: Icon(Icons.auto_awesome, size: 18), text: 'Effects'),
+                    Tab(icon: Icon(Icons.motion_photos_on, size: 18), text: 'Motion'),
                   ],
                 ),
                 // TabBarView
@@ -131,6 +133,7 @@ class _ControlScreenState extends State<ControlScreen> with SingleTickerProvider
                     children: const [
                       ColorsTab(),
                       EffectsTab(),
+                      MotionTab(),
                     ],
                   ),
                 ),
@@ -182,6 +185,7 @@ class _ControlScreenState extends State<ControlScreen> with SingleTickerProvider
                   tabs: const [
                     Tab(icon: Icon(Icons.palette), text: 'Colors'),
                     Tab(icon: Icon(Icons.auto_awesome), text: 'Effects'),
+                    Tab(icon: Icon(Icons.motion_photos_on), text: 'Motion'),
                   ],
                 ),
                 // TabBarView
@@ -191,6 +195,7 @@ class _ControlScreenState extends State<ControlScreen> with SingleTickerProvider
                     children: const [
                       ColorsTab(),
                       EffectsTab(),
+                      MotionTab(),
                     ],
                   ),
                 ),

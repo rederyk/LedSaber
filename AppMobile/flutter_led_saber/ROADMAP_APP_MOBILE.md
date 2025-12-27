@@ -7,6 +7,33 @@ Creare un'app Flutter cross-platform (Android/iOS) per controllare il LED Saber 
 
 ## 📝 CHANGELOG
 
+### **27 Dicembre 2024 - Sprint 3 INIZIATO** 🚀
+
+**Nuove Implementazioni:**
+
+✅ **Motion Tab - UI Completa**
+- Tab Motion aggiunto alla Control Screen con 3 tab (Colors, Effects, Motion)
+- Motion Detection toggle (ON/OFF) con icone dinamiche
+- Gesture Recognition toggle separato
+- Live Motion Data display (Direction, Speed, Confidence)
+- Last Gesture tracking (Type, Confidence) con icone specifiche per IGNITION/RETRACT/CLASH
+- Motion Tuning sliders: Quality (0-255), Motion Min (0-50), Speed Min (0.0-5.0)
+- Advanced Settings collapsabile: Gesture Thresholds (Ignition, Retract, Clash)
+- Debug Logs toggle
+- Apply Configuration button per inviare settings via BLE
+- UI responsive compatibile con layout Portrait e Landscape
+- TODO markers per integrazione BLE futura (CHAR_MOTION_CONTROL, CHAR_MOTION_CONFIG)
+
+**File creati:**
+- [lib/screens/tabs/motion_tab.dart](lib/screens/tabs/motion_tab.dart) - 500+ righe di UI completa
+
+**File modificati:**
+- [lib/screens/control_screen.dart](lib/screens/control_screen.dart) - Aggiunto terzo tab Motion
+
+**Prossimi step:** Integrazione BLE Motion Service, live data streaming, configurazione gesture via BLE
+
+---
+
 ### **27 Dicembre 2024 - Sprint 2 COMPLETATO** ✅
 
 **Nuove Implementazioni:**
@@ -866,11 +893,11 @@ dev_dependencies:
 
 **Status**: Effects Tab funzionante! 15 effetti caricabili via BLE, sistema gesture documentato.
 
-### **Sprint 3** (Motion & Settings - DA FARE)
+### **Sprint 3** (Motion & Settings - IN CORSO)
 12. ⏳ Settings Tab: UI per configurare gesture e boot config
 13. ⏳ Estendere LedState con campi gesture (`gestureClashEffect`, `motionOnBoot`)
 14. ⏳ Motion Service: integrazione completa config + status stream
-15. ⏳ Motion Screen: live data + tuning sliders
+15. ✅ Motion Tab: UI con live data + tuning sliders (interfaccia completata, BLE da integrare)
 16. ⏳ Time sync UI per chrono
 
 ### **Sprint 4** (Polish - DA FARE)

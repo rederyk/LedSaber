@@ -1,5 +1,6 @@
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import '../services/led_service.dart';
+import '../services/motion_service.dart';
 
 /// Stato della connessione del dispositivo
 enum ConnectionStatus {
@@ -14,6 +15,7 @@ class ConnectedDevice {
   final String name;
   final BluetoothDevice device;
   final LedService ledService;
+  final MotionService? motionService; // Opzionale, potrebbe non essere presente
   final DateTime connectedAt;
   bool isActive; // Device correntemente visualizzato
   ConnectionStatus connectionStatus; // Stato connessione
@@ -24,6 +26,7 @@ class ConnectedDevice {
     required this.name,
     required this.device,
     required this.ledService,
+    this.motionService,
     required this.connectedAt,
     this.isActive = false,
     this.connectionStatus = ConnectionStatus.connected,
@@ -45,12 +48,14 @@ class ConnectedDevice {
     Map<String, dynamic> json,
     BluetoothDevice device,
     LedService ledService,
+    MotionService? motionService,
   ) {
     return ConnectedDevice(
       id: json['id'] as String,
       name: json['name'] as String,
       device: device,
       ledService: ledService,
+      motionService: motionService,
       connectedAt: DateTime.parse(json['connectedAt'] as String),
       isActive: json['isActive'] as bool? ?? false,
     );
