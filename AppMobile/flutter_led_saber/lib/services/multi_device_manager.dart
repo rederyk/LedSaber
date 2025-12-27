@@ -203,6 +203,7 @@ class MultiDeviceManager extends ChangeNotifier {
         device: device,
         ledService: ledService,
         motionService: motionService,
+        allServices: services, // Salva tutti i servizi per accesso futuro
         connectedAt: DateTime.now(),
         isActive: _connectedDevices.isEmpty, // Primo device = attivo
       );

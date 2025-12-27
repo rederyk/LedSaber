@@ -36,6 +36,7 @@ class BleProvider extends ChangeNotifier {
   LedService? get ledService => _deviceManager.activeDevice?.ledService;
   MotionService? get motionService => _deviceManager.activeDevice?.motionService;
   BluetoothDevice? get connectedDevice => _deviceManager.activeDevice?.device;
+  List<BluetoothService>? get allServices => _deviceManager.activeDevice?.allServices;
   int get deviceCount => _deviceManager.deviceCount;
 
   /// Inizializza il servizio BLE e carica devices salvati

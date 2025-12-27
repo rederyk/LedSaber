@@ -16,6 +16,7 @@ class ConnectedDevice {
   final BluetoothDevice device;
   final LedService ledService;
   final MotionService? motionService; // Opzionale, potrebbe non essere presente
+  final List<BluetoothService>? allServices; // Tutti i servizi BLE scoperti
   final DateTime connectedAt;
   bool isActive; // Device correntemente visualizzato
   ConnectionStatus connectionStatus; // Stato connessione
@@ -27,6 +28,7 @@ class ConnectedDevice {
     required this.device,
     required this.ledService,
     this.motionService,
+    this.allServices,
     required this.connectedAt,
     this.isActive = false,
     this.connectionStatus = ConnectionStatus.connected,
@@ -48,14 +50,16 @@ class ConnectedDevice {
     Map<String, dynamic> json,
     BluetoothDevice device,
     LedService ledService,
-    MotionService? motionService,
-  ) {
+    MotionService? motionService, {
+    List<BluetoothService>? allServices,
+  }) {
     return ConnectedDevice(
       id: json['id'] as String,
       name: json['name'] as String,
       device: device,
       ledService: ledService,
       motionService: motionService,
+      allServices: allServices,
       connectedAt: DateTime.parse(json['connectedAt'] as String),
       isActive: json['isActive'] as bool? ?? false,
     );

@@ -41,9 +41,12 @@ class _ControlScreenState extends State<ControlScreen> with SingleTickerProvider
       if (mounted) {
         ledProvider.setLedService(bleProvider.ledService);
 
-        // Aggiorna anche il Motion Service
+        // Aggiorna anche il Motion Service (con tutti i servizi per camera sync)
         final motionProvider = Provider.of<MotionProvider>(context, listen: false);
-        motionProvider.setMotionService(bleProvider.motionService);
+        motionProvider.setMotionService(
+          bleProvider.motionService,
+          allServices: bleProvider.allServices,
+        );
       }
     });
 

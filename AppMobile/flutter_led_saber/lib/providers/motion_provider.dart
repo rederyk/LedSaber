@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
+import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import '../models/motion_state.dart';
 import '../services/motion_service.dart';
 
@@ -48,7 +49,7 @@ class MotionProvider extends ChangeNotifier {
   }
 
   /// Imposta il Motion Service e inizia ad ascoltare lo stato
-  void setMotionService(MotionService? service) {
+  void setMotionService(MotionService? service, {List<BluetoothService>? allServices}) {
     // Se è lo stesso servizio, non fare nulla
     if (_motionService == service) {
       return;
@@ -62,6 +63,13 @@ class MotionProvider extends ChangeNotifier {
 
     if (_motionService != null) {
       debugPrint('[MotionProvider] Motion Service impostato, abilito notifiche...');
+
+      // Inizializza Camera Control se disponibile (per sincronizzare motion+camera)
+      if (allServices != null) {
+        _motionService!.initCameraControl(allServices).catchError((e) {
+          debugPrint('[MotionProvider] WARNING: Camera Control non inizializzata: $e');
+        });
+      }
 
       // Ascolta i cambiamenti dello stato Motion
       _stateSubscription = _motionService!.motionStateStream.listen(
@@ -155,7 +163,7 @@ class MotionProvider extends ChangeNotifier {
     await _loadConfig();
   }
 
-  /// Abilita motion detection
+  /// Abilita motion detection (abilita ANCHE la camera per permettere il processing)
   Future<void> enableMotion() async {
     debugPrint('[MotionProvider] enableMotion chiamato');
     debugPrint('[MotionProvider] _motionService: ${_motionService != null ? "disponibile" : "NULL"}');
@@ -169,18 +177,24 @@ class MotionProvider extends ChangeNotifier {
     }
 
     try {
-      debugPrint('[MotionProvider] Invio comando enable...');
+      // STEP 1: Avvia la camera (necessaria per motion detection)
+      debugPrint('[MotionProvider] Invio comando camera start...');
+      await _motionService!.sendCameraCommand('start');
+
+      // STEP 2: Abilita motion detection
+      debugPrint('[MotionProvider] Invio comando motion enable...');
       await _motionService!.enableMotion();
-      debugPrint('[MotionProvider] Comando enable inviato con successo');
+
+      debugPrint('[MotionProvider] Motion + Camera abilitati con successo');
       _errorMessage = null;
     } catch (e) {
-      debugPrint('[MotionProvider] ERRORE abilitando motion: $e');
+      debugPrint('[MotionProvider] ERRORE abilitando motion+camera: $e');
       _errorMessage = 'Errore abilitando motion: $e';
       notifyListeners();
     }
   }
 
-  /// Disabilita motion detection
+  /// Disabilita motion detection (ferma ANCHE la camera per risparmiare risorse)
   Future<void> disableMotion() async {
     debugPrint('[MotionProvider] disableMotion chiamato');
     debugPrint('[MotionProvider] _motionService: ${_motionService != null ? "disponibile" : "NULL"}');
@@ -194,12 +208,18 @@ class MotionProvider extends ChangeNotifier {
     }
 
     try {
-      debugPrint('[MotionProvider] Invio comando disable...');
+      // STEP 1: Disabilita motion detection
+      debugPrint('[MotionProvider] Invio comando motion disable...');
       await _motionService!.disableMotion();
-      debugPrint('[MotionProvider] Comando disable inviato con successo');
+
+      // STEP 2: Ferma la camera (risparmia risorse)
+      debugPrint('[MotionProvider] Invio comando camera stop...');
+      await _motionService!.sendCameraCommand('stop');
+
+      debugPrint('[MotionProvider] Motion + Camera disabilitati con successo');
       _errorMessage = null;
     } catch (e) {
-      debugPrint('[MotionProvider] ERRORE disabilitando motion: $e');
+      debugPrint('[MotionProvider] ERRORE disabilitando motion+camera: $e');
       _errorMessage = 'Errore disabilitando motion: $e';
       notifyListeners();
     }
@@ -246,8 +266,8 @@ class MotionProvider extends ChangeNotifier {
   }
 
   /// Aggiorna un singolo parametro della configurazione
+  /// NOTA: 'enabled' NON è supportato qui, usa enableMotion()/disableMotion()
   Future<void> updateConfigParam({
-    bool? enabled,
     bool? gesturesEnabled,
     int? quality,
     int? motionIntensityMin,
@@ -263,12 +283,11 @@ class MotionProvider extends ChangeNotifier {
     }
 
     debugPrint('[MotionProvider] updateConfigParam chiamato: '
-        'enabled=$enabled, gesturesEnabled=$gesturesEnabled');
+        'gesturesEnabled=$gesturesEnabled');
     debugPrint('[MotionProvider] Config attuale: '
-        'enabled=${_currentConfig!.enabled}, gesturesEnabled=${_currentConfig!.gesturesEnabled}');
+        'gesturesEnabled=${_currentConfig!.gesturesEnabled}');
 
     final newConfig = _currentConfig!.copyWith(
-      enabled: enabled,
       gesturesEnabled: gesturesEnabled,
       quality: quality,
       motionIntensityMin: motionIntensityMin,
@@ -280,7 +299,7 @@ class MotionProvider extends ChangeNotifier {
     );
 
     debugPrint('[MotionProvider] Nuova config da applicare: '
-        'enabled=${newConfig.enabled}, gesturesEnabled=${newConfig.gesturesEnabled}');
+        'gesturesEnabled=${newConfig.gesturesEnabled}');
 
     await applyConfig(newConfig);
   }

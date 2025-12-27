@@ -74,8 +74,9 @@ class MotionState {
 }
 
 /// Modello configurazione Motion Detection
+/// NOTA: 'enabled' NON è incluso perché viene gestito separatamente
+/// tramite comandi enable/disable (non fa parte della config)
 class MotionConfig {
-  final bool enabled;
   final bool gesturesEnabled;
   final int quality;
   final int motionIntensityMin;
@@ -90,7 +91,6 @@ class MotionConfig {
   final bool debugLogs;
 
   MotionConfig({
-    required this.enabled,
     required this.gesturesEnabled,
     required this.quality,
     required this.motionIntensityMin,
@@ -106,9 +106,9 @@ class MotionConfig {
   });
 
   /// Crea un MotionConfig da JSON ricevuto via BLE
+  /// NOTA: 'enabled' viene ignorato se presente, perché non fa parte della config
   factory MotionConfig.fromJson(Map<String, dynamic> json) {
     return MotionConfig(
-      enabled: json['enabled'] ?? false,
       gesturesEnabled: json['gesturesEnabled'] ?? true,
       quality: json['quality'] ?? 160,
       motionIntensityMin: json['motionIntensityMin'] ?? 6,
@@ -125,9 +125,9 @@ class MotionConfig {
   }
 
   /// Converte il MotionConfig in JSON per invio via BLE
+  /// NOTA: 'enabled' NON è incluso (viene gestito tramite comandi separati)
   Map<String, dynamic> toJson() {
     return {
-      'enabled': enabled,
       'gesturesEnabled': gesturesEnabled,
       'quality': quality,
       'motionIntensityMin': motionIntensityMin,
@@ -145,7 +145,6 @@ class MotionConfig {
 
   /// Copia del MotionConfig con modifiche
   MotionConfig copyWith({
-    bool? enabled,
     bool? gesturesEnabled,
     int? quality,
     int? motionIntensityMin,
@@ -160,7 +159,6 @@ class MotionConfig {
     bool? debugLogs,
   }) {
     return MotionConfig(
-      enabled: enabled ?? this.enabled,
       gesturesEnabled: gesturesEnabled ?? this.gesturesEnabled,
       quality: quality ?? this.quality,
       motionIntensityMin: motionIntensityMin ?? this.motionIntensityMin,
@@ -178,7 +176,7 @@ class MotionConfig {
 
   @override
   String toString() {
-    return 'MotionConfig(enabled: $enabled, gesturesEnabled: $gesturesEnabled, '
+    return 'MotionConfig(gesturesEnabled: $gesturesEnabled, '
         'quality: $quality, motionIntensityMin: $motionIntensityMin, '
         'motionSpeedMin: $motionSpeedMin)';
   }

@@ -15,7 +15,12 @@ class MotionService {
   static const String charMotionEvents = "9ef6c5d4-fc21-5b4f-9b5d-2345678901bd"; // NOTIFY
   static const String charMotionConfig = "aff7d6e5-0d32-4c5a-ac6e-3456789012ce"; // READ + WRITE
 
+  // UUID del servizio Camera (necessario per sincronizzare motion+camera)
+  static const String cameraServiceUuid = "5fafc301-1fb5-459e-8fcc-c5c9c331914b";
+  static const String charCameraControl = "7dc5a4c3-eb10-4a3e-8a4c-1234567890ab"; // WRITE
+
   final BluetoothService _service;
+  BluetoothCharacteristic? _cameraControlChar;
   final StreamController<MotionState> _motionStateController =
       StreamController<MotionState>.broadcast();
   final StreamController<MotionEvent> _motionEventController =
@@ -242,6 +247,50 @@ class MotionService {
   /// Calibra motion detector
   Future<void> calibrateMotion() async {
     await sendControlCommand('calibrate');
+  }
+
+  /// Inizializza la camera characteristic (opzionale, chiamato se serve camera sync)
+  Future<void> initCameraControl(List<BluetoothService> allServices) async {
+    try {
+      // Cerca il servizio camera
+      final cameraService = allServices.firstWhere(
+        (s) => s.uuid.toString().toLowerCase() == cameraServiceUuid.toLowerCase(),
+        orElse: () => throw Exception('Camera service non trovato'),
+      );
+
+      // Cerca la characteristic control
+      _cameraControlChar = cameraService.characteristics.firstWhere(
+        (c) => c.uuid.toString().toLowerCase() == charCameraControl.toLowerCase(),
+        orElse: () => throw Exception('Camera Control characteristic non trovata'),
+      );
+
+      debugPrint('[MotionService] Camera Control characteristic inizializzata');
+    } catch (e) {
+      debugPrint('[MotionService] WARNING: Impossibile inizializzare camera control: $e');
+      // Non blocchiamo se la camera non è disponibile
+    }
+  }
+
+  /// Invia comando Camera Control (start, stop, init)
+  Future<void> sendCameraCommand(String command) async {
+    if (_cameraControlChar == null) {
+      debugPrint('[MotionService] ERROR: Camera Control characteristic non disponibile');
+      throw Exception('Camera Control characteristic non disponibile. Chiama initCameraControl prima.');
+    }
+
+    try {
+      debugPrint('[MotionService] Invio comando camera: $command');
+
+      await _cameraControlChar!.write(
+        utf8.encode(command),
+        withoutResponse: false,
+      );
+
+      debugPrint('[MotionService] Comando camera "$command" inviato con successo');
+    } catch (e) {
+      debugPrint('[MotionService] ERROR inviando comando camera: $e');
+      throw Exception('Errore inviando comando camera: $e');
+    }
   }
 
   /// Cleanup

@@ -152,7 +152,8 @@ class _MotionTabState extends State<MotionTab> {
 
   /// Motion Detection Toggle (compatto)
   Widget _buildMotionToggle(MotionState? state, MotionConfig? config, MotionProvider provider) {
-    final isEnabled = state?.enabled ?? config?.enabled ?? false;
+    // enabled viene letto solo dallo stato (non dalla config)
+    final isEnabled = state?.enabled ?? false;
 
     return Card(
       margin: EdgeInsets.zero,
@@ -161,22 +162,40 @@ class _MotionTabState extends State<MotionTab> {
         child: Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Row(
-              children: [
-                Icon(
-                  isEnabled ? Icons.motion_photos_on : Icons.motion_photos_off,
-                  color: isEnabled ? Colors.green : Colors.grey,
-                  size: 16,
-                ),
-                const SizedBox(width: 6),
-                Text(
-                  'Motion',
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 11,
+            Expanded(
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    isEnabled ? Icons.motion_photos_on : Icons.motion_photos_off,
+                    color: isEnabled ? Colors.green : Colors.grey,
+                    size: 16,
                   ),
-                ),
-              ],
+                  const SizedBox(width: 6),
+                  Flexible(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          'Motion Detection',
+                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 11,
+                          ),
+                        ),
+                        Text(
+                          'Camera + Processing',
+                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            fontSize: 9,
+                            color: Colors.grey,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
             ),
             Transform.scale(
               scale: 0.8,
@@ -194,7 +213,8 @@ class _MotionTabState extends State<MotionTab> {
   /// Gestures Enable Toggle (compatto)
   Widget _buildGesturesToggle(MotionConfig? config, MotionProvider provider) {
     final isEnabled = config?.gesturesEnabled ?? true;
-    final motionEnabled = provider.currentState?.enabled ?? config?.enabled ?? false;
+    // motionEnabled viene letto solo dallo stato (non dalla config)
+    final motionEnabled = provider.currentState?.enabled ?? false;
 
     return Card(
       margin: EdgeInsets.zero,
@@ -213,12 +233,27 @@ class _MotionTabState extends State<MotionTab> {
                     size: 16,
                   ),
                   const SizedBox(width: 6),
-                  Text(
-                    'Gestures',
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 11,
-                      color: motionEnabled ? null : Colors.grey,
+                  Flexible(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          'Gesture Recognition',
+                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 11,
+                            color: motionEnabled ? null : Colors.grey,
+                          ),
+                        ),
+                        Text(
+                          'Ignition, Retract, Clash',
+                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            fontSize: 9,
+                            color: Colors.grey,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ],
