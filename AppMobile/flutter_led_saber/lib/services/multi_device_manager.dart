@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/connected_device.dart';
 import '../services/ble_service.dart';
 import '../services/led_service.dart';
+import '../services/motion_service.dart';
 
 /// Gestisce connessioni multiple a dispositivi LED Saber
 class MultiDeviceManager extends ChangeNotifier {
@@ -180,12 +181,28 @@ class MultiDeviceManager extends ChangeNotifier {
       final ledService = LedService(ledServiceBle);
       await ledService.enableStateNotifications();
 
+      // Cerca Motion Service (opzionale)
+      MotionService? motionService;
+      try {
+        final motionServiceBle = services.firstWhere(
+          (s) => s.uuid.toString().toLowerCase() == MotionService.serviceUuid.toLowerCase(),
+        );
+        motionService = MotionService(motionServiceBle);
+        await motionService.enableStatusNotifications();
+        await motionService.enableEventsNotifications();
+        debugPrint('[MultiDeviceManager] Motion Service trovato e abilitato');
+      } catch (e) {
+        debugPrint('[MultiDeviceManager] Motion Service non disponibile: $e');
+        // Non critico, il dispositivo potrebbe non avere motion service
+      }
+
       // Crea ConnectedDevice
       final connectedDevice = ConnectedDevice(
         id: deviceId,
         name: device.platformName.isNotEmpty ? device.platformName : 'LedSaber',
         device: device,
         ledService: ledService,
+        motionService: motionService,
         connectedAt: DateTime.now(),
         isActive: _connectedDevices.isEmpty, // Primo device = attivo
       );
@@ -221,6 +238,7 @@ class MultiDeviceManager extends ChangeNotifier {
 
       // Cleanup
       device.ledService.dispose();
+      device.motionService?.dispose();
       _connectionSubscriptions[deviceId]?.cancel();
       _connectionSubscriptions.remove(deviceId);
       _connectedDevices.remove(deviceId);
@@ -276,6 +294,7 @@ class MultiDeviceManager extends ChangeNotifier {
     final device = _connectedDevices[deviceId];
     if (device != null) {
       device.ledService.dispose();
+      device.motionService?.dispose();
       _connectionSubscriptions[deviceId]?.cancel();
       _connectionSubscriptions.remove(deviceId);
       _connectedDevices.remove(deviceId);
@@ -354,6 +373,7 @@ class MultiDeviceManager extends ChangeNotifier {
     }
     for (final device in _connectedDevices.values) {
       device.ledService.dispose();
+      device.motionService?.dispose();
     }
     super.dispose();
   }

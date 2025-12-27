@@ -22,6 +22,31 @@ class MotionProvider extends ChangeNotifier {
   bool get isMotionEnabled => _currentState?.enabled ?? false;
   bool get isMotionDetected => _currentState?.motionDetected ?? false;
 
+  /// Determina se lo stato è cambiato in modo significativo
+  bool _shouldUpdateState(MotionState newState) {
+    if (_currentState == null) return true;
+
+    // Aggiorna sempre se:
+    // - Enabled/motionDetected cambia
+    // - C'è un nuovo gesture
+    // - Intensity cambia significativamente (>5)
+    // - Speed cambia significativamente (>0.5)
+    // - Direction cambia
+
+    if (_currentState!.enabled != newState.enabled) return true;
+    if (_currentState!.motionDetected != newState.motionDetected) return true;
+    if (_currentState!.direction != newState.direction) return true;
+    if (_currentState!.lastGesture != newState.lastGesture) return true;
+
+    // Cambiamenti significativi nei valori numerici
+    if ((_currentState!.intensity - newState.intensity).abs() > 5) return true;
+    if ((_currentState!.speed - newState.speed).abs() > 0.5) return true;
+    if ((_currentState!.confidence - newState.confidence).abs() > 10) return true;
+
+    // Altrimenti ignora (è quasi identico)
+    return false;
+  }
+
   /// Imposta il Motion Service e inizia ad ascoltare lo stato
   void setMotionService(MotionService? service) {
     // Se è lo stesso servizio, non fare nulla
@@ -41,10 +66,13 @@ class MotionProvider extends ChangeNotifier {
       // Ascolta i cambiamenti dello stato Motion
       _stateSubscription = _motionService!.motionStateStream.listen(
         (state) {
-          debugPrint('[MotionProvider] Nuovo stato motion ricevuto: $state');
-          _currentState = state;
-          _errorMessage = null;
-          notifyListeners();
+          // Filtra aggiornamenti duplicati per ridurre spam
+          if (_shouldUpdateState(state)) {
+            debugPrint('[MotionProvider] Nuovo stato motion ricevuto: $state');
+            _currentState = state;
+            _errorMessage = null;
+            notifyListeners();
+          }
         },
         onError: (error) {
           debugPrint('[MotionProvider] Errore stream stato: $error');

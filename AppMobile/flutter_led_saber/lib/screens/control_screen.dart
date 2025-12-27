@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/ble_provider.dart';
 import '../providers/led_provider.dart';
+import '../providers/motion_provider.dart';
 import '../widgets/lightsaber_widget.dart';
 import 'device_list_screen.dart';
 import 'tabs/colors_tab.dart';
@@ -39,6 +40,10 @@ class _ControlScreenState extends State<ControlScreen> with SingleTickerProvider
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
         ledProvider.setLedService(bleProvider.ledService);
+
+        // Aggiorna anche il Motion Service
+        final motionProvider = Provider.of<MotionProvider>(context, listen: false);
+        motionProvider.setMotionService(bleProvider.motionService);
       }
     });
 

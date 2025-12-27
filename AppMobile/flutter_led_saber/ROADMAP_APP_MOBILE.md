@@ -7,30 +7,68 @@ Creare un'app Flutter cross-platform (Android/iOS) per controllare il LED Saber 
 
 ## 📝 CHANGELOG
 
-### **27 Dicembre 2024 - Sprint 3 INIZIATO** 🚀
+### **27 Dicembre 2024 - Sprint 3 IN CORSO** 🔄
 
 **Nuove Implementazioni:**
 
-✅ **Motion Tab - UI Completa**
-- Tab Motion aggiunto alla Control Screen con 3 tab (Colors, Effects, Motion)
-- Motion Detection toggle (ON/OFF) con icone dinamiche
+✅ **Motion Service - Architettura BLE Completa**
+- `MotionService` - Servizio BLE completo per Motion Detection & Gesture System
+  - UUID servizi e caratteristiche dal firmware (Motion Status, Control, Events, Config)
+  - Read/Write/Notify per configurazione e stato real-time
+  - Comandi: enable, disable, reset, calibrate
+  - Stream per stato motion ed eventi gesture
+- `MotionProvider` - State management con pattern Provider
+  - Gestione configurazione motion (quality, soglie, gesture thresholds)
+  - Stream subscription per live data (direction, speed, confidence)
+  - Metodi helper per enable/disable/reset motion
+  - Update singoli parametri configurazione
+- `MotionState`, `MotionConfig`, `MotionEvent` - Modelli dati completi
+  - Parsing JSON bi-direzionale (to/from BLE)
+  - Supporto per tutti i parametri gesture system
+
+✅ **Motion Tab - UI Completa & Connessa**
+- Tab Motion integrato in Control Screen con 3 tab (Colors, Effects, Motion)
+- **Connesso a MotionProvider** - Dati real-time da BLE
+- Motion Detection toggle (ON/OFF) con stato sincronizzato
 - Gesture Recognition toggle separato
-- Live Motion Data display (Direction, Speed, Confidence)
+- Live Motion Data display (Direction, Speed, Confidence) - aggiornamento automatico
 - Last Gesture tracking (Type, Confidence) con icone specifiche per IGNITION/RETRACT/CLASH
 - Motion Tuning sliders: Quality (0-255), Motion Min (0-50), Speed Min (0.0-5.0)
 - Advanced Settings collapsabile: Gesture Thresholds (Ignition, Retract, Clash)
 - Debug Logs toggle
-- Apply Configuration button per inviare settings via BLE
+- Apply Configuration button funzionante (invia via BLE)
 - UI responsive compatibile con layout Portrait e Landscape
-- TODO markers per integrazione BLE futura (CHAR_MOTION_CONTROL, CHAR_MOTION_CONFIG)
+- Error handling con messaggi utente
 
 **File creati:**
-- [lib/screens/tabs/motion_tab.dart](lib/screens/tabs/motion_tab.dart) - 500+ righe di UI completa
+- [lib/models/motion_state.dart](lib/models/motion_state.dart) - Modelli MotionState, MotionConfig, MotionEvent (~210 righe)
+- [lib/services/motion_service.dart](lib/services/motion_service.dart) - Servizio BLE Motion (~250 righe)
+- [lib/providers/motion_provider.dart](lib/providers/motion_provider.dart) - Provider state management (~230 righe)
+- [lib/screens/tabs/motion_tab.dart](lib/screens/tabs/motion_tab.dart) - UI completa connessa (~580 righe)
 
 **File modificati:**
 - [lib/screens/control_screen.dart](lib/screens/control_screen.dart) - Aggiunto terzo tab Motion
+- [lib/models/connected_device.dart](lib/models/connected_device.dart) - Aggiunto campo `motionService?` opzionale
 
-**Prossimi step:** Integrazione BLE Motion Service, live data streaming, configurazione gesture via BLE
+**Passi rimanenti per completamento** (90% completato):
+1. ⏳ `multi_device_manager.dart` - Aggiungere creazione Motion Service opzionale (linee 173-191)
+2. ⏳ `ble_provider.dart` - Aggiungere getter `motionService`
+3. ⏳ `control_screen.dart` - Connettere MotionProvider al BLE provider
+4. ⏳ `main.dart` - Aggiungere MotionProvider al MultiProvider
+5. ⏳ Test compilazione e integrazione con firmware
+
+**Documentazione tecnica**:
+- Motion Service UUID: `6fafc401-1fb5-459e-8fcc-c5c9c331914b`
+- Characteristic Status UUID: `7eb5583e-36e1-4688-b7f5-ea07361b26a9` (READ, NOTIFY)
+- Characteristic Control UUID: `8dc5b4c3-eb10-4a3e-8a4c-1234567890ac` (WRITE)
+- Characteristic Events UUID: `9ef6c5d4-fc21-5b4f-9b5d-2345678901bd` (NOTIFY)
+- Characteristic Config UUID: `aff7d6e5-0d32-4c5a-ac6e-3456789012ce` (READ, WRITE)
+
+**Note implementative**:
+- Motion Service è **opzionale** - l'app funziona anche se il dispositivo non lo supporta
+- Pattern architetturale identico a LED Service per consistenza
+- Logging dettagliato per debug BLE
+- Gestione errori graceful con feedback utente
 
 ---
 
@@ -893,12 +931,20 @@ dev_dependencies:
 
 **Status**: Effects Tab funzionante! 15 effetti caricabili via BLE, sistema gesture documentato.
 
-### **Sprint 3** (Motion & Settings - IN CORSO)
+### **Sprint 3** (Motion & Settings - IN CORSO) 🔄 90% COMPLETATO
 12. ⏳ Settings Tab: UI per configurare gesture e boot config
 13. ⏳ Estendere LedState con campi gesture (`gestureClashEffect`, `motionOnBoot`)
-14. ⏳ Motion Service: integrazione completa config + status stream
-15. ✅ Motion Tab: UI con live data + tuning sliders (interfaccia completata, BLE da integrare)
-16. ⏳ Time sync UI per chrono
+14. ✅ Motion Service: integrazione completa config + status stream (architettura BLE completa)
+15. ✅ Motion Tab: UI completa connessa a MotionProvider con dati real-time
+16. ⏳ Motion Service: ultimi 4 step integrazione (multi_device_manager, ble_provider, control_screen, main)
+17. ⏳ Time sync UI per chrono
+
+**Progresso Motion Service**:
+- ✅ Models (MotionState, MotionConfig, MotionEvent)
+- ✅ Service BLE (MotionService con tutte le characteristic)
+- ✅ Provider (MotionProvider con state management)
+- ✅ UI (MotionTab connesso al provider)
+- ⏳ Integrazione finale (4 modifiche rimanenti nei file esistenti)
 
 ### **Sprint 4** (Polish - DA FARE)
 12. ⏳ Settings: boot config

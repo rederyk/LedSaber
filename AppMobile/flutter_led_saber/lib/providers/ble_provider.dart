@@ -5,6 +5,7 @@ import '../models/ble_device_info.dart';
 import '../models/connected_device.dart';
 import '../services/ble_service.dart';
 import '../services/led_service.dart';
+import '../services/motion_service.dart';
 import '../services/multi_device_manager.dart';
 
 /// Provider per gestire lo stato della connessione BLE multi-device
@@ -33,6 +34,7 @@ class BleProvider extends ChangeNotifier {
   List<ConnectedDevice> get connectedDevices => _deviceManager.connectedDevices;
   ConnectedDevice? get activeDevice => _deviceManager.activeDevice;
   LedService? get ledService => _deviceManager.activeDevice?.ledService;
+  MotionService? get motionService => _deviceManager.activeDevice?.motionService;
   BluetoothDevice? get connectedDevice => _deviceManager.activeDevice?.device;
   int get deviceCount => _deviceManager.deviceCount;
 

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'providers/ble_provider.dart';
 import 'providers/led_provider.dart';
+import 'providers/motion_provider.dart';
 import 'screens/home_screen.dart';
 import 'theme/app_theme.dart';
 
@@ -18,6 +19,7 @@ class MyApp extends StatelessWidget {
       providers: [
         ChangeNotifierProvider(create: (_) => BleProvider()),
         ChangeNotifierProvider(create: (_) => LedProvider()),
+        ChangeNotifierProvider(create: (_) => MotionProvider()),
       ],
       child: MaterialApp(
         title: 'LED Saber Controller',
