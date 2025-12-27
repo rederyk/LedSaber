@@ -496,6 +496,7 @@ class LedSaberOTA {
   "quality": 160,
   "motionIntensityMin": 15,
   "motionSpeedMin": 1.2,
+  "gesturesEnabled": true,
   "gestureIgnitionIntensity": 14,
   "gestureRetractIntensity": 15,
   "gestureClashIntensity": 12,
@@ -506,6 +507,20 @@ class LedSaberOTA {
   "debugLogs": false
 }
 ```
+
+**Parametri Config:**
+- `enabled` (bool): Abilita/disabilita il motion detection globale
+- `quality` (0-255): Qualità rilevamento optical flow
+- `motionIntensityMin` (0-255): Soglia minima intensità per considerare movimento
+- `motionSpeedMin` (float): Soglia minima velocità (px/frame)
+- `gesturesEnabled` (bool): **NUOVO** - Abilita/disabilita gesture recognition (ignition, retract, clash). Utile per disattivare gesture durante effetti specifici
+- `gestureIgnitionIntensity` (0-255): Soglia intensità per gesture IGNITION
+- `gestureRetractIntensity` (0-255): Soglia intensità per gesture RETRACT
+- `gestureClashIntensity` (0-255): Soglia intensità per gesture CLASH
+- `effectMapUp/Down/Left/Right` (string): Mappatura direzioni → effetti LED
+- `debugLogs` (bool): Abilita log dettagliati motion processor
+
+**Nota:** Il parametro `gesturesEnabled` permette di disattivare temporaneamente le gesture senza modificare le soglie, utile durante effetti che non devono essere interrotti (es. chrono_hybrid).
 
 ---
 
