@@ -6,7 +6,9 @@ import 'package:permission_handler/permission_handler.dart';
 import '../providers/ble_provider.dart';
 import '../providers/led_provider.dart';
 import '../models/ble_device_info.dart';
+import '../models/connected_device.dart';
 import 'control_screen.dart';
+import 'package:intl/intl.dart';
 
 /// Schermata principale per scansione e connessione BLE
 class HomeScreen extends StatefulWidget {
@@ -58,6 +60,11 @@ class _HomeScreenState extends State<HomeScreen> {
         );
       }
     }
+  }
+
+  /// Ferma la scansione
+  Future<void> _stopScan(BleProvider bleProvider) async {
+    await bleProvider.stopScan();
   }
 
   /// Connette a un dispositivo
@@ -132,6 +139,16 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  /// Imposta un device come attivo e naviga al control screen
+  void _setActiveAndNavigate(BleProvider bleProvider, ConnectedDevice device) {
+    bleProvider.setActiveDevice(device.id);
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => const ControlScreen(),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final bleProvider = Provider.of<BleProvider>(context);
@@ -141,23 +158,53 @@ class _HomeScreenState extends State<HomeScreen> {
       appBar: AppBar(
         title: const Text('LED Saber Controller'),
         centerTitle: true,
+        actions: [
+          // Mostra numero dispositivi connessi
+          if (bleProvider.deviceCount > 0)
+            Center(
+              child: Padding(
+                padding: const EdgeInsets.only(right: 16),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: Colors.green.shade100,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: Colors.green),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.bluetooth_connected, color: Colors.green, size: 16),
+                      const SizedBox(width: 4),
+                      Text(
+                        '${bleProvider.deviceCount}',
+                        style: const TextStyle(
+                          color: Colors.green,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+        ],
       ),
       body: SafeArea(
         child: Column(
           children: [
-            // Stato connessione
-            _buildConnectionStatus(bleProvider, ledProvider),
+            // Sezione dispositivi connessi
+            if (bleProvider.deviceCount > 0) ...[
+              _buildConnectedDevicesSection(bleProvider, ledProvider),
+              const Divider(height: 1, thickness: 2),
+            ],
 
-            const SizedBox(height: 20),
-
-            // Bottone Scan
-            _buildScanButton(bleProvider),
-
-            const SizedBox(height: 20),
+            // Sezione scansione
+            _buildScanSection(bleProvider),
 
             // Lista dispositivi trovati
             Expanded(
-              child: _buildDevicesList(bleProvider, ledProvider),
+              child: _buildDiscoveredDevicesList(bleProvider, ledProvider),
             ),
           ],
         ),
@@ -165,92 +212,174 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  /// Widget stato connessione
-  Widget _buildConnectionStatus(BleProvider bleProvider, LedProvider ledProvider) {
-    final isConnected = bleProvider.isConnected;
-    final connectedDevice = bleProvider.connectedDevice;
+  /// Sezione dispositivi connessi
+  Widget _buildConnectedDevicesSection(BleProvider bleProvider, LedProvider ledProvider) {
+    final connectedDevices = bleProvider.connectedDevices;
 
     return Container(
-      padding: const EdgeInsets.all(16),
-      margin: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: isConnected ? Colors.green.shade100 : Colors.grey.shade200,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: isConnected ? Colors.green : Colors.grey,
-          width: 2,
-        ),
-      ),
-      child: Row(
+      color: Colors.green.shade50,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(
-            isConnected ? Icons.bluetooth_connected : Icons.bluetooth_disabled,
-            color: isConnected ? Colors.green : Colors.grey,
-            size: 32,
-          ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+            child: Row(
               children: [
+                const Icon(Icons.check_circle, color: Colors.green, size: 20),
+                const SizedBox(width: 8),
                 Text(
-                  isConnected ? 'Connesso' : 'Disconnesso',
-                  style: TextStyle(
-                    fontSize: 18,
+                  'Dispositivi Connessi (${connectedDevices.length})',
+                  style: const TextStyle(
+                    fontSize: 16,
                     fontWeight: FontWeight.bold,
-                    color: isConnected ? Colors.green.shade900 : Colors.grey.shade700,
+                    color: Colors.green,
                   ),
                 ),
-                if (isConnected && connectedDevice != null)
-                  Text(
-                    connectedDevice.platformName,
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: Colors.grey.shade700,
-                    ),
+                const Spacer(),
+                TextButton.icon(
+                  onPressed: () async {
+                    final confirm = await showDialog<bool>(
+                      context: context,
+                      builder: (context) => AlertDialog(
+                        title: const Text('Disconnetti tutti'),
+                        content: const Text('Vuoi disconnettere tutti i dispositivi?'),
+                        actions: [
+                          TextButton(
+                            onPressed: () => Navigator.pop(context, false),
+                            child: const Text('Annulla'),
+                          ),
+                          ElevatedButton(
+                            onPressed: () => Navigator.pop(context, true),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.red,
+                              foregroundColor: Colors.white,
+                            ),
+                            child: const Text('Disconnetti'),
+                          ),
+                        ],
+                      ),
+                    );
+
+                    if (confirm == true) {
+                      ledProvider.setLedService(null);
+                      await bleProvider.disconnectAll();
+                    }
+                  },
+                  icon: const Icon(Icons.close, size: 16),
+                  label: const Text('Disconnetti tutti'),
+                  style: TextButton.styleFrom(
+                    foregroundColor: Colors.red,
                   ),
+                ),
               ],
             ),
           ),
-          if (isConnected)
-            IconButton(
-              icon: const Icon(Icons.close),
-              onPressed: () {
-                ledProvider.setLedService(null);
-                bleProvider.disconnect();
+          SizedBox(
+            height: 120,
+            child: ListView.builder(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              itemCount: connectedDevices.length,
+              itemBuilder: (context, index) {
+                final device = connectedDevices[index];
+                return _buildConnectedDeviceCard(bleProvider, device);
               },
-              tooltip: 'Disconnetti',
             ),
+          ),
+          const SizedBox(height: 12),
         ],
       ),
     );
   }
 
-  /// Widget bottone scan
-  Widget _buildScanButton(BleProvider bleProvider) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: SizedBox(
-        width: double.infinity,
-        height: 50,
-        child: ElevatedButton.icon(
-          onPressed: bleProvider.isScanning
-              ? null
-              : () => _startScan(bleProvider),
-          icon: bleProvider.isScanning
-              ? const SizedBox(
-                  width: 20,
-                  height: 20,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              : const Icon(Icons.search),
-          label: Text(
-            bleProvider.isScanning ? 'Scansione in corso...' : 'Cerca Dispositivi',
-            style: const TextStyle(fontSize: 16),
+  /// Card dispositivo connesso (orizzontale)
+  Widget _buildConnectedDeviceCard(BleProvider bleProvider, ConnectedDevice device) {
+    final isActive = device.isActive;
+    final timeFormatter = DateFormat('HH:mm');
+
+    return GestureDetector(
+      onTap: () => _setActiveAndNavigate(bleProvider, device),
+      child: Container(
+        width: 160,
+        margin: const EdgeInsets.symmetric(horizontal: 4),
+        child: Card(
+          elevation: isActive ? 4 : 2,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+            side: BorderSide(
+              color: isActive ? Colors.green : Colors.grey.shade300,
+              width: isActive ? 2 : 1,
+            ),
           ),
-          style: ElevatedButton.styleFrom(
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(
+                      Icons.bluetooth_connected,
+                      color: isActive ? Colors.green : Colors.grey,
+                      size: 20,
+                    ),
+                    const Spacer(),
+                    if (isActive)
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: Colors.green,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: const Text(
+                          'ATTIVO',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 8,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  device.name,
+                  style: TextStyle(
+                    fontWeight: isActive ? FontWeight.bold : FontWeight.normal,
+                    fontSize: 14,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  timeFormatter.format(device.connectedAt),
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: Colors.grey.shade600,
+                  ),
+                ),
+                const Spacer(),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: () async {
+                      await bleProvider.disconnectDevice(device.id);
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.red.shade50,
+                      foregroundColor: Colors.red,
+                      padding: const EdgeInsets.symmetric(vertical: 4),
+                      minimumSize: const Size(0, 28),
+                    ),
+                    child: const Text(
+                      'Disconnetti',
+                      style: TextStyle(fontSize: 11),
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
         ),
@@ -258,11 +387,70 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  /// Widget lista dispositivi
-  Widget _buildDevicesList(BleProvider bleProvider, LedProvider ledProvider) {
-    final devices = bleProvider.discoveredDevices;
+  /// Sezione scansione
+  Widget _buildScanSection(BleProvider bleProvider) {
+    return Padding(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.bluetooth_searching, size: 20),
+              const SizedBox(width: 8),
+              const Text(
+                'Aggiungi Nuovo Dispositivo',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            height: 50,
+            child: ElevatedButton.icon(
+              onPressed: bleProvider.isScanning
+                  ? () => _stopScan(bleProvider)
+                  : () => _startScan(bleProvider),
+              icon: bleProvider.isScanning
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                      ),
+                    )
+                  : const Icon(Icons.refresh),
+              label: Text(
+                bleProvider.isScanning ? 'Ferma Scansione' : 'Scansiona Dispositivi',
+                style: const TextStyle(fontSize: 16),
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: bleProvider.isScanning ? Colors.orange : null,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 
-    if (devices.isEmpty && !bleProvider.isScanning) {
+  /// Lista dispositivi scoperti
+  Widget _buildDiscoveredDevicesList(BleProvider bleProvider, LedProvider ledProvider) {
+    final devices = bleProvider.discoveredDevices;
+    final connectedIds = bleProvider.connectedDevices.map((d) => d.id).toSet();
+
+    // Filtra i dispositivi già connessi
+    final availableDevices = devices.where((d) => !connectedIds.contains(d.id)).toList();
+
+    if (availableDevices.isEmpty && !bleProvider.isScanning) {
       return const Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -270,12 +458,12 @@ class _HomeScreenState extends State<HomeScreen> {
             Icon(Icons.bluetooth_searching, size: 64, color: Colors.grey),
             SizedBox(height: 16),
             Text(
-              'Nessun dispositivo trovato',
+              'Nessun nuovo dispositivo trovato',
               style: TextStyle(fontSize: 16, color: Colors.grey),
             ),
             SizedBox(height: 8),
             Text(
-              'Premi "Cerca Dispositivi" per iniziare',
+              'Premi "Scansiona Dispositivi" per cercare',
               style: TextStyle(fontSize: 14, color: Colors.grey),
             ),
           ],
@@ -285,16 +473,16 @@ class _HomeScreenState extends State<HomeScreen> {
 
     return ListView.builder(
       padding: const EdgeInsets.symmetric(horizontal: 16),
-      itemCount: devices.length,
+      itemCount: availableDevices.length,
       itemBuilder: (context, index) {
-        final device = devices[index];
-        return _buildDeviceCard(device, bleProvider, ledProvider);
+        final device = availableDevices[index];
+        return _buildDiscoveredDeviceCard(device, bleProvider, ledProvider);
       },
     );
   }
 
-  /// Widget card dispositivo
-  Widget _buildDeviceCard(
+  /// Card dispositivo scoperto
+  Widget _buildDiscoveredDeviceCard(
     BleDeviceInfo device,
     BleProvider bleProvider,
     LedProvider ledProvider,
@@ -328,7 +516,7 @@ class _HomeScreenState extends State<HomeScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const SizedBox(height: 4),
-            Text('ID: ${device.id}'),
+            Text('ID: ${device.id.substring(0, 17)}...'),
             Text('RSSI: ${device.rssi} dBm (${device.signalQuality})'),
           ],
         ),

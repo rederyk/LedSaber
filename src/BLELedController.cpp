@@ -526,6 +526,8 @@ String BLELedController::getBladeState() const {
 void BLELedController::sendState(const String& bladeState, unsigned long nowMs) {
     if (!deviceConnected) return;
 
+    Serial.printf("[BLE] State notify: bladeState=%s\n", bladeState.c_str());
+
     JsonDocument doc;
     doc["r"] = ledState->r;
     doc["g"] = ledState->g;

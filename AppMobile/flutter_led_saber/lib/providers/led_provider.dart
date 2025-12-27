@@ -32,11 +32,19 @@ class LedProvider extends ChangeNotifier {
 
   /// Imposta il LED Service e inizia ad ascoltare lo stato
   void setLedService(LedService? service) {
+    // Se è lo stesso servizio, non fare nulla
+    if (_ledService == service) {
+      return;
+    }
+
+    // Cleanup del servizio precedente
+    _stateSubscription?.cancel();
+    _debounceTimer?.cancel();
+
     _ledService = service;
 
     if (_ledService != null) {
       // Ascolta i cambiamenti dello stato LED
-      _stateSubscription?.cancel();
       _stateSubscription = _ledService!.ledStateStream.listen((state) {
         _handleStateUpdate(state);
       });
@@ -44,8 +52,7 @@ class LedProvider extends ChangeNotifier {
       // Carica la lista degli effetti
       _loadEffectsList();
     } else {
-      _stateSubscription?.cancel();
-      _debounceTimer?.cancel();
+      // Cleanup dello stato
       _currentState = null;
       _effectsList = null;
       _lastBladeState = null;

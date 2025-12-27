@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../providers/ble_provider.dart';
 import '../providers/led_provider.dart';
 import '../widgets/lightsaber_widget.dart';
+import 'device_list_screen.dart';
 
 /// Schermata principale di controllo LED
 class ControlScreen extends StatefulWidget {
@@ -18,15 +19,12 @@ class _ControlScreenState extends State<ControlScreen> {
     final bleProvider = Provider.of<BleProvider>(context);
     final ledProvider = Provider.of<LedProvider>(context);
 
-    // Se disconnesso, torna alla home
-    if (!bleProvider.isConnected) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) {
-          ledProvider.setLedService(null);
-          Navigator.of(context).pop();
-        }
-      });
-    }
+    // Aggiorna il LED Service quando cambia il device attivo
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        ledProvider.setLedService(bleProvider.ledService);
+      }
+    });
 
     // Determina orientamento
     final orientation = MediaQuery.of(context).orientation;
@@ -36,17 +34,47 @@ class _ControlScreenState extends State<ControlScreen> {
       appBar: AppBar(
         title: const Text('LED Saber Control'),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.bluetooth_connected),
-            onPressed: () async {
-              final navigator = Navigator.of(context);
-              ledProvider.setLedService(null);
-              await bleProvider.disconnect();
-              if (mounted) {
-                navigator.pop();
-              }
-            },
-            tooltip: 'Disconnetti',
+          // Badge con numero devices connessi
+          Stack(
+            children: [
+              IconButton(
+                icon: const Icon(Icons.bluetooth_connected),
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const DeviceListScreen(),
+                    ),
+                  );
+                },
+                tooltip: 'Dispositivi connessi (${bleProvider.deviceCount})',
+              ),
+              if (bleProvider.deviceCount > 1)
+                Positioned(
+                  right: 8,
+                  top: 8,
+                  child: Container(
+                    padding: const EdgeInsets.all(4),
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).colorScheme.primary,
+                      shape: BoxShape.circle,
+                    ),
+                    constraints: const BoxConstraints(
+                      minWidth: 16,
+                      minHeight: 16,
+                    ),
+                    child: Text(
+                      '${bleProvider.deviceCount}',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                ),
+            ],
           ),
         ],
       ),

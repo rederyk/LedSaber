@@ -48,6 +48,9 @@ dependencies:
   # Permissions
   permission_handler: ^11.0.0  # Gestione permessi runtime
 
+  # Storage
+  shared_preferences: ^2.2.0   # Salvataggio device connessi
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

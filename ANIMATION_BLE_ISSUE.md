@@ -416,6 +416,11 @@ o a un ramo diverso. L’inconsistenza app potrebbe derivare da:
 - ricostruzioni UI ripetute anche a bladeState identico;
 - possibili duplicati o out-of-order lato app.
 
+**Fix aggiuntivo applicato (2025-12-27)**:
+- `bladeState` ora deriva da `ledState->bladeEnabled` (stato reale lama) invece di `ledState->enabled` (solo master on/off).
+- Evita il caso in cui l’app vede `"on"` mentre la lama fisica è spenta.
+- File: `src/BLELedController.cpp`
+
 ### 8.2 Migliorie consigliate (firmware + app)
 
 **Firmware**

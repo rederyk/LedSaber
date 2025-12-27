@@ -2,21 +2,21 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import '../models/ble_device_info.dart';
+import '../models/connected_device.dart';
 import '../services/ble_service.dart';
 import '../services/led_service.dart';
+import '../services/multi_device_manager.dart';
 
-/// Provider per gestire lo stato della connessione BLE
+/// Provider per gestire lo stato della connessione BLE multi-device
 class BleProvider extends ChangeNotifier {
   final BleService _bleService = BleService();
+  final MultiDeviceManager _deviceManager = MultiDeviceManager();
 
   List<BleDeviceInfo> _discoveredDevices = [];
-  BluetoothConnectionState _connectionState = BluetoothConnectionState.disconnected;
   bool _isScanning = false;
   String? _errorMessage;
-  LedService? _ledService;
 
   StreamSubscription<List<BleDeviceInfo>>? _scanSubscription;
-  StreamSubscription<BluetoothConnectionState>? _connectionSubscription;
 
   BleProvider() {
     _initialize();
@@ -24,21 +24,39 @@ class BleProvider extends ChangeNotifier {
 
   // Getters
   List<BleDeviceInfo> get discoveredDevices => _discoveredDevices;
-  BluetoothConnectionState get connectionState => _connectionState;
   bool get isScanning => _isScanning;
-  bool get isConnected => _connectionState == BluetoothConnectionState.connected;
+  bool get isConnected => _deviceManager.hasConnectedDevices;
   String? get errorMessage => _errorMessage;
-  LedService? get ledService => _ledService;
-  BluetoothDevice? get connectedDevice => _bleService.connectedDevice;
 
-  /// Inizializza il servizio BLE
+  // Multi-device getters
+  MultiDeviceManager get deviceManager => _deviceManager;
+  List<ConnectedDevice> get connectedDevices => _deviceManager.connectedDevices;
+  ConnectedDevice? get activeDevice => _deviceManager.activeDevice;
+  LedService? get ledService => _deviceManager.activeDevice?.ledService;
+  BluetoothDevice? get connectedDevice => _deviceManager.activeDevice?.device;
+  int get deviceCount => _deviceManager.deviceCount;
+
+  /// Inizializza il servizio BLE e carica devices salvati
   Future<void> _initialize() async {
     try {
       await _bleService.initialize();
+
+      // Inizializza il device manager e tenta auto-reconnect
+      await _deviceManager.initialize();
+
+      // Ascolta cambiamenti nel device manager
+      _deviceManager.addListener(_onDeviceManagerChanged);
+
       _errorMessage = null;
     } catch (e) {
       _errorMessage = e.toString();
+      debugPrint('[BleProvider] Errore inizializzazione: $e');
     }
+    notifyListeners();
+  }
+
+  /// Callback quando il device manager cambia
+  void _onDeviceManagerChanged() {
     notifyListeners();
   }
 
@@ -73,39 +91,21 @@ class BleProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Connette a un dispositivo
+  /// Connette a un dispositivo e lo aggiunge al manager
   Future<void> connectToDevice(BleDeviceInfo deviceInfo) async {
     try {
       _errorMessage = null;
       notifyListeners();
 
       debugPrint('[BleProvider] Connessione a ${deviceInfo.name}...');
+
+      // Connetti al dispositivo
       await _bleService.connectToDevice(deviceInfo.device);
       debugPrint('[BleProvider] Connesso a ${deviceInfo.name}');
 
-      // Ascolta i cambiamenti di stato della connessione
-      _connectionSubscription?.cancel();
-      _connectionSubscription = _bleService.connectionState.listen((state) {
-        debugPrint('[BleProvider] Stato connessione: $state');
-        _connectionState = state;
-
-        // Se disconnesso, pulisci il servizio LED
-        if (state == BluetoothConnectionState.disconnected) {
-          _ledService?.dispose();
-          _ledService = null;
-        }
-
-        notifyListeners();
-      });
-
-      // Aggiorna immediatamente lo stato della connessione
-      _connectionState = BluetoothConnectionState.connected;
-      debugPrint('[BleProvider] Stato connessione aggiornato: $_connectionState');
-
-      // Scopri i servizi e inizializza il LED Service
-      debugPrint('[BleProvider] Scoperta servizi...');
-      await _discoverServices();
-      debugPrint('[BleProvider] Servizi scoperti con successo');
+      // Aggiungi al device manager
+      await _deviceManager.addDevice(deviceInfo.device);
+      debugPrint('[BleProvider] Device ${deviceInfo.name} aggiunto al manager');
 
       notifyListeners();
     } catch (e) {
@@ -116,48 +116,10 @@ class BleProvider extends ChangeNotifier {
     }
   }
 
-  /// Scopre i servizi BLE e inizializza il LED Service
-  Future<void> _discoverServices() async {
+  /// Disconnette da un dispositivo specifico
+  Future<void> disconnectDevice(String deviceId) async {
     try {
-      debugPrint('[BleProvider] Ricerca servizio LED (UUID: ${BleService.ledServiceUuid})...');
-      final ledServiceBle = _bleService.findService(BleService.ledServiceUuid);
-
-      if (ledServiceBle == null) {
-        // Stampa tutti i servizi disponibili per debug
-        final services = _bleService.services ?? [];
-        debugPrint('[BleProvider] Servizi disponibili:');
-        for (final service in services) {
-          debugPrint('  - ${service.uuid}');
-        }
-        throw Exception('Servizio LED non trovato sul dispositivo');
-      }
-
-      debugPrint('[BleProvider] Servizio LED trovato!');
-
-      // Crea il LED Service
-      _ledService = LedService(ledServiceBle);
-
-      // Abilita le notifiche per lo stato LED
-      debugPrint('[BleProvider] Abilitazione notifiche stato LED...');
-      await _ledService!.enableStateNotifications();
-      debugPrint('[BleProvider] Notifiche abilitate');
-
-      notifyListeners();
-    } catch (e) {
-      _errorMessage = 'Errore scoprendo i servizi: $e';
-      debugPrint('[BleProvider] ERRORE scoperta servizi: $e');
-      notifyListeners();
-      rethrow;
-    }
-  }
-
-  /// Disconnette dal dispositivo corrente
-  Future<void> disconnect() async {
-    try {
-      _ledService?.dispose();
-      _ledService = null;
-      await _bleService.disconnect();
-      _connectionState = BluetoothConnectionState.disconnected;
+      await _deviceManager.removeDevice(deviceId);
       _errorMessage = null;
       notifyListeners();
     } catch (e) {
@@ -166,12 +128,22 @@ class BleProvider extends ChangeNotifier {
     }
   }
 
-  /// Riconnette all'ultimo dispositivo
-  Future<void> reconnect() async {
-    if (_bleService.connectedDevice != null) {
-      final deviceInfo = BleDeviceInfo.fromDevice(_bleService.connectedDevice!);
-      await connectToDevice(deviceInfo);
+  /// Disconnette da tutti i dispositivi
+  Future<void> disconnectAll() async {
+    try {
+      await _deviceManager.clearAll();
+      _errorMessage = null;
+      notifyListeners();
+    } catch (e) {
+      _errorMessage = 'Errore durante la disconnessione: $e';
+      notifyListeners();
     }
+  }
+
+  /// Imposta il device attivo
+  void setActiveDevice(String deviceId) {
+    _deviceManager.setActiveDevice(deviceId);
+    notifyListeners();
   }
 
   /// Pulisce l'errore
@@ -183,8 +155,8 @@ class BleProvider extends ChangeNotifier {
   @override
   void dispose() {
     _scanSubscription?.cancel();
-    _connectionSubscription?.cancel();
-    _ledService?.dispose();
+    _deviceManager.removeListener(_onDeviceManagerChanged);
+    _deviceManager.dispose();
     _bleService.dispose();
     super.dispose();
   }
