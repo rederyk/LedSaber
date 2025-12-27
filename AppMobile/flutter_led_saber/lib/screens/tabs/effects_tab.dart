@@ -53,10 +53,11 @@ class _EffectsTabState extends State<EffectsTab> {
 
   /// Applica velocità (se supportata dal firmware)
   void _applySpeed(double speed) {
-    // TODO: Implementare quando charEffectSpeed sarà disponibile nel firmware
-    // final ledProvider = Provider.of<LedProvider>(context, listen: false);
-    // ledProvider.setEffectSpeed(speed.round());
-    debugPrint('Speed set to: ${speed.round()} (not yet implemented in firmware)');
+    final ledProvider = Provider.of<LedProvider>(context, listen: false);
+    ledProvider.setEffect(
+      _selectedEffectId,
+      speed: speed.round(),
+    );
   }
 
   @override
@@ -207,14 +208,6 @@ class _EffectsTabState extends State<EffectsTab> {
           'Speed',
           style: Theme.of(context).textTheme.titleMedium?.copyWith(
             fontWeight: FontWeight.bold,
-          ),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          '(coming soon)',
-          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-            color: Colors.grey,
-            fontSize: 10,
           ),
         ),
         const SizedBox(height: 8),
