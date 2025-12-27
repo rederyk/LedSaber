@@ -24,6 +24,7 @@ class LedProvider extends ChangeNotifier {
   // Getters
   LedState? get currentState => _currentState;
   EffectsList? get effectsList => _effectsList;
+  LedService? get ledService => _ledService;
   String? get errorMessage => _errorMessage;
   bool get isBladeOn => _currentState?.bladeState == 'on';
   bool get isBladeAnimating =>

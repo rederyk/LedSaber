@@ -275,6 +275,10 @@ class MotionProvider extends ChangeNotifier {
     int? gestureIgnitionIntensity,
     int? gestureRetractIntensity,
     int? gestureClashIntensity,
+    String? effectMapUp,
+    String? effectMapDown,
+    String? effectMapLeft,
+    String? effectMapRight,
     bool? debugLogs,
   }) async {
     if (_currentConfig == null) {
@@ -295,6 +299,10 @@ class MotionProvider extends ChangeNotifier {
       gestureIgnitionIntensity: gestureIgnitionIntensity,
       gestureRetractIntensity: gestureRetractIntensity,
       gestureClashIntensity: gestureClashIntensity,
+      effectMapUp: effectMapUp,
+      effectMapDown: effectMapDown,
+      effectMapLeft: effectMapLeft,
+      effectMapRight: effectMapRight,
       debugLogs: debugLogs,
     );
 
@@ -302,6 +310,29 @@ class MotionProvider extends ChangeNotifier {
         'gesturesEnabled=${newConfig.gesturesEnabled}');
 
     await applyConfig(newConfig);
+  }
+
+  /// Imposta mapping direzione → effetto LED
+  Future<void> setDirectionEffect(String direction, String effectId) async {
+    if (_motionService == null) {
+      _errorMessage = 'Motion service non disponibile';
+      notifyListeners();
+      return;
+    }
+
+    try {
+      debugPrint('[MotionProvider] Impostazione mapping $direction → $effectId');
+      await _motionService!.setDirectionEffect(direction, effectId);
+
+      // Ricarica la configurazione per riflettere il cambiamento
+      await _loadConfig();
+
+      _errorMessage = null;
+    } catch (e) {
+      debugPrint('[MotionProvider] Errore impostando direction mapping: $e');
+      _errorMessage = 'Errore impostando direction mapping: $e';
+      notifyListeners();
+    }
   }
 
   @override

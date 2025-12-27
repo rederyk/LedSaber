@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/motion_provider.dart';
+import '../../providers/led_provider.dart';
 import '../../models/motion_state.dart';
+import '../../services/led_service.dart';
 
 /// Tab per Motion Detection & Gesture System
 /// Basato sulla roadmap Sprint 3 - Sezione 4.2 Motion Screen
@@ -104,6 +106,7 @@ class _MotionTabState extends State<MotionTab> {
   @override
   Widget build(BuildContext context) {
     final motionProvider = Provider.of<MotionProvider>(context);
+    final ledProvider = Provider.of<LedProvider>(context);
     final state = motionProvider.currentState;
     final config = motionProvider.currentConfig;
 
@@ -130,8 +133,16 @@ class _MotionTabState extends State<MotionTab> {
           _buildMotionTuning(),
           const SizedBox(height: 6),
 
+          // Direction → Effect Mapping
+          _buildDirectionMapping(config, motionProvider, ledProvider),
+          const SizedBox(height: 6),
+
           // Advanced Settings (Collapsable)
           _buildAdvancedSettings(),
+          const SizedBox(height: 6),
+
+          // Reset Button & Motion on Boot
+          _buildActions(motionProvider, ledProvider),
           const SizedBox(height: 8),
 
           // Apply Button (compatto)
@@ -597,5 +608,259 @@ class _MotionTabState extends State<MotionTab> {
         ),
       ),
     );
+  }
+
+  /// Direction → Effect Mapping
+  Widget _buildDirectionMapping(MotionConfig? config, MotionProvider motionProvider, LedProvider ledProvider) {
+    if (config == null) return const SizedBox.shrink();
+
+    final effects = ledProvider.effectsList?.effects ?? [];
+    if (effects.isEmpty) return const SizedBox.shrink();
+
+    // Lista di effetti con opzione "None"
+    final effectOptions = [
+      {'id': '', 'name': 'None'},
+      ...effects.map((e) => {'id': e.id, 'name': e.name}),
+    ];
+
+    return Card(
+      margin: EdgeInsets.zero,
+      child: Padding(
+        padding: const EdgeInsets.all(8),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.navigation, size: 12, color: Colors.grey),
+                const SizedBox(width: 4),
+                Text(
+                  'Direction → Effect',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 10,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+
+            // UP
+            _buildDirectionPicker(
+              'UP',
+              Icons.arrow_upward,
+              config.effectMapUp,
+              effectOptions,
+              motionProvider,
+            ),
+            const SizedBox(height: 4),
+
+            // DOWN
+            _buildDirectionPicker(
+              'DOWN',
+              Icons.arrow_downward,
+              config.effectMapDown,
+              effectOptions,
+              motionProvider,
+            ),
+            const SizedBox(height: 4),
+
+            // LEFT
+            _buildDirectionPicker(
+              'LEFT',
+              Icons.arrow_back,
+              config.effectMapLeft,
+              effectOptions,
+              motionProvider,
+            ),
+            const SizedBox(height: 4),
+
+            // RIGHT
+            _buildDirectionPicker(
+              'RIGHT',
+              Icons.arrow_forward,
+              config.effectMapRight,
+              effectOptions,
+              motionProvider,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Single direction picker
+  Widget _buildDirectionPicker(
+    String direction,
+    IconData icon,
+    String currentEffectId,
+    List<Map<String, String>> effectOptions,
+    MotionProvider provider,
+  ) {
+    return Row(
+      children: [
+        Icon(icon, size: 12, color: Colors.grey),
+        const SizedBox(width: 6),
+        Expanded(
+          child: DropdownButton<String>(
+            value: currentEffectId.isEmpty ? '' : currentEffectId,
+            isExpanded: true,
+            isDense: true,
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(fontSize: 10),
+            items: effectOptions.map((opt) {
+              return DropdownMenuItem<String>(
+                value: opt['id']!,
+                child: Text(
+                  opt['name']!,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              );
+            }).toList(),
+            onChanged: (value) async {
+              if (value != null) {
+                await provider.setDirectionEffect(direction.toLowerCase(), value);
+              }
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// Reset Button & Motion on Boot
+  Widget _buildActions(MotionProvider motionProvider, LedProvider ledProvider) {
+    return Row(
+      children: [
+        // Reset Button
+        Expanded(
+          child: SizedBox(
+            height: 32,
+            child: OutlinedButton.icon(
+              onPressed: () async {
+                await motionProvider.resetMotion();
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Motion detector reset'),
+                      duration: Duration(seconds: 1),
+                    ),
+                  );
+                }
+              },
+              icon: const Icon(Icons.refresh, size: 14),
+              label: const Text(
+                'Reset',
+                style: TextStyle(fontSize: 11),
+              ),
+              style: OutlinedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(width: 8),
+
+        // Motion on Boot Toggle
+        Expanded(
+          child: SizedBox(
+            height: 32,
+            child: OutlinedButton.icon(
+              onPressed: () async {
+                final ledService = ledProvider.ledService;
+                if (ledService != null) {
+                  // Toggle stato (per semplicità, assumiamo false → true, true → false)
+                  // In produzione dovresti tracciare lo stato corrente
+                  await _showBootConfigDialog(ledService);
+                } else {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('LED service not available'),
+                      duration: Duration(seconds: 1),
+                    ),
+                  );
+                }
+              },
+              icon: const Icon(Icons.power_settings_new, size: 14),
+              label: const Text(
+                'Boot Config',
+                style: TextStyle(fontSize: 11),
+              ),
+              style: OutlinedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// Dialog per configurare Motion on Boot
+  Future<void> _showBootConfigDialog(LedService ledService) async {
+    bool motionOnBoot = false; // Dovrebbe essere letto dalla config attuale
+
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setState) {
+            return AlertDialog(
+              title: const Text('Boot Configuration', style: TextStyle(fontSize: 14)),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  SwitchListTile(
+                    title: const Text('Motion on Boot', style: TextStyle(fontSize: 12)),
+                    subtitle: const Text(
+                      'Enable motion detection on device startup',
+                      style: TextStyle(fontSize: 10),
+                    ),
+                    value: motionOnBoot,
+                    onChanged: (value) {
+                      setState(() {
+                        motionOnBoot = value;
+                      });
+                    },
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context, false),
+                  child: const Text('Cancel', style: TextStyle(fontSize: 11)),
+                ),
+                ElevatedButton(
+                  onPressed: () => Navigator.pop(context, true),
+                  child: const Text('Apply', style: TextStyle(fontSize: 11)),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    if (result == true) {
+      try {
+        await ledService.setBootConfig(motionEnabled: motionOnBoot);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Boot config updated: Motion ${motionOnBoot ? "enabled" : "disabled"}'),
+              duration: const Duration(seconds: 2),
+            ),
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Error: $e'),
+              duration: const Duration(seconds: 2),
+            ),
+          );
+        }
+      }
+    }
   }
 }

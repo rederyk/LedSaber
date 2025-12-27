@@ -249,6 +249,32 @@ class MotionService {
     await sendControlCommand('calibrate');
   }
 
+  /// Invia comando direzione → effetto mapping
+  /// direction: "up", "down", "left", "right"
+  /// effectId: id dell'effetto (es. "flicker", "pulse", etc.)
+  Future<void> setDirectionEffect(String direction, String effectId) async {
+    if (_controlChar == null) {
+      debugPrint('[MotionService] ERROR: Motion Control characteristic non trovata');
+      throw Exception('Motion Control characteristic non trovata');
+    }
+
+    final String command = 'is$direction $effectId';
+
+    try {
+      debugPrint('[MotionService] Invio comando mapping: $command');
+
+      await _controlChar!.write(
+        utf8.encode(command),
+        withoutResponse: false,
+      );
+
+      debugPrint('[MotionService] Comando "$command" inviato con successo');
+    } catch (e) {
+      debugPrint('[MotionService] ERROR inviando comando direction mapping: $e');
+      throw Exception('Errore inviando comando direction mapping: $e');
+    }
+  }
+
   /// Inizializza la camera characteristic (opzionale, chiamato se serve camera sync)
   Future<void> initCameraControl(List<BluetoothService> allServices) async {
     try {
