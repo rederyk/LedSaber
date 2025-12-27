@@ -53,6 +53,7 @@ class _MotionTabState extends State<MotionTab> {
 
   /// Toggle Motion Detection
   void _toggleMotionDetection(bool enabled, MotionProvider provider) {
+    debugPrint('[MotionTab] Toggle motion detection: $enabled');
     if (enabled) {
       provider.enableMotion();
     } else {
@@ -62,6 +63,7 @@ class _MotionTabState extends State<MotionTab> {
 
   /// Toggle Gestures
   void _toggleGestures(bool enabled, MotionProvider provider) {
+    debugPrint('[MotionTab] Toggle gestures: $enabled (Motion enabled: ${provider.currentState?.enabled})');
     provider.updateConfigParam(gesturesEnabled: enabled);
   }
 
@@ -104,20 +106,6 @@ class _MotionTabState extends State<MotionTab> {
     final motionProvider = Provider.of<MotionProvider>(context);
     final state = motionProvider.currentState;
     final config = motionProvider.currentConfig;
-
-    // Sincronizza local state con config se disponibile
-    if (config != null && !_showAdvanced) {
-      // Aggiorna solo quando advanced settings è chiuso
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) {
-          setState(() {
-            _quality = config.quality.toDouble();
-            _motionIntensityMin = config.motionIntensityMin.toDouble();
-            _motionSpeedMin = config.motionSpeedMin;
-          });
-        }
-      });
-    }
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(6),
@@ -206,6 +194,7 @@ class _MotionTabState extends State<MotionTab> {
   /// Gestures Enable Toggle (compatto)
   Widget _buildGesturesToggle(MotionConfig? config, MotionProvider provider) {
     final isEnabled = config?.gesturesEnabled ?? true;
+    final motionEnabled = provider.currentState?.enabled ?? config?.enabled ?? false;
 
     return Card(
       margin: EdgeInsets.zero,
@@ -214,28 +203,34 @@ class _MotionTabState extends State<MotionTab> {
         child: Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Row(
-              children: [
-                Icon(
-                  isEnabled ? Icons.gesture : Icons.block,
-                  color: isEnabled ? Colors.blue : Colors.grey,
-                  size: 16,
-                ),
-                const SizedBox(width: 6),
-                Text(
-                  'Gestures',
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 11,
+            Expanded(
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    isEnabled ? Icons.gesture : Icons.block,
+                    color: isEnabled && motionEnabled ? Colors.blue : Colors.grey,
+                    size: 16,
                   ),
-                ),
-              ],
+                  const SizedBox(width: 6),
+                  Text(
+                    'Gestures',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 11,
+                      color: motionEnabled ? null : Colors.grey,
+                    ),
+                  ),
+                ],
+              ),
             ),
             Transform.scale(
               scale: 0.8,
               child: Switch(
                 value: isEnabled,
-                onChanged: (value) => _toggleGestures(value, provider),
+                onChanged: motionEnabled
+                    ? (value) => _toggleGestures(value, provider)
+                    : null, // Disabilita se motion è OFF
               ),
             ),
           ],
@@ -317,7 +312,7 @@ class _MotionTabState extends State<MotionTab> {
       children: [
         Icon(icon, size: 12, color: Colors.grey),
         const SizedBox(width: 4),
-        Flexible(
+        Expanded(
           child: Text(
             value,
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
@@ -325,6 +320,7 @@ class _MotionTabState extends State<MotionTab> {
               fontWeight: FontWeight.w600,
             ),
             overflow: TextOverflow.ellipsis,
+            maxLines: 1,
           ),
         ),
       ],

@@ -157,18 +157,24 @@ class MotionProvider extends ChangeNotifier {
 
   /// Abilita motion detection
   Future<void> enableMotion() async {
+    debugPrint('[MotionProvider] enableMotion chiamato');
+    debugPrint('[MotionProvider] _motionService: ${_motionService != null ? "disponibile" : "NULL"}');
+    debugPrint('[MotionProvider] Stato corrente: enabled=${_currentState?.enabled}');
+
     if (_motionService == null) {
       _errorMessage = 'Motion service non disponibile';
+      debugPrint('[MotionProvider] ERRORE: Motion service è NULL!');
       notifyListeners();
       return;
     }
 
     try {
-      debugPrint('[MotionProvider] Abilitazione motion detection...');
+      debugPrint('[MotionProvider] Invio comando enable...');
       await _motionService!.enableMotion();
+      debugPrint('[MotionProvider] Comando enable inviato con successo');
       _errorMessage = null;
     } catch (e) {
-      debugPrint('[MotionProvider] Errore abilitando motion: $e');
+      debugPrint('[MotionProvider] ERRORE abilitando motion: $e');
       _errorMessage = 'Errore abilitando motion: $e';
       notifyListeners();
     }
@@ -176,18 +182,24 @@ class MotionProvider extends ChangeNotifier {
 
   /// Disabilita motion detection
   Future<void> disableMotion() async {
+    debugPrint('[MotionProvider] disableMotion chiamato');
+    debugPrint('[MotionProvider] _motionService: ${_motionService != null ? "disponibile" : "NULL"}');
+    debugPrint('[MotionProvider] Stato corrente: enabled=${_currentState?.enabled}');
+
     if (_motionService == null) {
       _errorMessage = 'Motion service non disponibile';
+      debugPrint('[MotionProvider] ERRORE: Motion service è NULL!');
       notifyListeners();
       return;
     }
 
     try {
-      debugPrint('[MotionProvider] Disabilitazione motion detection...');
+      debugPrint('[MotionProvider] Invio comando disable...');
       await _motionService!.disableMotion();
+      debugPrint('[MotionProvider] Comando disable inviato con successo');
       _errorMessage = null;
     } catch (e) {
-      debugPrint('[MotionProvider] Errore disabilitando motion: $e');
+      debugPrint('[MotionProvider] ERRORE disabilitando motion: $e');
       _errorMessage = 'Errore disabilitando motion: $e';
       notifyListeners();
     }
@@ -250,6 +262,11 @@ class MotionProvider extends ChangeNotifier {
       return;
     }
 
+    debugPrint('[MotionProvider] updateConfigParam chiamato: '
+        'enabled=$enabled, gesturesEnabled=$gesturesEnabled');
+    debugPrint('[MotionProvider] Config attuale: '
+        'enabled=${_currentConfig!.enabled}, gesturesEnabled=${_currentConfig!.gesturesEnabled}');
+
     final newConfig = _currentConfig!.copyWith(
       enabled: enabled,
       gesturesEnabled: gesturesEnabled,
@@ -261,6 +278,9 @@ class MotionProvider extends ChangeNotifier {
       gestureClashIntensity: gestureClashIntensity,
       debugLogs: debugLogs,
     );
+
+    debugPrint('[MotionProvider] Nuova config da applicare: '
+        'enabled=${newConfig.enabled}, gesturesEnabled=${newConfig.gesturesEnabled}');
 
     await applyConfig(newConfig);
   }
