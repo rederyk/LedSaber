@@ -537,6 +537,13 @@ void LedEffectEngine::renderSineMotion(const LedState& state, const uint8_t pert
             col = map(i, 0, foldPoint - 1, 0, GRID_COLS - 1);
         }
 
+        // Calcola posizione normalizzata: 0 = impugnatura, 255 = punta
+        uint16_t maxPos = (foldPoint > 1) ? (foldPoint - 1) : 1;
+        uint8_t positionRatio = map(i, 0, maxPos, 0, 255);
+
+        // Intensità del tremolìo aumenta verso la punta (quadratica per enfasi)
+        uint8_t tipIntensity = scale8(positionRatio, positionRatio);
+
         uint8_t avgPerturbation = 0;
         if (perturbationGrid != nullptr) {
             uint16_t perturbSum = 0;
@@ -546,11 +553,26 @@ void LedEffectEngine::renderSineMotion(const LedState& state, const uint8_t pert
             avgPerturbation = perturbSum / 3;
         }
 
+        // Frequenza aumenta verso la punta (tremolìo più rapido)
         uint8_t freqBoost = map(avgPerturbation, 0, 255, 0, 6);
-        uint8_t freq = baseFreq + freqBoost;
+        uint8_t tipFreqBoost = scale8(tipIntensity, 4); // Fino a +4 extra sulla punta
+        uint8_t freq = baseFreq + freqBoost + tipFreqBoost;
+
         uint16_t phase = (uint16_t)(i * freq * 8) + timePhase;
         uint8_t wave = sin8((uint8_t)phase);
-        uint8_t brightness = map(wave, 0, 255, 60, 255);
+
+        // Ampiezza del tremolìo aumenta verso la punta
+        // Base stabile (luminosità alta), punta instabile (oscillazione ampia)
+        uint8_t minBrightness = map(tipIntensity, 0, 255, 100, 40);  // Punta scende più in basso
+        uint8_t maxBrightness = 255;
+        uint8_t brightness = map(wave, 0, 255, minBrightness, maxBrightness);
+
+        // Aggiungi un po' di rumore casuale sulla punta per instabilità extra
+        if (tipIntensity > 100) {
+            uint8_t noiseAmount = map(tipIntensity, 100, 255, 0, 20);
+            int16_t noise = random8(noiseAmount * 2) - noiseAmount;
+            brightness = constrain((int16_t)brightness + noise, 0, 255);
+        }
 
         CRGB color = baseColor;
         color.nscale8_video(brightness);
