@@ -237,6 +237,9 @@ class _ControlScreenState extends State<ControlScreen> with SingleTickerProvider
     final bladeState = state.bladeState;
     final currentEffect = state.effect;
 
+    // Ottieni modalità preview dal provider
+    final isPreviewMode = ledProvider.isPreviewMode;
+
     return Center(
       child: LightsaberWidget(
         bladeColor: bladeColor,
@@ -245,6 +248,7 @@ class _ControlScreenState extends State<ControlScreen> with SingleTickerProvider
         currentEffect: currentEffect,
         maxHeight: maxHeight,
         isConnected: bleProvider.isConnected,
+        isPreviewMode: isPreviewMode,
         onPowerTap: () {
           if (bladeState == 'igniting' || bladeState == 'retracting') {
             return;
@@ -255,6 +259,45 @@ class _ControlScreenState extends State<ControlScreen> with SingleTickerProvider
           } else if (bladeState == 'on' || bladeState == 'igniting') {
             ledProvider.retract();
           }
+        },
+        onBladeTap: () {
+          // Toggle modalità color picker sulla lama
+          if (isPreviewMode) {
+            ledProvider.clearPreview();
+          } else {
+            ledProvider.setPreviewColor(bladeColor, isPreviewMode: true);
+          }
+        },
+        onBladePan: (double relativeY) {
+          if (!isPreviewMode) return;
+
+          // Converti posizione relativa (0.0-1.0) in sfumatura del colore
+          // 0.0 = alto (chiaro), 1.0 = basso (scuro)
+          final hsvColor = HSVColor.fromColor(bladeColor);
+
+          double saturation;
+          double value;
+
+          if (relativeY < 0.5) {
+            // Prima metà: da chiaro a saturato
+            saturation = 0.3 + (relativeY * 2) * 0.7;
+            value = 1.0 - (relativeY * 2) * 0.3;
+          } else {
+            // Seconda metà: da saturato a scuro
+            saturation = 1.0 - ((relativeY - 0.5) * 2) * 0.3;
+            value = 0.7 - ((relativeY - 0.5) * 2) * 0.5;
+          }
+
+          final selectedColor = hsvColor
+              .withSaturation(saturation.clamp(0.0, 1.0))
+              .withValue(value.clamp(0.0, 1.0))
+              .toColor();
+
+          // Applica il colore selezionato
+          final r = (selectedColor.r * 255.0).round().clamp(0, 255);
+          final g = (selectedColor.g * 255.0).round().clamp(0, 255);
+          final b = (selectedColor.b * 255.0).round().clamp(0, 255);
+          ledProvider.setColor(r, g, b);
         },
       ),
     );

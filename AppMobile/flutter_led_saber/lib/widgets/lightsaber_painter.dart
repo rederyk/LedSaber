@@ -10,6 +10,8 @@ class LightsaberPainter extends CustomPainter {
   final double pulseOpacity; // 0.8-1.0 per pulse effect
   final String bladeState;
   final bool isConnected;
+  final bool isPreviewMode; // Modalità color picker
+  final Color? baseColorForGradient; // Colore base per generare sfumature
 
   LightsaberPainter({
     required this.bladeColor,
@@ -18,6 +20,8 @@ class LightsaberPainter extends CustomPainter {
     required this.pulseOpacity,
     required this.bladeState,
     required this.isConnected,
+    this.isPreviewMode = false,
+    this.baseColorForGradient,
   });
 
   // Dimensioni componenti
@@ -155,18 +159,61 @@ class LightsaberPainter extends CustomPainter {
       bottomRight: Radius.circular(bladeBottomRadius),
     );
 
-    // Gradiente verticale (bottom → top)
-    // Base: colore pieno, Centro: bianco brillante, Punta: fade-out
-    final gradient = ui.Gradient.linear(
-      Offset(centerX, bottom), // Start (base)
-      Offset(centerX, top), // End (punta)
-      [
-        color, // Base: colore pieno
-        Color.lerp(color, Colors.white, 0.7)!, // Centro: blend con bianco
-        color.withValues(alpha: 0.3), // Punta: fade-out
-      ],
-      [0.0, 0.5, 1.0], // Stop positions
-    );
+    ui.Gradient gradient;
+
+    // Se in modalità preview, mostra un gradiente di sfumature HSV
+    if (isPreviewMode && baseColorForGradient != null) {
+      final hsvColor = HSVColor.fromColor(baseColorForGradient!);
+
+      // Crea un gradiente con variazioni di saturazione e valore
+      final colors = <Color>[];
+      final stops = <double>[];
+
+      // 11 sfumature lungo la lama
+      for (int i = 0; i <= 10; i++) {
+        final t = i / 10.0;
+        stops.add(t);
+
+        // Varia saturazione e valore per creare sfumature interessanti
+        // In alto: più chiari (valore alto)
+        // Al centro: saturazione massima
+        // In basso: più scuri (valore basso)
+        double saturation;
+        double value;
+
+        if (t < 0.5) {
+          // Prima metà: da chiaro a saturato
+          saturation = 0.3 + (t * 2) * 0.7;
+          value = 1.0 - (t * 2) * 0.3;
+        } else {
+          // Seconda metà: da saturato a scuro
+          saturation = 1.0 - ((t - 0.5) * 2) * 0.3;
+          value = 0.7 - ((t - 0.5) * 2) * 0.5;
+        }
+
+        colors.add(hsvColor.withSaturation(saturation).withValue(value).toColor());
+      }
+
+      gradient = ui.Gradient.linear(
+        Offset(centerX, top), // Start (alto)
+        Offset(centerX, bottom), // End (basso)
+        colors,
+        stops,
+      );
+    } else {
+      // Gradiente normale verticale (bottom → top)
+      // Base: colore pieno, Centro: bianco brillante, Punta: fade-out
+      gradient = ui.Gradient.linear(
+        Offset(centerX, bottom), // Start (base)
+        Offset(centerX, top), // End (punta)
+        [
+          color, // Base: colore pieno
+          Color.lerp(color, Colors.white, 0.7)!, // Centro: blend con bianco
+          color.withValues(alpha: 0.3), // Punta: fade-out
+        ],
+        [0.0, 0.5, 1.0], // Stop positions
+      );
+    }
 
     final paint = Paint()
       ..shader = gradient

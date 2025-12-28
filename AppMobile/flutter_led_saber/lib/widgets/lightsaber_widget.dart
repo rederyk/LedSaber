@@ -19,11 +19,20 @@ class LightsaberWidget extends StatefulWidget {
   /// Callback quando si preme il power button
   final VoidCallback? onPowerTap;
 
+  /// Callback quando si tocca sulla lama
+  final VoidCallback? onBladeTap;
+
+  /// Callback quando si fa pan sulla lama (con posizione verticale 0.0-1.0)
+  final Function(double)? onBladePan;
+
   /// Altezza massima disponibile per il widget
   final double maxHeight;
 
   /// Se il dispositivo è connesso via BLE (per badge)
   final bool isConnected;
+
+  /// Se è attiva la modalità preview
+  final bool isPreviewMode;
 
   const LightsaberWidget({
     super.key,
@@ -32,8 +41,11 @@ class LightsaberWidget extends StatefulWidget {
     required this.bladeState,
     required this.currentEffect,
     this.onPowerTap,
+    this.onBladeTap,
+    this.onBladePan,
     required this.maxHeight,
     this.isConnected = false,
+    this.isPreviewMode = false,
   });
 
   @override
@@ -169,27 +181,41 @@ class _LightsaberWidgetState extends State<LightsaberWidget>
         children: [
           // Spada (lama + elsa + power button)
           Expanded(
-            child: AnimatedBuilder(
-              animation: Listenable.merge([
-                _bladeHeightAnimation,
-                _pulseAnimation,
-              ]),
-              builder: (context, child) {
-                return CustomPaint(
-                  painter: LightsaberPainter(
-                    bladeColor: widget.bladeColor,
-                    brightness: widget.brightness,
-                    bladeHeightFactor: _bladeHeightAnimation.value,
-                    pulseOpacity: _pulseAnimation.value,
-                    bladeState: widget.bladeState,
-                    isConnected: widget.isConnected,
-                  ),
-                  size: Size(
-                    100, // Larghezza fissa
-                    widget.maxHeight,
-                  ),
-                );
+            child: GestureDetector(
+              onTap: widget.onBladeTap,
+              onPanUpdate: (details) {
+                if (widget.onBladePan != null && widget.isPreviewMode) {
+                  // Calcola posizione verticale relativa (0.0 in alto, 1.0 in basso)
+                  final RenderBox box = context.findRenderObject() as RenderBox;
+                  final localPosition = box.globalToLocal(details.globalPosition);
+                  final relativeY = (localPosition.dy / box.size.height).clamp(0.0, 1.0);
+                  widget.onBladePan!(relativeY);
+                }
               },
+              child: AnimatedBuilder(
+                animation: Listenable.merge([
+                  _bladeHeightAnimation,
+                  _pulseAnimation,
+                ]),
+                builder: (context, child) {
+                  return CustomPaint(
+                    painter: LightsaberPainter(
+                      bladeColor: widget.bladeColor,
+                      brightness: widget.brightness,
+                      bladeHeightFactor: _bladeHeightAnimation.value,
+                      pulseOpacity: _pulseAnimation.value,
+                      bladeState: widget.bladeState,
+                      isConnected: widget.isConnected,
+                      isPreviewMode: widget.isPreviewMode,
+                      baseColorForGradient: widget.isPreviewMode ? widget.bladeColor : null,
+                    ),
+                    size: Size(
+                      100, // Larghezza fissa
+                      widget.maxHeight,
+                    ),
+                  );
+                },
+              ),
             ),
           ),
 

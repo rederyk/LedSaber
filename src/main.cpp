@@ -772,24 +772,23 @@ void loop() {
         static unsigned long lastOtaUpdate = 0;
         static float pulsePosition = 0.0f;
         static bool pulseActive = false;
-        static uint16_t targetLedCount = 0;
-        static uint16_t currentFilledLeds = 0;
+        static uint16_t barLedCount = 0;  // Quanti LED blu mostrare (progresso fisso)
 
         uint8_t currentProgress = otaManager.getProgress();
         OTAState state = otaManager.getState();
         uint16_t foldPoint = ledState.foldPoint;
+        uint16_t targetLedCount = (foldPoint * currentProgress) / 100;
 
-        // Quando il progresso cambia, attiva un nuovo pulse
+        // Quando il progresso cambia, attiva un nuovo pulse dalla posizione corrente
         if (currentProgress != lastOtaProgress) {
             lastOtaProgress = currentProgress;
-            targetLedCount = (foldPoint * currentProgress) / 100;
 
-            // Se ci sono nuovi LED da riempire, attiva il pulse
-            if (targetLedCount > currentFilledLeds) {
+            // Se ci sono nuovi LED da riempire, attiva il pulse dalla barra attuale
+            if (targetLedCount > barLedCount) {
                 pulseActive = true;
-                pulsePosition = currentFilledLeds;
-                Serial.printf("[OTA LED] New pulse: %u%% | Target: %u LEDs | Current: %u LEDs | State: %d\n",
-                    currentProgress, targetLedCount, currentFilledLeds, (int)state);
+                pulsePosition = barLedCount;  // Parte dalla fine della barra attuale
+                Serial.printf("[OTA LED] New pulse: %u%% | Current bar: %u | Target: %u | State: %d\n",
+                    currentProgress, barLedCount, targetLedCount, (int)state);
             }
         }
 
@@ -798,29 +797,29 @@ void loop() {
             lastOtaUpdate = now;
 
             // Colori in base allo stato
-            CRGB baseColor, pulseColor;
+            CRGB blueBarColor, pulseColor;
             if (state == OTAState::ERROR) {
-                baseColor = CRGB(255, 0, 0);    // Rosso - errore
-                pulseColor = CRGB(255, 100, 0); // Arancione per pulse
+                blueBarColor = CRGB(255, 0, 0);      // Rosso - errore
+                pulseColor = CRGB(255, 100, 0);      // Arancione per pulse
                 pulseActive = false; // Stop animation on error
             } else if (state == OTAState::VERIFYING || state == OTAState::READY) {
-                baseColor = CRGB(0, 255, 0);    // Verde - completato
+                blueBarColor = CRGB(0, 255, 0);      // Verde - completato
                 pulseColor = CRGB(100, 255, 100);
                 pulseActive = false; // Stop animation when done
             } else {
-                baseColor = CRGB(0, 255, 0);    // Verde per barra riempita
-                pulseColor = CRGB(128, 0, 255); // Viola brillante per pulse
+                blueBarColor = CRGB(0, 0, 255);      // Blu per barra fissa
+                pulseColor = CRGB(0, 255, 0);        // Verde per pulse in movimento
             }
 
             // Cancella tutto
             fill_solid(leds, NUM_LEDS, CRGB::Black);
 
-            // Disegna barra verde già riempita
-            for (uint16_t i = 0; i < currentFilledLeds; i++) {
+            // Disegna barra BLU fissa (progresso raggiunto)
+            for (uint16_t i = 0; i < barLedCount; i++) {
                 uint16_t led1 = i;
                 uint16_t led2 = (NUM_LEDS - 1) - i;
-                leds[led1] = baseColor;
-                leds[led2] = baseColor;
+                leds[led1] = blueBarColor;
+                leds[led2] = blueBarColor;
             }
 
             // Pulse viola alla base (sempre visibile durante trasferimento)
@@ -837,23 +836,23 @@ void loop() {
                 }
             }
 
-            // Anima il pulse verde che sale
+            // Anima il pulse VERDE che sale e allunga la barra
             if (pulseActive) {
-                // Velocità pulse: circa 0.5 LED per frame (regolabile)
+                // Velocità pulse: circa 0.8 LED per frame
                 float pulseSpeed = 0.8f;
                 pulsePosition += pulseSpeed;
 
-                // Disegna il pulse verde in movimento con scia
+                // Posizione attuale del pulse
                 uint16_t pulseLed = (uint16_t)pulsePosition;
 
                 if (pulseLed < targetLedCount) {
-                    // Pulse principale (molto brillante)
+                    // Pulse principale verde brillante
                     uint16_t led1 = pulseLed;
                     uint16_t led2 = (NUM_LEDS - 1) - pulseLed;
                     leds[led1] = pulseColor;
                     leds[led2] = pulseColor;
 
-                    // Scia dietro al pulse (fade out)
+                    // Scia verde dietro al pulse (fade out)
                     for (int16_t j = 1; j <= 5; j++) {
                         int16_t trailLed = pulseLed - j;
                         if (trailLed >= 0 && trailLed < foldPoint) {
@@ -868,14 +867,14 @@ void loop() {
                         }
                     }
 
-                    // Accendi il LED verde quando il pulse ci passa sopra
-                    if (pulseLed >= currentFilledLeds) {
-                        currentFilledLeds = pulseLed + 1;
+                    // Aggiorna la barra BLU man mano che il pulse passa
+                    if (pulseLed > barLedCount) {
+                        barLedCount = pulseLed;
                     }
                 } else {
-                    // Pulse completato
+                    // Pulse completato - la barra è ora alla nuova lunghezza
                     pulseActive = false;
-                    currentFilledLeds = targetLedCount;
+                    barLedCount = targetLedCount;
                 }
             }
 
@@ -884,8 +883,8 @@ void loop() {
         }
 
         // Reset quando OTA ricomincia
-        if (currentProgress == 0 && currentFilledLeds > 0) {
-            currentFilledLeds = 0;
+        if (currentProgress == 0 && barLedCount > 0) {
+            barLedCount = 0;
             pulsePosition = 0.0f;
             pulseActive = false;
         }

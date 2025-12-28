@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
-import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 import '../models/led_state.dart';
 import '../models/effect.dart';
 import '../services/led_service.dart';
@@ -21,6 +21,9 @@ class LedProvider extends ChangeNotifier {
   String? _lastBladeState;
   String? _lastStateSignature;
 
+  /// Modalità color picker avanzata sulla lama
+  bool _isPreviewMode = false;
+
   // Getters
   LedState? get currentState => _currentState;
   EffectsList? get effectsList => _effectsList;
@@ -30,6 +33,9 @@ class LedProvider extends ChangeNotifier {
   bool get isBladeAnimating =>
       _currentState?.bladeState == 'igniting' ||
       _currentState?.bladeState == 'retracting';
+
+  // Getter per modalità preview color picker
+  bool get isPreviewMode => _isPreviewMode;
 
   /// Imposta il LED Service e inizia ad ascoltare lo stato
   void setLedService(LedService? service) {
@@ -264,6 +270,18 @@ class LedProvider extends ChangeNotifier {
   /// Pulisce l'errore
   void clearError() {
     _errorMessage = null;
+    notifyListeners();
+  }
+
+  /// Attiva la modalità color picker avanzata sulla lama
+  void setPreviewColor(Color? color, {bool isPreviewMode = false}) {
+    _isPreviewMode = isPreviewMode;
+    notifyListeners();
+  }
+
+  /// Resetta la modalità preview
+  void clearPreview() {
+    _isPreviewMode = false;
     notifyListeners();
   }
 
