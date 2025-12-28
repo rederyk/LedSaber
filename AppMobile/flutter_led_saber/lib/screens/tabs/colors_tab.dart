@@ -182,10 +182,9 @@ class _ColorsTabState extends State<ColorsTab> {
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 2,
-        crossAxisSpacing: 8,
+        crossAxisCount: 1,
         mainAxisSpacing: 8,
-        childAspectRatio: 3.2, // Più largo, meno alto
+        childAspectRatio: 3.0, // Più alte per mostrare bene il testo
       ),
       itemCount: starWarsPresets.length,
       itemBuilder: (context, index) {
@@ -207,7 +206,7 @@ class _ColorsTabState extends State<ColorsTab> {
         _applyColorToLED(color, _brightness);
       },
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(8),
           border: Border.all(
@@ -218,11 +217,12 @@ class _ColorsTabState extends State<ColorsTab> {
         ),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.start,
+          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
             // Preview colore circolare - ridotto
             Container(
-              width: 28,
-              height: 28,
+              width: 24,
+              height: 24,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
                 color: color,
@@ -232,17 +232,18 @@ class _ColorsTabState extends State<ColorsTab> {
                 ),
               ),
             ),
-            const SizedBox(width: 8),
+            const SizedBox(width: 6),
             // Nome preset
             Expanded(
               child: Text(
                 name,
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                   fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                  fontSize: 11,
+                  fontSize: 14,
+                  color: Theme.of(context).colorScheme.onSurface,
                 ),
                 overflow: TextOverflow.ellipsis,
-                maxLines: 1,
+                maxLines: 2,
               ),
             ),
           ],
