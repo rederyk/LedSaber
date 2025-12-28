@@ -767,51 +767,127 @@ void loop() {
         }
         ledManager.updateOtaBlink();  // Blink veloce per indicare OTA
 
-        // Visualizza progresso OTA sulla striscia LED
-        // Aggiorna solo se progresso è cambiato (riduce overhead FastLED.show())
+        // Visualizza progresso OTA sulla striscia LED con effetto pulse animato
         static uint8_t lastOtaProgress = 0;
-        uint8_t currentProgress = otaManager.getProgress();
+        static unsigned long lastOtaUpdate = 0;
+        static float pulsePosition = 0.0f;
+        static bool pulseActive = false;
+        static uint16_t targetLedCount = 0;
+        static uint16_t currentFilledLeds = 0;
 
+        uint8_t currentProgress = otaManager.getProgress();
+        OTAState state = otaManager.getState();
+        uint16_t foldPoint = ledState.foldPoint;
+
+        // Quando il progresso cambia, attiva un nuovo pulse
         if (currentProgress != lastOtaProgress) {
             lastOtaProgress = currentProgress;
+            targetLedCount = (foldPoint * currentProgress) / 100;
 
-            // Calcola numero LED logici da accendere (rispetta fold point)
-            uint16_t foldPoint = ledState.foldPoint;
-            uint16_t logicalLedsToFill = (foldPoint * currentProgress) / 100;
+            // Se ci sono nuovi LED da riempire, attiva il pulse
+            if (targetLedCount > currentFilledLeds) {
+                pulseActive = true;
+                pulsePosition = currentFilledLeds;
+                Serial.printf("[OTA LED] New pulse: %u%% | Target: %u LEDs | Current: %u LEDs | State: %d\n",
+                    currentProgress, targetLedCount, currentFilledLeds, (int)state);
+            }
+        }
 
-            // Colore in base allo stato OTA
-            CRGB color;
-            OTAState state = otaManager.getState();
+        // Aggiorna animazione ogni 16ms (~60 FPS)
+        if (now - lastOtaUpdate >= 16) {
+            lastOtaUpdate = now;
 
-            if (state == OTAState::WAITING) {
-                color = CRGB(128, 0, 128);  // Viola - in attesa del primo chunk
-            } else if (state == OTAState::RECEIVING) {
-                color = CRGB(0, 0, 255);    // Blu - trasferimento in corso
+            // Colori in base allo stato
+            CRGB baseColor, pulseColor;
+            if (state == OTAState::ERROR) {
+                baseColor = CRGB(255, 0, 0);    // Rosso - errore
+                pulseColor = CRGB(255, 100, 0); // Arancione per pulse
+                pulseActive = false; // Stop animation on error
             } else if (state == OTAState::VERIFYING || state == OTAState::READY) {
-                color = CRGB(0, 255, 0);    // Verde - completato/verifica
-            } else if (state == OTAState::ERROR) {
-                color = CRGB(255, 0, 0);    // Rosso - errore
+                baseColor = CRGB(0, 255, 0);    // Verde - completato
+                pulseColor = CRGB(100, 255, 100);
+                pulseActive = false; // Stop animation when done
             } else {
-                color = CRGB(128, 0, 128);  // Viola - default (IDLE/RECOVERY)
+                baseColor = CRGB(0, 255, 0);    // Verde per barra riempita
+                pulseColor = CRGB(128, 0, 255); // Viola brillante per pulse
             }
 
-            // Riempimento progressivo simmetrico dalla base (rispetta fold point)
+            // Cancella tutto
             fill_solid(leds, NUM_LEDS, CRGB::Black);
 
-            for (uint16_t i = 0; i < logicalLedsToFill; i++) {
-                // Accende LED simmetrici (base verso punta su entrambi i lati)
+            // Disegna barra verde già riempita
+            for (uint16_t i = 0; i < currentFilledLeds; i++) {
                 uint16_t led1 = i;
                 uint16_t led2 = (NUM_LEDS - 1) - i;
-                leds[led1] = color;
-                leds[led2] = color;
+                leds[led1] = baseColor;
+                leds[led2] = baseColor;
             }
 
-            // Show solo quando cambia % (max 100 chiamate invece di migliaia)
-            FastLED.setBrightness(60);  // Luminosità media per visibilità
-            FastLED.show();
+            // Pulse viola alla base (sempre visibile durante trasferimento)
+            if (state == OTAState::WAITING || state == OTAState::RECEIVING) {
+                uint8_t basePulse = beatsin8(60, 100, 255); // Pulse veloce alla base
+                CRGB basePulseColor = CRGB(basePulse, 0, basePulse); // Viola pulsante
 
-            Serial.printf("[OTA LED] Progress: %u%% | Logical LEDs: %u/%u | Physical LEDs: %u | State: %d\n",
-                currentProgress, logicalLedsToFill, foldPoint, logicalLedsToFill * 2, (int)state);
+                // Applica pulse ai primi 3 LED alla base
+                for (uint16_t i = 0; i < min(3, (int)foldPoint); i++) {
+                    uint16_t led1 = i;
+                    uint16_t led2 = (NUM_LEDS - 1) - i;
+                    leds[led1] = blend(leds[led1], basePulseColor, 200);
+                    leds[led2] = blend(leds[led2], basePulseColor, 200);
+                }
+            }
+
+            // Anima il pulse verde che sale
+            if (pulseActive) {
+                // Velocità pulse: circa 0.5 LED per frame (regolabile)
+                float pulseSpeed = 0.8f;
+                pulsePosition += pulseSpeed;
+
+                // Disegna il pulse verde in movimento con scia
+                uint16_t pulseLed = (uint16_t)pulsePosition;
+
+                if (pulseLed < targetLedCount) {
+                    // Pulse principale (molto brillante)
+                    uint16_t led1 = pulseLed;
+                    uint16_t led2 = (NUM_LEDS - 1) - pulseLed;
+                    leds[led1] = pulseColor;
+                    leds[led2] = pulseColor;
+
+                    // Scia dietro al pulse (fade out)
+                    for (int16_t j = 1; j <= 5; j++) {
+                        int16_t trailLed = pulseLed - j;
+                        if (trailLed >= 0 && trailLed < foldPoint) {
+                            uint8_t fade = map(j, 1, 5, 200, 0);
+                            CRGB trailColor = pulseColor;
+                            trailColor.fadeToBlackBy(255 - fade);
+
+                            uint16_t trail1 = trailLed;
+                            uint16_t trail2 = (NUM_LEDS - 1) - trailLed;
+                            leds[trail1] = blend(leds[trail1], trailColor, fade);
+                            leds[trail2] = blend(leds[trail2], trailColor, fade);
+                        }
+                    }
+
+                    // Accendi il LED verde quando il pulse ci passa sopra
+                    if (pulseLed >= currentFilledLeds) {
+                        currentFilledLeds = pulseLed + 1;
+                    }
+                } else {
+                    // Pulse completato
+                    pulseActive = false;
+                    currentFilledLeds = targetLedCount;
+                }
+            }
+
+            FastLED.setBrightness(60);
+            FastLED.show();
+        }
+
+        // Reset quando OTA ricomincia
+        if (currentProgress == 0 && currentFilledLeds > 0) {
+            currentFilledLeds = 0;
+            pulsePosition = 0.0f;
+            pulseActive = false;
         }
     } else {
         // Funzionamento normale
