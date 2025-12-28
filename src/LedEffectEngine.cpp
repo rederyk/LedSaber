@@ -528,8 +528,8 @@ void LedEffectEngine::renderSineMotion(const LedState& state, const uint8_t pert
     }
 
     CRGB baseColor = CRGB(state.r, state.g, state.b);
-    uint8_t baseFreq = map(state.speed, 1, 255, 1, 6);
-    uint8_t timePhase = (millis() / 8) & 0xFF;
+    uint8_t baseFreq = map(state.speed, 1, 255, 3, 20);
+    uint8_t timePhase = (millis() / 5) & 0xFF;
 
     for (uint16_t i = 0; i < foldPoint; i++) {
         uint8_t col = 0;
