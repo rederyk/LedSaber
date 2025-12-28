@@ -30,7 +30,7 @@ Questo progetto nasce dall'idea di creare una semplice lampada e si è evoluto i
 1.  **Clona il repository:** `git clone [URL del tuo repository]`
 2.  **Apri con PlatformIO:** Il progetto è configurato per PlatformIO. Apri la cartella con VSCode e l'estensione PlatformIO.
 3.  **Compila e Carica:** Connetti il tuo ESP32-CAM e usa il comando "Upload" di PlatformIO.
-4.  **Connettiti via BLE:** Usa un'app come "nRF Connect for Mobile" per connetterti al device "LedSaber-BLE" ed esplorare i servizi e le caratteristiche.
+4.  **Connettiti via BLE:** Usa un'app come "nRF Connect for Mobile" per connetterti al device "LedSaber-BLE" ed esplorare i servizi e le caratteristiche, oppure installa l app flutter ancora in test.
 
 ## Licenza
 
