@@ -273,60 +273,68 @@ class _ColorsTabState extends State<ColorsTab> {
 
   @override
   Widget build(BuildContext context) {
-    final screenSize = MediaQuery.of(context).size;
-    final wheelSize = (screenSize.width * 0.45).clamp(140.0, 200.0);
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final horizontalPadding = 24.0;
+        final contentWidth =
+            (constraints.maxWidth - horizontalPadding).clamp(120.0, 600.0);
+        final wheelSize = (contentWidth * 0.95).clamp(120.0, 200.0);
 
-    return SingleChildScrollView(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Titolo sezione compatto
-          Text(
-            'Color Picker',
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-          const SizedBox(height: 8),
+        return SingleChildScrollView(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Titolo sezione compatto
+              Text(
+                'Color Picker',
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 8),
 
-          // HSV Color Wheel - dimensione ridotta per evitare overflow
-          Center(
-            child: ColorPicker(
-              pickerColor: _selectedColor,
-              onColorChanged: (Color color) {
-                setState(() {
-                  _selectedColor = color;
-                });
-                _applyColorToLED(color, _brightness);
-              },
-              colorPickerWidth: wheelSize,
-              pickerAreaHeightPercent: 1.0,
-              displayThumbColor: true,
-              paletteType: PaletteType.hueWheel,
-              labelTypes: const [],
-              pickerAreaBorderRadius: BorderRadius.circular(12),
-              enableAlpha: false, // Rimuove slider alpha
-              portraitOnly: true,
-            ),
-          ),
+              // HSV Color Wheel - dimensione ridotta per evitare overflow
+              Center(
+                child: ColorPicker(
+                  pickerColor: _selectedColor,
+                  onColorChanged: (Color color) {
+                    setState(() {
+                      _selectedColor = color;
+                    });
+                    _applyColorToLED(color, _brightness);
+                  },
+                  colorPickerWidth: wheelSize,
+                  pickerAreaHeightPercent: 1.0,
+                  displayThumbColor: true,
+                  paletteType: PaletteType.hueWheel,
+                  labelTypes: const [],
+                  pickerAreaBorderRadius: BorderRadius.circular(12),
+                  enableAlpha: false, // Rimuove slider alpha
+                  portraitOnly: true,
+                ),
+              ),
 
-          const SizedBox(height: 12),
+              const SizedBox(height: 12),
 
-          // Brightness Slider - spostato sotto il cerchio
-          _buildBrightnessSlider(),
+              // Brightness Slider - spostato sotto il cerchio
+              _buildBrightnessSlider(),
 
-          const SizedBox(height: 12),
+              const SizedBox(height: 12),
 
-          // Custom Presets Section
-          if (_customPresets.isNotEmpty) ...[
+              // Custom Presets Section
+              if (_customPresets.isNotEmpty) ...[
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text(
-                  'My Presets',
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
+                Expanded(
+                  child: Text(
+                    'My Presets',
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                    maxLines: 1,
                   ),
                 ),
                 IconButton(
@@ -334,51 +342,57 @@ class _ColorsTabState extends State<ColorsTab> {
                   onPressed: _showAddPresetDialog,
                   tooltip: 'Add new preset',
                 ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            _buildCustomPresetsGrid(),
-            const SizedBox(height: 16),
-          ],
-
-          // Add Preset Button (if no custom presets yet)
-          if (_customPresets.isEmpty)
-            Container(
-              width: double.infinity,
-              margin: const EdgeInsets.only(bottom: 12),
-              child: OutlinedButton.icon(
-                onPressed: _showAddPresetDialog,
-                icon: const Icon(Icons.add),
-                label: const Text('Create Custom Preset'),
-                style: OutlinedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  ],
                 ),
-              ),
-            ),
+                const SizedBox(height: 8),
+                _buildCustomPresetsGrid(),
+                const SizedBox(height: 16),
+              ],
 
-          // Star Wars Presets
+              // Add Preset Button (if no custom presets yet)
+              if (_customPresets.isEmpty)
+                Container(
+                  width: double.infinity,
+                  margin: const EdgeInsets.only(bottom: 12),
+                  child: OutlinedButton.icon(
+                    onPressed: _showAddPresetDialog,
+                    icon: const Icon(Icons.add),
+                    label: const Text('Create Custom Preset'),
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                    ),
+                  ),
+                ),
+
+              // Star Wars Presets
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text(
-                'Star Wars Presets',
-                style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.bold,
+              Expanded(
+                child: Text(
+                  'Star Wars Presets',
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                  maxLines: 1,
                 ),
               ),
               if (_customPresets.isNotEmpty)
                 IconButton(
                   icon: const Icon(Icons.add_circle, size: 28),
                   onPressed: _showAddPresetDialog,
-                  tooltip: 'Add new preset',
-                ),
+                      tooltip: 'Add new preset',
+                    ),
+                ],
+              ),
+              const SizedBox(height: 8),
+
+              _buildPresetsGrid(),
             ],
           ),
-          const SizedBox(height: 8),
-
-          _buildPresetsGrid(),
-        ],
-      ),
+        );
+      },
     );
   }
 
