@@ -437,13 +437,17 @@ void LedEffectEngine::renderRainbow(const LedState& state, const uint8_t perturb
 }
 
 void LedEffectEngine::renderBreathe(const LedState& state, const uint8_t perturbationGrid[GRID_ROWS][GRID_COLS]) {
-    uint8_t breath = beatsin8(state.speed, 0, 255);
+    // Subtle breathe: reduce depth so the effect is less pronounced
+    const uint8_t breathDepth = 140;  // 0-255, lower = subtler
+    uint8_t breath = beatsin8(state.speed, 0, breathDepth);
+    uint8_t breathBase = 255 - breathDepth;
+    uint8_t effectiveBreath = qadd8(breath, breathBase);
     uint8_t safeBrightness = min(state.brightness, MAX_SAFE_BRIGHTNESS);
 
     if (perturbationGrid == nullptr) {
         // No motion: classic breathe
         fill_solid(_leds, _numLeds, CRGB(state.r, state.g, state.b));
-        _breathOverride = scale8(breath, safeBrightness);
+        _breathOverride = scale8(effectiveBreath, safeBrightness);
     } else {
         // MOTION BREATHING: movement adds local breath variations
         CRGB baseColor = CRGB(state.r, state.g, state.b);
@@ -459,10 +463,10 @@ void LedEffectEngine::renderBreathe(const LedState& state, const uint8_t perturb
             uint8_t avgPerturbation = perturbSum / 3;
 
             // Motion modulates breath: creates wave-like breathing
-            uint8_t localBreath = breath;
+            uint8_t localBreath = effectiveBreath;
             if (avgPerturbation > 20) {
                 // Phase shift based on perturbation (creates traveling waves)
-                uint8_t phaseShift = scale8(avgPerturbation, 60);
+                uint8_t phaseShift = scale8(avgPerturbation, 35);
                 localBreath = qadd8(localBreath, phaseShift);
             }
 
@@ -472,7 +476,7 @@ void LedEffectEngine::renderBreathe(const LedState& state, const uint8_t perturb
             setLedPair(i, state.foldPoint, breathColor);
         }
 
-        _breathOverride = scale8(breath, safeBrightness);
+        _breathOverride = scale8(effectiveBreath, safeBrightness);
     }
 }
 

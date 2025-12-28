@@ -4,6 +4,14 @@ import 'package:provider/provider.dart';
 import '../../providers/led_provider.dart';
 import 'dart:async';
 
+class _ColorPreset {
+  final String name;
+  final Color color;
+  final String effectId;
+
+  const _ColorPreset(this.name, this.color, this.effectId);
+}
+
 /// Tab per controllo colore LED con HSV wheel e presets Star Wars
 class ColorsTab extends StatefulWidget {
   const ColorsTab({super.key});
@@ -17,17 +25,24 @@ class _ColorsTabState extends State<ColorsTab> {
   double _brightness = 1.0;
   Timer? _debounceTimer;
 
-  // Preset colori Star Wars
-  static const Map<String, Color> starWarsPresets = {
-    'Jedi Blue': Color(0xFF0080FF),
-    'Sith Red': Color(0xFFFF0000),
-    'Mace Windu': Color(0xFF8B00FF),
-    'Yoda Green': Color(0xFF00FF00),
-    'Ahsoka White': Color(0xFFFFFFFF),
-    'Dark Saber': Color(0xFF1A1A1A),
-    'Orange': Color(0xFFFF8000),
-    'Yellow': Color(0xFFFFFF00),
-  };
+  // Preset colori + effetto (ID effetti come da BLE list)
+  static const List<_ColorPreset> saberPresets = [
+    _ColorPreset('Jedi Blue', Color(0xFF0080FF), 'solid'),
+    _ColorPreset('Obi-Wan Blue', Color(0xFF2F80FF), 'pulse'),
+    _ColorPreset('Anakin Blue', Color(0xFF1E66FF), 'dual_pulse'),
+    _ColorPreset('Luke Green', Color(0xFF00FF66), 'solid'),
+    _ColorPreset('Yoda Green', Color(0xFF00FF00), 'unstable'),
+    _ColorPreset('Ahsoka White', Color(0xFFFFFFFF), 'flicker'),
+    _ColorPreset('Mace Windu', Color(0xFF8B00FF), 'pulse'),
+    _ColorPreset('Rey Yellow', Color(0xFFFFFF00), 'breathe'),
+    _ColorPreset('Temple Guard', Color(0xFFFFD000), 'solid'),
+    _ColorPreset('Cal Kestis', Color(0xFFFF8000), 'pulse'),
+    _ColorPreset('Sith Red', Color(0xFFFF0000), 'flicker'),
+    _ColorPreset('Darth Vader', Color(0xFFB00000), 'unstable'),
+    _ColorPreset('Kylo Ren', Color(0xFFFF2A2A), 'unstable'),
+    _ColorPreset('Darth Maul', Color(0xFFE00000), 'dual_pulse_simple'),
+    _ColorPreset('Darksaber', Color(0xFF1A1A1A), 'storm_lightning'),
+  ];
 
   @override
   void initState() {
@@ -52,7 +67,11 @@ class _ColorsTabState extends State<ColorsTab> {
   }
 
   /// Applica colore al LED con debounce
-  void _applyColorToLED(Color color, double brightness) {
+  void _applyColorToLED(
+    Color color,
+    double brightness, {
+    String? effectId,
+  }) {
     _debounceTimer?.cancel();
     _debounceTimer = Timer(const Duration(milliseconds: 50), () {
       final ledProvider = Provider.of<LedProvider>(context, listen: false);
@@ -66,6 +85,17 @@ class _ColorsTabState extends State<ColorsTab> {
       // Invia brightness (richiede brightness + enabled)
       final brightnessValue = (brightness * 255).round();
       ledProvider.setBrightness(brightnessValue, true);
+
+      if (effectId != null) {
+        final effectsList = ledProvider.effectsList;
+        final effectExists =
+            effectsList == null || effectsList.findById(effectId) != null;
+        if (effectExists) {
+          ledProvider.setEffect(effectId);
+        } else {
+          debugPrint('[ColorsTab] Effetto non trovato: $effectId');
+        }
+      }
     });
   }
 
@@ -186,16 +216,18 @@ class _ColorsTabState extends State<ColorsTab> {
         mainAxisSpacing: 8,
         childAspectRatio: 3.0, // Più alte per mostrare bene il testo
       ),
-      itemCount: starWarsPresets.length,
+      itemCount: saberPresets.length,
       itemBuilder: (context, index) {
-        final entry = starWarsPresets.entries.elementAt(index);
-        return _buildPresetCard(entry.key, entry.value);
+        final preset = saberPresets[index];
+        return _buildPresetCard(preset);
       },
     );
   }
 
   /// Card singolo preset - compatto
-  Widget _buildPresetCard(String name, Color color) {
+  Widget _buildPresetCard(_ColorPreset preset) {
+    final name = preset.name;
+    final color = preset.color;
     final isSelected = _selectedColor == color;
 
     return GestureDetector(
@@ -203,7 +235,11 @@ class _ColorsTabState extends State<ColorsTab> {
         setState(() {
           _selectedColor = color;
         });
-        _applyColorToLED(color, _brightness);
+        _applyColorToLED(
+          color,
+          _brightness,
+          effectId: preset.effectId,
+        );
       },
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
