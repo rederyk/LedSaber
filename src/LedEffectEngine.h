@@ -174,6 +174,7 @@ private:
      * @brief Set LED pair (for folded strip)
      */
     void setLedPair(uint16_t logicalIndex, uint16_t foldPoint, CRGB color);
+    void setLedPairDual(uint16_t logicalIndex, uint16_t foldPoint, CRGB colorA, CRGB colorB);
 
     /**
      * @brief Get hue from motion direction (for rainbow_effect)
@@ -187,6 +188,7 @@ private:
     void renderSolid(const LedState& state, const uint8_t perturbationGrid[OpticalFlowDetector::GRID_ROWS][OpticalFlowDetector::GRID_COLS]);
     void renderRainbow(const LedState& state, const uint8_t perturbationGrid[OpticalFlowDetector::GRID_ROWS][OpticalFlowDetector::GRID_COLS]);
     void renderBreathe(const LedState& state, const uint8_t perturbationGrid[OpticalFlowDetector::GRID_ROWS][OpticalFlowDetector::GRID_COLS]);
+    void renderSineMotion(const LedState& state, const uint8_t perturbationGrid[OpticalFlowDetector::GRID_ROWS][OpticalFlowDetector::GRID_COLS]);
     void renderFlicker(const LedState& state, const uint8_t perturbationGrid[OpticalFlowDetector::GRID_ROWS][OpticalFlowDetector::GRID_COLS]);
     void renderUnstable(const LedState& state, const uint8_t perturbationGrid[OpticalFlowDetector::GRID_ROWS][OpticalFlowDetector::GRID_COLS]);
     void renderPulse(const LedState& state, const uint8_t perturbationGrid[OpticalFlowDetector::GRID_ROWS][OpticalFlowDetector::GRID_COLS]);

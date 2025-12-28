@@ -112,27 +112,102 @@ class LedService {
     }
 
     try {
-      debugPrint('[LedService] Lettura characteristic Effects List...');
-      final value = await _effectsListChar!.read();
-      debugPrint('[LedService] Ricevuti ${value.length} byte dalla characteristic');
+      await _setEffectsListPage(0);
 
-      if (value.isEmpty) {
-        debugPrint('[LedService] WARNING: Valore vuoto dalla characteristic');
+      debugPrint('[LedService] Lettura characteristic Effects List (page 0)...');
+      final firstPage = await _readEffectsListPage();
+      if (firstPage == null) {
         return null;
       }
 
-      final decodedString = utf8.decode(value);
-      debugPrint('[LedService] JSON ricevuto: ${decodedString.substring(0, min(100, decodedString.length))}...');
+      final allEffects = <Effect>[...firstPage.effects];
+      bool hasMore = firstPage.more;
+      int page = 1;
 
-      final json = jsonDecode(decodedString);
-      final effectsList = EffectsList.fromJson(json);
-      debugPrint('[LedService] Parsificati ${effectsList.effects.length} effetti dalla lista');
+      while (hasMore) {
+        await _setEffectsListPage(page);
+        debugPrint('[LedService] Lettura characteristic Effects List (page $page)...');
+        final nextPage = await _readEffectsListPage();
+        if (nextPage == null) {
+          break;
+        }
+        allEffects.addAll(nextPage.effects);
+        hasMore = nextPage.more;
+        page++;
+      }
 
-      return effectsList;
+      debugPrint('[LedService] Parsificati ${allEffects.length} effetti dalla lista');
+      return EffectsList(version: firstPage.version, effects: allEffects);
     } catch (e) {
       debugPrint('[LedService] ERROR durante lettura lista effetti: $e');
       throw Exception('Errore leggendo lista effetti: $e');
     }
+  }
+
+  Future<void> _setEffectsListPage(int page) async {
+    if (_deviceControlChar == null) {
+      return;
+    }
+
+    try {
+      final json = jsonEncode({'command': 'effects_list_page', 'page': page});
+      await _deviceControlChar!.write(
+        utf8.encode(json),
+        withoutResponse: false,
+      );
+    } catch (e) {
+      debugPrint('[LedService] WARNING: set page failed: $e');
+    }
+  }
+
+  Future<_EffectsListPage?> _readEffectsListPage() async {
+    if (_effectsListChar == null) {
+      return null;
+    }
+
+    final value = await _effectsListChar!.read();
+    debugPrint('[LedService] Ricevuti ${value.length} byte dalla characteristic');
+
+    if (value.isEmpty) {
+      debugPrint('[LedService] WARNING: Valore vuoto dalla characteristic');
+      return null;
+    }
+
+    final decodedString = utf8.decode(value);
+    debugPrint('[LedService] JSON ricevuto: ${decodedString.substring(0, min(100, decodedString.length))}...');
+
+    Map<String, dynamic> json;
+    try {
+      json = jsonDecode(decodedString);
+    } on FormatException {
+      final repaired = _repairTruncatedEffectsJson(decodedString);
+      if (repaired == null) {
+        rethrow;
+      }
+      debugPrint('[LedService] JSON riparato dopo truncation');
+      json = jsonDecode(repaired);
+    }
+    final effectsList = EffectsList.fromJson(json);
+    final bool more = (json['more'] ?? json['m'] ?? false) as bool;
+
+    return _EffectsListPage(version: effectsList.version, effects: effectsList.effects, more: more);
+  }
+
+  String? _repairTruncatedEffectsJson(String raw) {
+    final int lastObjectEnd = raw.lastIndexOf('}');
+    if (lastObjectEnd == -1) {
+      return null;
+    }
+    String trimmed = raw.substring(0, lastObjectEnd + 1);
+    if (!trimmed.contains('[')) {
+      return null;
+    }
+    if (!trimmed.contains(']')) {
+      trimmed = '$trimmed]}';
+    } else if (!trimmed.trim().endsWith('}')) {
+      trimmed = '$trimmed}';
+    }
+    return trimmed;
   }
 
   /// Imposta il colore RGB
@@ -309,4 +384,16 @@ class LedService {
     _stateSubscription?.cancel();
     _ledStateController.close();
   }
+}
+
+class _EffectsListPage {
+  final String version;
+  final List<Effect> effects;
+  final bool more;
+
+  _EffectsListPage({
+    required this.version,
+    required this.effects,
+    required this.more,
+  });
 }

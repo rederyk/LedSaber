@@ -200,6 +200,8 @@ void LedEffectEngine::render(const LedState& state, const MotionProcessor::Proce
                 renderRainbow(state, motion ? motion->perturbationGrid : nullptr);
             } else if (state.effect == "breathe") {
                 renderBreathe(state, motion ? motion->perturbationGrid : nullptr);
+            } else if (state.effect == "sine_motion") {
+                renderSineMotion(state, motion ? motion->perturbationGrid : nullptr);
             } else if (state.effect == "flicker") {
                 renderFlicker(state, motion ? motion->perturbationGrid : nullptr);
             } else if (state.effect == "unstable") {
@@ -284,6 +286,18 @@ void LedEffectEngine::setLedPair(uint16_t logicalIndex, uint16_t foldPoint, CRGB
     _leds[led2] = color;
 }
 
+void LedEffectEngine::setLedPairDual(uint16_t logicalIndex, uint16_t foldPoint, CRGB colorA, CRGB colorB) {
+    if (logicalIndex >= foldPoint) {
+        return;
+    }
+
+    uint16_t led1 = logicalIndex;
+    uint16_t led2 = (_numLeds - 1) - logicalIndex;
+
+    _leds[led1] = colorA;
+    _leds[led2] = colorB;
+}
+
 void LedEffectEngine::renderBaseEffect(const LedState& state, const MotionProcessor::ProcessedMotion* motion, const String& effectName) {
     const uint8_t (*perturbationGrid)[GRID_COLS] = motion ? motion->perturbationGrid : nullptr;
 
@@ -293,6 +307,8 @@ void LedEffectEngine::renderBaseEffect(const LedState& state, const MotionProces
         renderRainbow(state, perturbationGrid);
     } else if (effectName == "breathe") {
         renderBreathe(state, perturbationGrid);
+    } else if (effectName == "sine_motion") {
+        renderSineMotion(state, perturbationGrid);
     } else if (effectName == "flicker") {
         renderFlicker(state, perturbationGrid);
     } else if (effectName == "unstable") {
@@ -439,14 +455,30 @@ void LedEffectEngine::renderRainbow(const LedState& state, const uint8_t perturb
 void LedEffectEngine::renderBreathe(const LedState& state, const uint8_t perturbationGrid[GRID_ROWS][GRID_COLS]) {
     // Subtle breathe: reduce depth so the effect is less pronounced
     const uint8_t breathDepth = 140;  // 0-255, lower = subtler
+    const uint8_t stripeLowScale = 150;  // Alternating brightness between lines
     uint8_t breath = beatsin8(state.speed, 0, breathDepth);
     uint8_t breathBase = 255 - breathDepth;
     uint8_t effectiveBreath = qadd8(breath, breathBase);
     uint8_t safeBrightness = min(state.brightness, MAX_SAFE_BRIGHTNESS);
+    bool flipPhase = (beat8(state.speed) & 0x80) != 0;
 
     if (perturbationGrid == nullptr) {
         // No motion: classic breathe
-        fill_solid(_leds, _numLeds, CRGB(state.r, state.g, state.b));
+        CRGB baseColor = CRGB(state.r, state.g, state.b);
+
+        for (uint16_t i = 0; i < state.foldPoint; i++) {
+            bool stripe = ((i + (flipPhase ? 1 : 0)) & 0x01) == 0;
+            CRGB hi = baseColor;
+            CRGB lo = baseColor;
+            lo.nscale8_video(stripeLowScale);
+
+            if (stripe) {
+                setLedPairDual(i, state.foldPoint, hi, lo);
+            } else {
+                setLedPairDual(i, state.foldPoint, lo, hi);
+            }
+        }
+
         _breathOverride = scale8(effectiveBreath, safeBrightness);
     } else {
         // MOTION BREATHING: movement adds local breath variations
@@ -473,10 +505,56 @@ void LedEffectEngine::renderBreathe(const LedState& state, const uint8_t perturb
             CRGB breathColor = baseColor;
             breathColor.fadeToBlackBy(255 - localBreath);
 
-            setLedPair(i, state.foldPoint, breathColor);
+            bool stripe = ((i + (flipPhase ? 1 : 0)) & 0x01) == 0;
+            CRGB hi = breathColor;
+            CRGB lo = breathColor;
+            lo.nscale8_video(stripeLowScale);
+
+            if (stripe) {
+                setLedPairDual(i, state.foldPoint, hi, lo);
+            } else {
+                setLedPairDual(i, state.foldPoint, lo, hi);
+            }
         }
 
         _breathOverride = scale8(effectiveBreath, safeBrightness);
+    }
+}
+
+void LedEffectEngine::renderSineMotion(const LedState& state, const uint8_t perturbationGrid[GRID_ROWS][GRID_COLS]) {
+    const uint16_t foldPoint = state.foldPoint;
+    if (foldPoint == 0) {
+        return;
+    }
+
+    CRGB baseColor = CRGB(state.r, state.g, state.b);
+    uint8_t baseFreq = map(state.speed, 1, 255, 1, 6);
+    uint8_t timePhase = (millis() / 8) & 0xFF;
+
+    for (uint16_t i = 0; i < foldPoint; i++) {
+        uint8_t col = 0;
+        if (foldPoint > 1) {
+            col = map(i, 0, foldPoint - 1, 0, GRID_COLS - 1);
+        }
+
+        uint8_t avgPerturbation = 0;
+        if (perturbationGrid != nullptr) {
+            uint16_t perturbSum = 0;
+            for (uint8_t row = 2; row <= 4; row++) {
+                perturbSum += perturbationGrid[row][col];
+            }
+            avgPerturbation = perturbSum / 3;
+        }
+
+        uint8_t freqBoost = map(avgPerturbation, 0, 255, 0, 6);
+        uint8_t freq = baseFreq + freqBoost;
+        uint16_t phase = (uint16_t)(i * freq * 8) + timePhase;
+        uint8_t wave = sin8((uint8_t)phase);
+        uint8_t brightness = map(wave, 0, 255, 60, 255);
+
+        CRGB color = baseColor;
+        color.nscale8_video(brightness);
+        setLedPair(i, foldPoint, color);
     }
 }
 

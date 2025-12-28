@@ -304,6 +304,10 @@ public:
                     delay(500);
                     esp_deep_sleep_start();
                 }
+            } else if (command == "effects_list_page") {
+                uint8_t page = doc["page"] | 0;
+                controller->effectsListPage = min<uint8_t>(page, 1);
+                Serial.printf("[BLE] Effects list page set to %u\n", controller->effectsListPage);
             } else {
                 Serial.printf("[BLE ERROR] Unknown device control command: %s\n", command.c_str());
             }
@@ -321,10 +325,13 @@ public:
 
     void onRead(BLECharacteristic *pChar) override {
         // JSON ultra-compatto per rimanere sotto MTU 512 byte
-        const char* effectsList = R"({"v":"1.0","fx":[{"i":"solid","n":"Solid"},{"i":"rainbow","n":"Rainbow"},{"i":"pulse","n":"Pulse"},{"i":"breathe","n":"Breathe"},{"i":"flicker","n":"Flicker"},{"i":"unstable","n":"Unstable"},{"i":"dual_pulse","n":"Dual"},{"i":"dual_pulse_simple","n":"Dual2"},{"i":"rainbow_blade","n":"RBlade"},{"i":"rainbow_effect","n":"REffect"},{"i":"storm_lightning","n":"Storm"},{"i":"chrono_hybrid","n":"Clock"},{"i":"ignition","n":"Ignite"},{"i":"retraction","n":"Retract"},{"i":"clash","n":"Clash"}]})";
+        const char* effectsListPage0 = R"({"v":"1.0","p":0,"more":true,"fx":[{"i":"solid","n":"Solid"},{"i":"rainbow","n":"Rainbow"},{"i":"pulse","n":"Pulse"},{"i":"breathe","n":"Breathe"},{"i":"sine_motion","n":"Sine"},{"i":"flicker","n":"Flicker"},{"i":"unstable","n":"Unstable"},{"i":"dual_pulse","n":"Dual"},{"i":"dual_pulse_simple","n":"Dual2"}]})";
+        const char* effectsListPage1 = R"({"v":"1.0","p":1,"more":false,"fx":[{"i":"rainbow_blade","n":"RBlade"},{"i":"rainbow_effect","n":"REffect"},{"i":"storm_lightning","n":"Storm"},{"i":"chrono_hybrid","n":"Clock"},{"i":"ignition","n":"Ignite"},{"i":"retraction","n":"Retract"},{"i":"clash","n":"Clash"}]})";
 
+        const char* effectsList = (controller->effectsListPage == 0) ? effectsListPage0 : effectsListPage1;
         pChar->setValue(effectsList);
-        Serial.printf("[BLE] Effects list sent (%d bytes)\n", strlen(effectsList));
+        Serial.printf("[BLE] Effects list sent page=%u (%d bytes)\n",
+            controller->effectsListPage, strlen(effectsList));
     }
 };
 
@@ -347,6 +354,7 @@ BLELedController::BLELedController(LedState* state) {
     lastNotifiedBladeState = "";
     lastNotifyMs = 0;
     hasNotified = false;
+    effectsListPage = 0;
 }
 
 // Inizializzazione BLE

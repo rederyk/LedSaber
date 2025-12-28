@@ -76,6 +76,7 @@ private:
     String lastNotifiedBladeState;
     unsigned long lastNotifyMs;
     bool hasNotified;
+    uint8_t effectsListPage;
 
     String getBladeState() const;
     void sendState(const String& bladeState, unsigned long nowMs);
