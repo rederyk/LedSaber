@@ -5,6 +5,13 @@ import '../models/led_state.dart';
 import '../models/effect.dart';
 import '../services/led_service.dart';
 
+/// Modalità del color picker sulla lama
+enum BladeColorPickerMode {
+  saturation, // Variazione saturazione/luminosità
+  hue, // Colori vicini nell'arcobaleno
+  brightness, // Solo variazione di luminosità
+}
+
 /// Provider per gestire lo stato dei LED
 class LedProvider extends ChangeNotifier {
   LedService? _ledService;
@@ -23,6 +30,7 @@ class LedProvider extends ChangeNotifier {
 
   /// Modalità color picker avanzata sulla lama
   bool _isPreviewMode = false;
+  BladeColorPickerMode _pickerMode = BladeColorPickerMode.saturation;
 
   // Getters
   LedState? get currentState => _currentState;
@@ -34,8 +42,9 @@ class LedProvider extends ChangeNotifier {
       _currentState?.bladeState == 'igniting' ||
       _currentState?.bladeState == 'retracting';
 
-  // Getter per modalità preview color picker
+  // Getters per modalità preview color picker
   bool get isPreviewMode => _isPreviewMode;
+  BladeColorPickerMode get pickerMode => _pickerMode;
 
   /// Imposta il LED Service e inizia ad ascoltare lo stato
   void setLedService(LedService? service) {
@@ -279,9 +288,26 @@ class LedProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Cambia la modalità del color picker
+  void cyclePickerMode() {
+    switch (_pickerMode) {
+      case BladeColorPickerMode.saturation:
+        _pickerMode = BladeColorPickerMode.hue;
+        break;
+      case BladeColorPickerMode.hue:
+        _pickerMode = BladeColorPickerMode.brightness;
+        break;
+      case BladeColorPickerMode.brightness:
+        _pickerMode = BladeColorPickerMode.saturation;
+        break;
+    }
+    notifyListeners();
+  }
+
   /// Resetta la modalità preview
   void clearPreview() {
     _isPreviewMode = false;
+    _pickerMode = BladeColorPickerMode.saturation;
     notifyListeners();
   }
 

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'dart:ui' as ui;
+import '../providers/led_provider.dart';
 
 /// CustomPainter per renderizzare la spada laser
 /// Disegna: lama con glow triplo, elsa metallica, decorazioni
@@ -11,6 +12,7 @@ class LightsaberPainter extends CustomPainter {
   final String bladeState;
   final bool isConnected;
   final bool isPreviewMode; // Modalità color picker
+  final BladeColorPickerMode pickerMode; // Modalità del color picker
   final Color? baseColorForGradient; // Colore base per generare sfumature
 
   LightsaberPainter({
@@ -21,6 +23,7 @@ class LightsaberPainter extends CustomPainter {
     required this.bladeState,
     required this.isConnected,
     this.isPreviewMode = false,
+    this.pickerMode = BladeColorPickerMode.saturation,
     this.baseColorForGradient,
   });
 
@@ -56,6 +59,11 @@ class LightsaberPainter extends CustomPainter {
 
     // 3. Disegna decorazioni elsa
     _drawHiltDecorations(canvas, centerX, hiltTop, hiltBottom);
+
+    // 4. Disegna indicatore modalità (se in preview mode)
+    if (isPreviewMode) {
+      _drawModeIndicator(canvas, centerX, hiltTop);
+    }
   }
 
   /// Disegna la lama con glow effect triplo
@@ -165,7 +173,7 @@ class LightsaberPainter extends CustomPainter {
     if (isPreviewMode && baseColorForGradient != null) {
       final hsvColor = HSVColor.fromColor(baseColorForGradient!);
 
-      // Crea un gradiente con variazioni di saturazione e valore
+      // Crea un gradiente con variazioni basate sulla modalità
       final colors = <Color>[];
       final stops = <double>[];
 
@@ -174,24 +182,50 @@ class LightsaberPainter extends CustomPainter {
         final t = i / 10.0;
         stops.add(t);
 
-        // Varia saturazione e valore per creare sfumature interessanti
-        // In alto: più chiari (valore alto)
-        // Al centro: saturazione massima
-        // In basso: più scuri (valore basso)
-        double saturation;
-        double value;
+        Color colorAtPosition;
 
-        if (t < 0.5) {
-          // Prima metà: da chiaro a saturato
-          saturation = 0.3 + (t * 2) * 0.7;
-          value = 1.0 - (t * 2) * 0.3;
-        } else {
-          // Seconda metà: da saturato a scuro
-          saturation = 1.0 - ((t - 0.5) * 2) * 0.3;
-          value = 0.7 - ((t - 0.5) * 2) * 0.5;
+        switch (pickerMode) {
+          case BladeColorPickerMode.saturation:
+            // Alto (t=0): Bianco (saturazione = 0)
+            // Basso (t=1): Colore saturo (saturazione = 1.0)
+            final saturation = t;
+
+            colorAtPosition = HSVColor.fromAHSV(
+              1.0,
+              hsvColor.hue,
+              saturation,
+              1.0, // Massima luminosità
+            ).toColor();
+            break;
+
+          case BladeColorPickerMode.hue:
+            // Colori vicini: -30° a +30°
+            final hueShift = (t - 0.5) * 60.0;
+            final newHue = (hsvColor.hue + hueShift) % 360.0;
+
+            colorAtPosition = HSVColor.fromAHSV(
+              1.0,
+              newHue,
+              hsvColor.saturation,
+              hsvColor.value,
+            ).toColor();
+            break;
+
+          case BladeColorPickerMode.brightness:
+            // Alto (t=0): Massima luminosità
+            // Basso (t=1): Minima luminosità
+            final value = 1.0 - t;
+
+            colorAtPosition = HSVColor.fromAHSV(
+              1.0,
+              hsvColor.hue,
+              1.0, // Saturazione massima
+              value,
+            ).toColor();
+            break;
         }
 
-        colors.add(hsvColor.withSaturation(saturation).withValue(value).toColor());
+        colors.add(colorAtPosition);
       }
 
       gradient = ui.Gradient.linear(
@@ -371,6 +405,82 @@ class LightsaberPainter extends CustomPainter {
     );
   }
 
+  /// Disegna indicatore modalità color picker
+  void _drawModeIndicator(Canvas canvas, double centerX, double hiltTop) {
+    // Determina il testo della modalità
+    String modeText;
+    Color modeColor;
+
+    switch (pickerMode) {
+      case BladeColorPickerMode.saturation:
+        modeText = 'SAT';
+        modeColor = const Color(0xFF00BFFF); // Azzurro
+        break;
+      case BladeColorPickerMode.hue:
+        modeText = 'HUE';
+        modeColor = const Color(0xFFFF6B35); // Arancione
+        break;
+      case BladeColorPickerMode.brightness:
+        modeText = 'BRI';
+        modeColor = const Color(0xFFFFD700); // Oro
+        break;
+    }
+
+    // Background badge
+    final badgeRect = RRect.fromRectAndRadius(
+      Rect.fromCenter(
+        center: Offset(centerX, hiltTop + 30),
+        width: 50,
+        height: 20,
+      ),
+      const Radius.circular(10),
+    );
+
+    // Disegna background con glow
+    final glowPaint = Paint()
+      ..color = modeColor.withValues(alpha: 0.3)
+      ..maskFilter = const ui.MaskFilter.blur(ui.BlurStyle.normal, 4);
+    canvas.drawRRect(badgeRect, glowPaint);
+
+    final bgPaint = Paint()
+      ..color = const Color(0xFF1A1A1A)
+      ..style = PaintingStyle.fill;
+    canvas.drawRRect(badgeRect, bgPaint);
+
+    // Bordo colorato
+    final borderPaint = Paint()
+      ..color = modeColor
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2;
+    canvas.drawRRect(badgeRect, borderPaint);
+
+    // Testo
+    final textSpan = TextSpan(
+      text: modeText,
+      style: TextStyle(
+        color: modeColor,
+        fontSize: 10,
+        fontWeight: FontWeight.bold,
+        fontFamily: 'monospace',
+      ),
+    );
+
+    final textPainter = TextPainter(
+      text: textSpan,
+      textAlign: TextAlign.center,
+      textDirection: TextDirection.ltr,
+    );
+
+    textPainter.layout();
+    textPainter.paint(
+      canvas,
+      Offset(
+        centerX - textPainter.width / 2,
+        hiltTop + 30 - textPainter.height / 2,
+      ),
+    );
+  }
+
   @override
   bool shouldRepaint(LightsaberPainter oldDelegate) {
     return oldDelegate.bladeColor != bladeColor ||
@@ -378,6 +488,8 @@ class LightsaberPainter extends CustomPainter {
         oldDelegate.bladeHeightFactor != bladeHeightFactor ||
         oldDelegate.pulseOpacity != pulseOpacity ||
         oldDelegate.bladeState != bladeState ||
-        oldDelegate.isConnected != isConnected;
+        oldDelegate.isConnected != isConnected ||
+        oldDelegate.isPreviewMode != isPreviewMode ||
+        oldDelegate.pickerMode != pickerMode;
   }
 }

@@ -237,8 +237,9 @@ class _ControlScreenState extends State<ControlScreen> with SingleTickerProvider
     final bladeState = state.bladeState;
     final currentEffect = state.effect;
 
-    // Ottieni modalità preview dal provider
+    // Ottieni modalità preview e picker mode dal provider
     final isPreviewMode = ledProvider.isPreviewMode;
+    final pickerMode = ledProvider.pickerMode;
 
     return Center(
       child: LightsaberWidget(
@@ -249,6 +250,7 @@ class _ControlScreenState extends State<ControlScreen> with SingleTickerProvider
         maxHeight: maxHeight,
         isConnected: bleProvider.isConnected,
         isPreviewMode: isPreviewMode,
+        pickerMode: pickerMode,
         onPowerTap: () {
           if (bladeState == 'igniting' || bladeState == 'retracting') {
             return;
@@ -268,30 +270,69 @@ class _ControlScreenState extends State<ControlScreen> with SingleTickerProvider
             ledProvider.setPreviewColor(bladeColor, isPreviewMode: true);
           }
         },
+        onBladeDoubleTap: () {
+          // Cambia modalità del color picker se è attiva la preview
+          if (isPreviewMode) {
+            ledProvider.cyclePickerMode();
+          }
+        },
         onBladePan: (double relativeY) {
           if (!isPreviewMode) return;
 
-          // Converti posizione relativa (0.0-1.0) in sfumatura del colore
-          // 0.0 = alto (chiaro), 1.0 = basso (scuro)
+          // La lama occupa il 70% dello spazio (vedi lightsaber_painter.dart)
+          // L'elsa occupa il resto in basso
+          // Mappiamo solo la parte visibile della lama (0-70% dello schermo)
+          // relativeY va da 0.0 (alto schermo) a 1.0 (basso schermo)
+
+          // Remap: considera solo i primi 70% come area utile della lama
+          final bladeAreaRatio = 0.7; // Lama = 70% dello spazio
+          final mappedY = (relativeY / bladeAreaRatio).clamp(0.0, 1.0);
+
           final hsvColor = HSVColor.fromColor(bladeColor);
+          final pickerMode = ledProvider.pickerMode;
 
-          double saturation;
-          double value;
+          Color selectedColor;
 
-          if (relativeY < 0.5) {
-            // Prima metà: da chiaro a saturato
-            saturation = 0.3 + (relativeY * 2) * 0.7;
-            value = 1.0 - (relativeY * 2) * 0.3;
-          } else {
-            // Seconda metà: da saturato a scuro
-            saturation = 1.0 - ((relativeY - 0.5) * 2) * 0.3;
-            value = 0.7 - ((relativeY - 0.5) * 2) * 0.5;
+          switch (pickerMode) {
+            case BladeColorPickerMode.saturation:
+              // Alto (0.0): Bianco (saturazione = 0)
+              // Basso (1.0): Colore saturo (saturazione = 1.0)
+              final saturation = mappedY;
+
+              selectedColor = HSVColor.fromAHSV(
+                1.0,
+                hsvColor.hue,
+                saturation,
+                1.0, // Massima luminosità
+              ).toColor();
+              break;
+
+            case BladeColorPickerMode.hue:
+              // Colori vicini: -30° a +30°
+              final hueShift = (mappedY - 0.5) * 60.0;
+              final newHue = (hsvColor.hue + hueShift) % 360.0;
+
+              selectedColor = HSVColor.fromAHSV(
+                1.0,
+                newHue,
+                hsvColor.saturation,
+                hsvColor.value,
+              ).toColor();
+              break;
+
+            case BladeColorPickerMode.brightness:
+              // Alto (0.0): Massima luminosità
+              // Basso (1.0): Minima luminosità
+              final value = 1.0 - mappedY;
+
+              selectedColor = HSVColor.fromAHSV(
+                1.0,
+                hsvColor.hue,
+                1.0, // Saturazione massima
+                value,
+              ).toColor();
+              break;
           }
-
-          final selectedColor = hsvColor
-              .withSaturation(saturation.clamp(0.0, 1.0))
-              .withValue(value.clamp(0.0, 1.0))
-              .toColor();
 
           // Applica il colore selezionato
           final r = (selectedColor.r * 255.0).round().clamp(0, 255);

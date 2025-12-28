@@ -61,6 +61,30 @@ class _ColorsTabState extends State<ColorsTab> {
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Sincronizza color picker con lo stato LED quando cambia
+    final ledProvider = Provider.of<LedProvider>(context);
+    final state = ledProvider.currentState;
+    if (state != null) {
+      final currentLedColor = Color.fromRGBO(state.r, state.g, state.b, 1.0);
+      final currentBrightness = state.brightness / 255.0;
+
+      // Aggiorna solo se diverso (evita loop infiniti)
+      if (_selectedColor != currentLedColor || (_brightness - currentBrightness).abs() > 0.01) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) {
+            setState(() {
+              _selectedColor = currentLedColor;
+              _brightness = currentBrightness;
+            });
+          }
+        });
+      }
+    }
+  }
+
+  @override
   void dispose() {
     _debounceTimer?.cancel();
     super.dispose();

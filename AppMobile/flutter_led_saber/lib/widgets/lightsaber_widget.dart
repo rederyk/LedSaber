@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'lightsaber_painter.dart';
+import '../providers/led_provider.dart';
 
 /// Widget custom della spada laser
 /// Renderizza elsa, lama con glow effect triplo, power button e animazioni
@@ -22,6 +23,9 @@ class LightsaberWidget extends StatefulWidget {
   /// Callback quando si tocca sulla lama
   final VoidCallback? onBladeTap;
 
+  /// Callback quando si fa double tap sulla lama
+  final VoidCallback? onBladeDoubleTap;
+
   /// Callback quando si fa pan sulla lama (con posizione verticale 0.0-1.0)
   final Function(double)? onBladePan;
 
@@ -34,6 +38,9 @@ class LightsaberWidget extends StatefulWidget {
   /// Se è attiva la modalità preview
   final bool isPreviewMode;
 
+  /// Modalità del color picker
+  final BladeColorPickerMode pickerMode;
+
   const LightsaberWidget({
     super.key,
     required this.bladeColor,
@@ -42,10 +49,12 @@ class LightsaberWidget extends StatefulWidget {
     required this.currentEffect,
     this.onPowerTap,
     this.onBladeTap,
+    this.onBladeDoubleTap,
     this.onBladePan,
     required this.maxHeight,
     this.isConnected = false,
     this.isPreviewMode = false,
+    this.pickerMode = BladeColorPickerMode.saturation,
   });
 
   @override
@@ -173,6 +182,25 @@ class _LightsaberWidgetState extends State<LightsaberWidget>
     super.dispose();
   }
 
+  /// Verifica se il tap è sulla lama
+  bool _isTapOnBlade(Offset localPosition, Size widgetSize) {
+    final centerX = widgetSize.width / 2;
+    final hiltHeight = 150.0;
+    final hiltBottom = widgetSize.height;
+    final hiltTop = hiltBottom - hiltHeight;
+    final bladeMaxHeight = widgetSize.height * 0.7;
+    final bladeCurrentHeight = bladeMaxHeight * _bladeHeightAnimation.value;
+    final bladeBottom = hiltTop;
+    final bladeTop = bladeBottom - bladeCurrentHeight;
+    final bladeWidth = 80.0; // Include glow esterno
+
+    // Controlla se il punto è nella regione della lama
+    final isInBladeX = (localPosition.dx - centerX).abs() <= bladeWidth / 2;
+    final isInBladeY = localPosition.dy >= bladeTop && localPosition.dy <= bladeBottom;
+
+    return isInBladeX && isInBladeY && _bladeHeightAnimation.value > 0.01;
+  }
+
   @override
   Widget build(BuildContext context) {
     return RepaintBoundary(
@@ -182,7 +210,41 @@ class _LightsaberWidgetState extends State<LightsaberWidget>
           // Spada (lama + elsa + power button)
           Expanded(
             child: GestureDetector(
-              onTap: widget.onBladeTap,
+              onTapUp: (details) {
+                final RenderBox box = context.findRenderObject() as RenderBox;
+                final localPosition = box.globalToLocal(details.globalPosition);
+                final isBlade = _isTapOnBlade(localPosition, box.size);
+
+                if (isBlade) {
+                  if (widget.isPreviewMode) {
+                    // Tap sulla lama con picker attivo: seleziona colore in quel punto
+                    if (widget.onBladePan != null) {
+                      final relativeY = (localPosition.dy / box.size.height).clamp(0.0, 1.0);
+                      widget.onBladePan!(relativeY);
+                    }
+                  } else {
+                    // Tap sulla lama con picker non attivo: attiva il picker
+                    if (widget.onBladeTap != null) {
+                      widget.onBladeTap!();
+                    }
+                  }
+                } else {
+                  // Tap fuori dalla lama: disattiva color picker se attivo
+                  if (widget.isPreviewMode && widget.onBladeTap != null) {
+                    widget.onBladeTap!();
+                  }
+                }
+              },
+              onDoubleTapDown: (details) {
+                final RenderBox box = context.findRenderObject() as RenderBox;
+                final localPosition = box.globalToLocal(details.globalPosition);
+                final isBlade = _isTapOnBlade(localPosition, box.size);
+
+                // Double tap solo sulla lama per cambiare modalità
+                if (isBlade && widget.onBladeDoubleTap != null) {
+                  widget.onBladeDoubleTap!();
+                }
+              },
               onPanUpdate: (details) {
                 if (widget.onBladePan != null && widget.isPreviewMode) {
                   // Calcola posizione verticale relativa (0.0 in alto, 1.0 in basso)
@@ -207,6 +269,7 @@ class _LightsaberWidgetState extends State<LightsaberWidget>
                       bladeState: widget.bladeState,
                       isConnected: widget.isConnected,
                       isPreviewMode: widget.isPreviewMode,
+                      pickerMode: widget.pickerMode,
                       baseColorForGradient: widget.isPreviewMode ? widget.bladeColor : null,
                     ),
                     size: Size(
