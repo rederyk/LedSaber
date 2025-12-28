@@ -106,6 +106,11 @@ public:
      */
     void setAlgorithm(Algorithm algo) { _algorithm = algo; }
 
+    /**
+     * @brief Ottieni l'algoritmo corrente
+     */
+    Algorithm getAlgorithm() const { return _algorithm; }
+
     // ═══════════════════════════════════════════════════════════
     // OPTICAL FLOW SPECIFIC API (nuove features)
     // ═══════════════════════════════════════════════════════════

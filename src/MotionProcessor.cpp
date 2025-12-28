@@ -45,9 +45,16 @@ MotionProcessor::ProcessedMotion MotionProcessor::process(
     result.gestureConfidence = 0;
     result.effectRequest[0] = '\0';
 
-    // Calculate perturbation grid
+    // Calculate perturbation grid based on algorithm
     if (_config.perturbationEnabled) {
-        _calculatePerturbationGrid(detector, result.perturbationGrid);
+        // Use different perturbation calculation based on motion algorithm
+        if (detector.getAlgorithm() == OpticalFlowDetector::Algorithm::CENTROID_TRACKING) {
+            // Centroid mode: create radial gradient from centroid position
+            _calculatePerturbationFromCentroid(detector, result.perturbationGrid);
+        } else {
+            // Optical flow mode: use motion vectors for local perturbations
+            _calculatePerturbationGrid(detector, result.perturbationGrid);
+        }
     } else {
         memset(result.perturbationGrid, 0, sizeof(result.perturbationGrid));
     }
@@ -333,6 +340,72 @@ void MotionProcessor::_calculatePerturbationGrid(
                 }
             } else {
                 perturbationGrid[row][col] = 0;
+            }
+        }
+    }
+}
+
+void MotionProcessor::_calculatePerturbationFromCentroid(
+    const OpticalFlowDetector& detector,
+    uint8_t perturbationGrid[OpticalFlowDetector::GRID_ROWS][OpticalFlowDetector::GRID_COLS])
+{
+    // Reset grid to zero first
+    memset(perturbationGrid, 0, sizeof(uint8_t) * OpticalFlowDetector::GRID_ROWS * OpticalFlowDetector::GRID_COLS);
+
+    // Get centroid normalized position (0.0-1.0)
+    float cx, cy;
+    if (!detector.getCentroidNormalized(&cx, &cy)) {
+        // No valid centroid: no perturbation
+        return;
+    }
+
+    // Get motion intensity to scale the perturbation
+    uint8_t motionIntensity = detector.getMotionIntensity();
+    if (motionIntensity < 5) {
+        // Motion too weak: no perturbation
+        return;
+    }
+
+    // Map centroid to grid coordinates (floating point for precision)
+    const float centroidCol = cx * (OpticalFlowDetector::GRID_COLS - 1);
+    const float centroidRow = cy * (OpticalFlowDetector::GRID_ROWS - 1);
+
+    // Apply perturbation scale from config
+    const float scaleNorm = _config.perturbationScale / 255.0f;
+
+    // Create radial gradient centered on centroid
+    // The perturbation is stronger at the centroid and fades with distance
+    const float radiusInfluence = 4.0f;  // Grid cells of influence (tunable)
+
+    for (uint8_t row = 0; row < OpticalFlowDetector::GRID_ROWS; row++) {
+        for (uint8_t col = 0; col < OpticalFlowDetector::GRID_COLS; col++) {
+            // Calculate distance from centroid to this cell
+            float dx = (float)col - centroidCol;
+            float dy = (float)row - centroidRow;
+            float distance = sqrtf(dx * dx + dy * dy);
+
+            // Calculate falloff: 1.0 at center, 0.0 at radiusInfluence distance
+            float falloff = 1.0f - (distance / radiusInfluence);
+            if (falloff < 0.0f) falloff = 0.0f;
+
+            // Apply quadratic falloff for smoother gradient (x^2)
+            falloff = falloff * falloff;
+
+            // Scale by motion intensity and config scale
+            float value = falloff * motionIntensity * scaleNorm;
+
+            // Clamp to 0-255
+            if (value > 255.0f) value = 255.0f;
+
+            perturbationGrid[row][col] = (uint8_t)value;
+
+            // Debug logging (periodic)
+            if (_config.debugLogsEnabled && value > 10.0f) {
+                static uint32_t debugCounter = 0;
+                if ((debugCounter++ % 50) == 0) {
+                    Serial.printf("[PERTURB_CENTROID] cx=%.2f cy=%.2f -> [%d,%d] dist=%.1f falloff=%.2f value=%d\n",
+                                 centroidCol, centroidRow, row, col, distance, falloff, (uint8_t)value);
+                }
             }
         }
     }

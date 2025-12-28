@@ -145,6 +145,13 @@ private:
                                     uint8_t perturbationGrid[OpticalFlowDetector::GRID_ROWS][OpticalFlowDetector::GRID_COLS]);
 
     /**
+     * @brief Calculate perturbation grid from centroid position (for CENTROID_TRACKING mode)
+     * Creates a radial gradient centered on centroid position
+     */
+    void _calculatePerturbationFromCentroid(const OpticalFlowDetector& detector,
+                                            uint8_t perturbationGrid[OpticalFlowDetector::GRID_ROWS][OpticalFlowDetector::GRID_COLS]);
+
+    /**
      * @brief Check if direction is sustained
      */
     bool _isSustainedDirection(OpticalFlowDetector::Direction direction,
