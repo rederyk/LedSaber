@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_colorpicker/flutter_colorpicker.dart';
 import 'package:provider/provider.dart';
 import '../../providers/led_provider.dart';
+import '../../models/color_preset.dart';
+import '../../services/preset_storage_service.dart';
 import 'dart:async';
 
 class _ColorPreset {
@@ -24,6 +26,7 @@ class _ColorsTabState extends State<ColorsTab> {
   Color _selectedColor = Colors.red;
   double _brightness = 1.0;
   Timer? _debounceTimer;
+  List<ColorPreset> _customPresets = [];
 
   // Preset colori + effetto (ID effetti come da BLE list)
   static const List<_ColorPreset> saberPresets = [
@@ -47,6 +50,8 @@ class _ColorsTabState extends State<ColorsTab> {
   @override
   void initState() {
     super.initState();
+    _loadCustomPresets();
+
     // Inizializza con colore corrente dal LED state
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final ledProvider = Provider.of<LedProvider>(context, listen: false);
@@ -57,6 +62,14 @@ class _ColorsTabState extends State<ColorsTab> {
           _brightness = state.brightness / 255.0;
         });
       }
+    });
+  }
+
+  /// Carica i preset personalizzati salvati
+  Future<void> _loadCustomPresets() async {
+    final presets = await PresetStorageService.loadPresets();
+    setState(() {
+      _customPresets = presets;
     });
   }
 
@@ -123,6 +136,141 @@ class _ColorsTabState extends State<ColorsTab> {
     });
   }
 
+  /// Mostra dialog per creare un nuovo preset
+  Future<void> _showAddPresetDialog() async {
+    final ledProvider = Provider.of<LedProvider>(context, listen: false);
+    final currentEffect = ledProvider.currentState?.effect ?? 'solid';
+
+    final nameController = TextEditingController();
+
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('New Preset'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: nameController,
+              decoration: const InputDecoration(
+                labelText: 'Preset Name',
+                hintText: 'e.g., My Custom Saber',
+              ),
+              autofocus: true,
+              maxLength: 30,
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Container(
+                  width: 40,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    color: _selectedColor,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.grey),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Effect: $currentEffect',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                      Text(
+                        'Color: RGB(${(_selectedColor.r * 255).round()}, ${(_selectedColor.g * 255).round()}, ${(_selectedColor.b * 255).round()})',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              color: Colors.grey,
+                            ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              if (nameController.text.trim().isEmpty) {
+                return;
+              }
+              Navigator.of(context).pop(true);
+            },
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+
+    if (result == true && nameController.text.trim().isNotEmpty) {
+      final newPreset = ColorPreset(
+        id: DateTime.now().millisecondsSinceEpoch.toString(),
+        name: nameController.text.trim(),
+        color: _selectedColor,
+        effectId: currentEffect,
+        createdAt: DateTime.now(),
+      );
+
+      final success = await PresetStorageService.addPreset(newPreset);
+      if (success && mounted) {
+        await _loadCustomPresets();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Preset "${newPreset.name}" saved!'),
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+    }
+  }
+
+  /// Elimina un preset personalizzato
+  Future<void> _deleteCustomPreset(ColorPreset preset) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete Preset'),
+        content: Text('Delete "${preset.name}"?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      final success = await PresetStorageService.deletePreset(preset.id);
+      if (success && mounted) {
+        await _loadCustomPresets();
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Preset deleted'),
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final screenSize = MediaQuery.of(context).size;
@@ -170,12 +318,61 @@ class _ColorsTabState extends State<ColorsTab> {
 
           const SizedBox(height: 12),
 
-          // Preset Colors
-          Text(
-            'Presets',
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(
-              fontWeight: FontWeight.bold,
+          // Custom Presets Section
+          if (_customPresets.isNotEmpty) ...[
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  'My Presets',
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.add_circle, size: 28),
+                  onPressed: _showAddPresetDialog,
+                  tooltip: 'Add new preset',
+                ),
+              ],
             ),
+            const SizedBox(height: 8),
+            _buildCustomPresetsGrid(),
+            const SizedBox(height: 16),
+          ],
+
+          // Add Preset Button (if no custom presets yet)
+          if (_customPresets.isEmpty)
+            Container(
+              width: double.infinity,
+              margin: const EdgeInsets.only(bottom: 12),
+              child: OutlinedButton.icon(
+                onPressed: _showAddPresetDialog,
+                icon: const Icon(Icons.add),
+                label: const Text('Create Custom Preset'),
+                style: OutlinedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                ),
+              ),
+            ),
+
+          // Star Wars Presets
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                'Star Wars Presets',
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              if (_customPresets.isNotEmpty)
+                IconButton(
+                  icon: const Icon(Icons.add_circle, size: 28),
+                  onPressed: _showAddPresetDialog,
+                  tooltip: 'Add new preset',
+                ),
+            ],
           ),
           const SizedBox(height: 8),
 
@@ -230,6 +427,24 @@ class _ColorsTabState extends State<ColorsTab> {
     );
   }
 
+  /// Grid preset personalizzati
+  Widget _buildCustomPresetsGrid() {
+    return GridView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 1,
+        mainAxisSpacing: 8,
+        childAspectRatio: 3.0,
+      ),
+      itemCount: _customPresets.length,
+      itemBuilder: (context, index) {
+        final preset = _customPresets[index];
+        return _buildCustomPresetCard(preset);
+      },
+    );
+  }
+
   /// Grid preset colori - ottimizzato per spazio verticale
   Widget _buildPresetsGrid() {
     return GridView.builder(
@@ -245,6 +460,78 @@ class _ColorsTabState extends State<ColorsTab> {
         final preset = saberPresets[index];
         return _buildPresetCard(preset);
       },
+    );
+  }
+
+  /// Card preset personalizzato - con pulsante elimina
+  Widget _buildCustomPresetCard(ColorPreset preset) {
+    final name = preset.name;
+    final color = preset.color;
+    final isSelected = _selectedColor == color;
+
+    return GestureDetector(
+      onTap: () {
+        setState(() {
+          _selectedColor = color;
+        });
+        _applyColorToLED(
+          color,
+          _brightness,
+          effectId: preset.effectId,
+        );
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: isSelected ? color : Colors.grey.withValues(alpha: 0.3),
+            width: isSelected ? 2 : 1,
+          ),
+          color: Theme.of(context).cardColor,
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.start,
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            // Preview colore circolare
+            Container(
+              width: 24,
+              height: 24,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: color,
+                border: Border.all(
+                  color: Colors.white.withValues(alpha: 0.3),
+                  width: 1,
+                ),
+              ),
+            ),
+            const SizedBox(width: 6),
+            // Nome preset
+            Expanded(
+              child: Text(
+                name,
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                  fontSize: 14,
+                  color: Theme.of(context).colorScheme.onSurface,
+                ),
+                overflow: TextOverflow.ellipsis,
+                maxLines: 2,
+              ),
+            ),
+            // Pulsante elimina
+            IconButton(
+              icon: const Icon(Icons.delete_outline, size: 20),
+              onPressed: () => _deleteCustomPreset(preset),
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(),
+              color: Colors.red.withValues(alpha: 0.7),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
