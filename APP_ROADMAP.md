@@ -207,30 +207,269 @@ final starWarsPresets = {
 
 ---
 
-## 📅 **SPRINT 3: Effects & Patterns** (PIANIFICATO)
+## 📅 **SPRINT 3: Audio Integration & Style Presets** (PIANIFICATO)
 
-### Features Pianificate
+### Obiettivi
+Integrare il sistema audio multi-pack e creare preset completi che includono suoni, effetti LED, colori e velocità.
 
-#### 3.1 Effects Browser
-- Lista scrollabile 15 effetti disponibili
-- Card con:
-  - Nome + icona emoji (es: 🌈 Rainbow)
-  - Preview animata (mini lightsaber)
-  - Badge "Active" se in uso
-- Tap per applicare effetto immediatamente
-- Filtraggio: All / Favorites
+### Architettura Esistente da Estendere
 
-#### 3.2 Effect Parameters
-- Parametri dinamici basati su effetto:
-  - `chrono_hybrid`: Theme selector (Hour/Second)
-  - `dual_pulse`: Symmetry toggle
-  - `unstable`: Chaos intensity slider
-- Lettura da `charEffectsList` per parametri disponibili
+**File esistenti**:
+- ✅ `lib/models/color_preset.dart` - Model preset con `id`, `name`, `color`, `effectId`, `createdAt`
+- ✅ `lib/services/preset_storage_service.dart` - Storage con SharedPreferences
+- ✅ `lib/screens/tabs/colors_tab.dart` - Tab colori con HSV picker
+- ✅ `lib/screens/tabs/effects_tab.dart` - Tab effetti con lista
+- ✅ `lib/screens/tabs/clock_tab.dart` - Tab orologio
+- ✅ `lib/screens/tabs/motion_tab.dart` - Tab motion detection
 
-#### 3.3 Favorites System
-- Salvataggio combinazioni colore+effetto+speed
-- Quick access in home screen
-- Max 6 favorites con nomi custom
+### Features da Implementare
+
+#### 3.1 Audio System Integration
+**Priorità**: Alta
+**Complessità**: Media
+**Riferimento**: `docs/SOUND_ROADMAP.md`
+
+**Dipendenze**:
+```yaml
+dependencies:
+  just_audio: ^0.9.36  # Audio engine con pitch/pan/volume control
+```
+
+**Implementazione**:
+- [ ] Creare `lib/models/sound_pack.dart` - Model per sound pack (jedi, sith, unstable, crystal)
+- [ ] Creare `lib/services/audio_service.dart` - Core audio engine (hum loop, swing modulato, events)
+- [ ] Creare `lib/providers/audio_provider.dart` - State management audio
+- [ ] Aggiungere asset audio in `assets/sounds/{pack}/`:
+  - `hum_base.wav` (loop 2-5s per HUM + SWING)
+  - `ignition.wav` (1-2s)
+  - `clash.wav` (0.3-0.5s)
+  - `retract.wav` (1-2s)
+
+**Sound Pack Registry**:
+```dart
+// jedi: 110Hz, suono pulito con layering
+// sith: 70Hz, grave e denso
+// unstable: 90Hz, crackling FM synthesis (Kylo Ren)
+// crystal: 150Hz, cristallino e brillante
+```
+
+**Integration con Motion**:
+- Collegare `MotionProvider` → `AudioProvider`
+- Swing modulato da `perturbationGrid` (volume), `speed` (pitch), `direction` (pan)
+- Gesture events (IGNITION, RETRACT, CLASH) trigger suoni
+
+#### 3.2 Estensione ColorPreset → StylePreset
+**Priorità**: Alta
+**Complessità**: Bassa
+
+**Modifiche a `lib/models/color_preset.dart`**:
+```dart
+class ColorPreset {
+  final String id;
+  final String name;
+  final Color color;
+  final String effectId;
+  final DateTime createdAt;
+
+  // NUOVI CAMPI DA AGGIUNGERE:
+  final int speed;           // 1-100 (default: 50)
+  final int brightness;      // 0-255 (default: 200)
+  final String soundPackId;  // 'jedi', 'sith', 'unstable', 'crystal' (default: 'jedi')
+  final bool isFavorite;     // Quick access (default: false)
+}
+```
+
+**Modifiche a `lib/services/preset_storage_service.dart`**:
+- Aggiornare serializzazione JSON per nuovi campi (backward compatible)
+- Gestire migrazione preset vecchi (aggiungere valori default)
+
+#### 3.3 Preset Predefiniti Star Wars con Suoni
+**Priorità**: Alta
+**Complessità**: Bassa
+
+**Creare preset completi in `color_preset.dart`**:
+
+```dart
+class BuiltInPresets {
+  static final List<ColorPreset> starWars = [
+    // JEDI PRESETS
+    ColorPreset(
+      id: 'luke_skywalker',
+      name: 'Luke Skywalker',
+      color: Color(0xFF0080FF),
+      effectId: 'solid',
+      speed: 50,
+      brightness: 220,
+      soundPackId: 'jedi',  // ← BINDING SUONO
+      isFavorite: true,
+    ),
+    ColorPreset(
+      id: 'obi_wan',
+      name: 'Obi-Wan Kenobi',
+      color: Color(0xFF0099FF),
+      effectId: 'sine_motion',
+      speed: 40,
+      brightness: 200,
+      soundPackId: 'jedi',
+    ),
+    ColorPreset(
+      id: 'yoda',
+      name: 'Yoda',
+      color: Color(0xFF00FF00),
+      effectId: 'solid',
+      speed: 50,
+      brightness: 210,
+      soundPackId: 'jedi',
+    ),
+    ColorPreset(
+      id: 'mace_windu',
+      name: 'Mace Windu',
+      color: Color(0xFF8B00FF),
+      effectId: 'pulse',
+      speed: 45,
+      brightness: 215,
+      soundPackId: 'jedi',
+    ),
+
+    // SITH PRESETS
+    ColorPreset(
+      id: 'darth_vader',
+      name: 'Darth Vader',
+      color: Color(0xFFFF0000),
+      effectId: 'solid',
+      speed: 50,
+      brightness: 230,
+      soundPackId: 'sith',  // ← BINDING SUONO
+      isFavorite: true,
+    ),
+    ColorPreset(
+      id: 'darth_maul',
+      name: 'Darth Maul',
+      color: Color(0xFFFF0000),
+      effectId: 'dual_pulse',
+      speed: 70,
+      brightness: 240,
+      soundPackId: 'sith',
+    ),
+
+    // SPECIAL PRESETS
+    ColorPreset(
+      id: 'kylo_ren',
+      name: 'Kylo Ren',
+      color: Color(0xFFFF0000),
+      effectId: 'unstable',
+      speed: 80,
+      brightness: 255,
+      soundPackId: 'unstable',  // ← SUONO SPECIALE
+      isFavorite: true,
+    ),
+    ColorPreset(
+      id: 'ahsoka_tano',
+      name: 'Ahsoka Tano',
+      color: Color(0xFFFFFFFF),
+      effectId: 'dual_pulse',
+      speed: 60,
+      brightness: 255,
+      soundPackId: 'crystal',
+    ),
+    ColorPreset(
+      id: 'dark_saber',
+      name: 'Dark Saber',
+      color: Color(0xFFFFFFFF),
+      effectId: 'unstable',
+      speed: 60,
+      brightness: 255,
+      soundPackId: 'crystal',
+    ),
+  ];
+}
+```
+
+#### 3.4 Nuova Tab "Styles" (5a Tab)
+**Priorità**: Media
+**Complessità**: Media
+
+**Creare `lib/screens/tabs/styles_tab.dart`**:
+
+```dart
+// Layout:
+// 1. Sezione "Quick Style Creator"
+//    - Preview colore corrente + effetto + suono
+//    - Pulsante "Save Current Style"
+// 2. Sezione "Star Wars Presets" (built-in)
+//    - Grid 2 colonne con card preset
+//    - Tap per applicare → LED + Audio insieme
+// 3. Sezione "My Custom Styles"
+//    - Grid preset salvati dall'utente
+//    - Swipe to delete
+```
+
+**Modificare `lib/screens/control_screen.dart`**:
+```dart
+TabController(length: 5, vsync: this)  // 4 → 5
+
+TabBar(
+  tabs: [
+    Tab(icon: Icon(Icons.palette), text: 'Colors'),
+    Tab(icon: Icon(Icons.auto_awesome), text: 'Effects'),
+    Tab(icon: Icon(Icons.access_time), text: 'Clock'),
+    Tab(icon: Icon(Icons.motion_photos_on), text: 'Motion'),
+    Tab(icon: Icon(Icons.style), text: 'Styles'),  // NUOVO
+  ],
+)
+```
+
+#### 3.5 LedProvider - Applicazione Preset Completo
+**Priorità**: Alta
+**Complessità**: Bassa
+
+**Aggiungere in `lib/providers/led_provider.dart`**:
+```dart
+/// Applica un preset completo (colore + effetto + speed + brightness + audio)
+Future<void> applyPreset(ColorPreset preset) async {
+  // 1. Applica LED
+  await setColor(preset.color.red, preset.color.green, preset.color.blue);
+  await setBrightness(preset.brightness, true);
+  await setEffect(preset.effectId, speed: preset.speed);
+
+  // 2. Applica Audio (se AudioProvider disponibile)
+  final audioProvider = _context.read<AudioProvider>();
+  await audioProvider.setSoundPack(preset.soundPackId);
+
+  // 3. Notifica cambio preset
+  _currentPresetId = preset.id;
+  notifyListeners();
+}
+```
+
+### File da Creare/Modificare
+
+**Nuovi File Audio**:
+- `assets/sounds/jedi/hum_base.wav`
+- `assets/sounds/jedi/ignition.wav`
+- `assets/sounds/jedi/clash.wav`
+- `assets/sounds/jedi/retract.wav`
+- (+ sith, unstable, crystal)
+
+**Nuovi File Flutter**:
+- `lib/models/sound_pack.dart`
+- `lib/services/audio_service.dart`
+- `lib/providers/audio_provider.dart`
+- `lib/screens/tabs/styles_tab.dart`
+
+**Modifiche**:
+- `lib/models/color_preset.dart` - Aggiungere campi speed, brightness, soundPackId, isFavorite
+- `lib/services/preset_storage_service.dart` - Migrazione JSON
+- `lib/providers/led_provider.dart` - Metodo applyPreset()
+- `lib/screens/control_screen.dart` - Aggiungere 5a tab
+- `pubspec.yaml` - Dipendenza just_audio + asset sounds
+
+### Metriche di Successo Sprint 3
+- Audio latency: <50ms (ignition/clash), <20ms (swing)
+- Preset application: <200ms (LED + Audio)
+- Asset size totale: <5MB (4 sound packs)
+- Smooth audio loop: no click/glitch su hum_base
+- Swing modulazione: volume/pitch/pan reattivi a perturbationGrid
 
 ---
 
