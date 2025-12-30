@@ -62,6 +62,7 @@ check_dependencies()
 # Ora importa le librerie (sicuro che esistono)
 import numpy as np
 from scipy.io import wavfile
+from scipy import signal
 
 
 class LightsaberSoundGenerator:
@@ -121,10 +122,39 @@ class LightsaberSoundGenerator:
 
         return signal * envelope
 
-    def apply_lowpass(self, signal, cutoff_freq=5000):
-        """Filtro passa-basso semplice (moving average)"""
-        window_size = int(self.sample_rate / cutoff_freq)
-        return np.convolve(signal, np.ones(window_size)/window_size, mode='same')
+    def apply_lowpass(self, sig, cutoff_freq=5000, order=4):
+        """Filtro passa-basso Butterworth (più realistico)"""
+        nyquist = self.sample_rate / 2
+        normal_cutoff = cutoff_freq / nyquist
+        # Clamp per evitare errori se cutoff >= nyquist
+        normal_cutoff = min(normal_cutoff, 0.99)
+        sos = signal.butter(order, normal_cutoff, btype='low', output='sos')
+        return signal.sosfilt(sos, sig)
+
+    def apply_highpass(self, sig, cutoff_freq=50, order=2):
+        """Filtro passa-alto per rimuovere rumble"""
+        nyquist = self.sample_rate / 2
+        normal_cutoff = cutoff_freq / nyquist
+        sos = signal.butter(order, normal_cutoff, btype='high', output='sos')
+        return signal.sosfilt(sos, sig)
+
+    def apply_reverb(self, sig, delay_ms=150, decay=0.4, num_echoes=3):
+        """Semplice riverbero tramite comb filter"""
+        output = np.copy(sig)
+        delay_samples = int(self.sample_rate * delay_ms / 1000)
+
+        for i in range(1, num_echoes + 1):
+            current_delay = delay_samples * i
+            current_decay = decay ** i
+
+            # Aggiungi echo ritardato
+            padded = np.zeros(len(sig) + current_delay)
+            padded[current_delay:] = sig * current_decay
+
+            # Somma all'output (tronca se necessario)
+            output[:len(padded)] += padded[:len(output)]
+
+        return output
 
     def apply_vibrato(self, signal, vibrato_freq=5, vibrato_depth=0.02):
         """Aggiunge vibrato (modulazione frequenza)"""
@@ -169,53 +199,105 @@ class LightsaberSoundGenerator:
         print(f"  Generando hum_base.wav ({style}, {base_freq}Hz, {duration}s)...")
 
         if style == 'jedi':
-            # Suono pulito, armoniche semplici
-            fundamental = self.generate_sine(base_freq, duration, amplitude=0.6)
-            harmonic2 = self.generate_sine(base_freq * 2, duration, amplitude=0.2)
-            harmonic3 = self.generate_sine(base_freq * 3, duration, amplitude=0.1)
+            # Suono pulito, LAYERING con detuning per spessore
+            fund1 = self.generate_sine(base_freq, duration, amplitude=0.4)
+            fund2 = self.generate_sine(base_freq * 1.003, duration, amplitude=0.4)  # +0.3% detune
+            fund3 = self.generate_sine(base_freq * 0.997, duration, amplitude=0.4)  # -0.3% detune
+            fundamental = (fund1 + fund2 + fund3) / 3
 
-            hum = fundamental + harmonic2 + harmonic3
-            hum = self.add_noise(hum, noise_level=0.02)
-            hum = self.apply_vibrato(hum, vibrato_freq=4, vibrato_depth=0.015)
+            # Armoniche ricche
+            harmonic2 = self.generate_sine(base_freq * 2, duration, amplitude=0.25)
+            harmonic3 = self.generate_sine(base_freq * 3, duration, amplitude=0.12)
+            harmonic4 = self.generate_sine(base_freq * 4, duration, amplitude=0.06)
+
+            hum = fundamental + harmonic2 + harmonic3 + harmonic4
+
+            # Rumore filtrato (più naturale)
+            noise = np.random.normal(0, 0.03, int(self.sample_rate * duration))
+            noise_filtered = self.apply_lowpass(noise, cutoff_freq=2000)
+            hum = hum + noise_filtered
+
+            hum = self.apply_vibrato(hum, vibrato_freq=4.5, vibrato_depth=0.012)
+            hum = self.apply_lowpass(hum, cutoff_freq=6000)
+            hum = self.apply_reverb(hum, delay_ms=80, decay=0.25, num_echoes=2)
 
         elif style == 'sith':
-            # Suono più grave e distorto
-            fundamental = self.generate_sine(base_freq, duration, amplitude=0.5)
-            harmonic2 = self.generate_square(base_freq * 1.5, duration, amplitude=0.3)
-            harmonic3 = self.generate_sine(base_freq * 2.5, duration, amplitude=0.15)
+            # Suono più grave, denso e minaccioso
+            fund1 = self.generate_sine(base_freq, duration, amplitude=0.35)
+            fund2 = self.generate_sine(base_freq * 1.005, duration, amplitude=0.35)
+            fundamental = (fund1 + fund2) / 2
 
-            hum = fundamental + harmonic2 + harmonic3
-            hum = self.add_noise(hum, noise_level=0.04)
-            hum = self.apply_vibrato(hum, vibrato_freq=3, vibrato_depth=0.025)
+            # Armoniche distorte (uso sawtooth)
+            harmonic2 = self.generate_sawtooth(base_freq * 1.5, duration, amplitude=0.25)
+            harmonic3 = self.generate_square(base_freq * 2, duration, amplitude=0.18)
+            harmonic4 = self.generate_sine(base_freq * 2.5, duration, amplitude=0.1)
+
+            hum = fundamental + harmonic2 + harmonic3 + harmonic4
+
+            # Rumore più presente
+            noise = np.random.normal(0, 0.05, int(self.sample_rate * duration))
+            noise_filtered = self.apply_lowpass(noise, cutoff_freq=1500)
+            hum = hum + noise_filtered
+
+            hum = self.apply_vibrato(hum, vibrato_freq=3.2, vibrato_depth=0.022)
+            hum = self.apply_lowpass(hum, cutoff_freq=4500)
+            hum = self.apply_reverb(hum, delay_ms=120, decay=0.35, num_echoes=3)
 
         elif style == 'unstable':
-            # Stile Kylo Ren - crackling instabile
-            fundamental = self.generate_sine(base_freq, duration, amplitude=0.4)
-            crackle = self.generate_square(base_freq * 1.3, duration, amplitude=0.25)
-            noise = np.random.normal(0, 0.08, int(self.sample_rate * duration))
+            # Stile Kylo Ren - crackling instabile con FM synthesis
+            t = np.linspace(0, duration, int(self.sample_rate * duration))
+
+            # FM Modulation per suono organico
+            modulator = np.sin(2 * np.pi * 6.5 * t)  # LFO
+            carrier_freq = base_freq * (1 + 0.15 * modulator)
+            phase = np.cumsum(2 * np.pi * carrier_freq / self.sample_rate)
+            fundamental = 0.4 * np.sin(phase)
+
+            # Crackle layer
+            crackle1 = self.generate_square(base_freq * 1.3, duration, amplitude=0.2)
+            crackle2 = self.generate_sawtooth(base_freq * 1.7, duration, amplitude=0.15)
+
+            # Rumore impulsivo (bursts casuali)
+            noise = np.random.normal(0, 0.1, int(self.sample_rate * duration))
+            impulse_mask = np.random.rand(len(noise)) > 0.98  # Burst casuali
+            noise = noise * impulse_mask
 
             # Modulazione casuale per instabilità
-            t = np.linspace(0, duration, int(self.sample_rate * duration))
-            random_mod = 1 + 0.1 * np.sin(2 * np.pi * np.random.rand(10).sum() * t)
+            random_mod = 1 + 0.12 * np.sin(2 * np.pi * np.random.rand(5).sum() * t)
 
-            hum = (fundamental + crackle + noise) * random_mod
-            hum = self.apply_vibrato(hum, vibrato_freq=6, vibrato_depth=0.04)
+            hum = (fundamental + crackle1 + crackle2 + noise) * random_mod
+            hum = self.apply_vibrato(hum, vibrato_freq=6.5, vibrato_depth=0.035)
+            hum = self.apply_lowpass(hum, cutoff_freq=5500)
+            hum = self.apply_reverb(hum, delay_ms=100, decay=0.3, num_echoes=2)
 
         elif style == 'crystal':
-            # Suono cristallino, armoniche alte
-            fundamental = self.generate_sine(base_freq * 1.5, duration, amplitude=0.5)
-            harmonic2 = self.generate_sine(base_freq * 3, duration, amplitude=0.25)
-            harmonic3 = self.generate_sine(base_freq * 5, duration, amplitude=0.15)
-            shimmer = self.generate_sine(base_freq * 7, duration, amplitude=0.08)
+            # Suono cristallino, eterico e brillante
+            fund1 = self.generate_sine(base_freq * 1.5, duration, amplitude=0.35)
+            fund2 = self.generate_sine(base_freq * 1.502, duration, amplitude=0.35)
+            fundamental = (fund1 + fund2) / 2
 
-            hum = fundamental + harmonic2 + harmonic3 + shimmer
-            hum = self.add_noise(hum, noise_level=0.01)
-            hum = self.apply_vibrato(hum, vibrato_freq=7, vibrato_depth=0.01)
+            # Armoniche alte (shimmer)
+            harmonic2 = self.generate_sine(base_freq * 3, duration, amplitude=0.22)
+            harmonic3 = self.generate_sine(base_freq * 5, duration, amplitude=0.15)
+            harmonic4 = self.generate_sine(base_freq * 7, duration, amplitude=0.1)
+            shimmer = self.generate_sine(base_freq * 9, duration, amplitude=0.05)
+
+            hum = fundamental + harmonic2 + harmonic3 + harmonic4 + shimmer
+
+            # Rumore minimo, molto filtrato
+            noise = np.random.normal(0, 0.015, int(self.sample_rate * duration))
+            noise_filtered = self.apply_lowpass(noise, cutoff_freq=8000)
+            hum = hum + noise_filtered
+
+            hum = self.apply_vibrato(hum, vibrato_freq=8, vibrato_depth=0.008)
+            hum = self.apply_highpass(hum, cutoff_freq=100)  # Rimuovi rumble
+            hum = self.apply_reverb(hum, delay_ms=180, decay=0.4, num_echoes=4)
 
         else:
             raise ValueError(f"Style non riconosciuto: {style}")
 
         # Normalizza e garantisci loop perfetto
+        hum = self.apply_highpass(hum, cutoff_freq=30)  # Rimuovi DC offset
         hum = self.normalize(hum, target_amplitude=0.85)
         hum = self.ensure_loop_seamless(hum, crossfade_samples=int(0.05 * self.sample_rate))
 
@@ -229,36 +311,54 @@ class LightsaberSoundGenerator:
         """
         print(f"  Generando ignition.wav ({style}, {duration}s)...")
 
-        # Sweep crescente da bassa a alta frequenza
         t = np.linspace(0, duration, int(self.sample_rate * duration))
-        freq_sweep = np.linspace(base_freq * 0.3, base_freq * 1.5, len(t))
 
-        # Sintesi con sweep
-        phase = np.cumsum(2 * np.pi * freq_sweep / self.sample_rate)
-        sweep = 0.6 * np.sin(phase)
+        # Sweep crescente con curva esponenziale (più naturale)
+        freq_start = base_freq * 0.2
+        freq_end = base_freq * 1.6
+        freq_sweep = freq_start * (freq_end / freq_start) ** (t / duration)
 
-        # Armoniche
-        harmonic = 0.3 * np.sin(phase * 2)
+        # Multi-layer sweep per spessore
+        phase1 = np.cumsum(2 * np.pi * freq_sweep / self.sample_rate)
+        phase2 = np.cumsum(2 * np.pi * freq_sweep * 1.01 / self.sample_rate)  # Detune
+        sweep = 0.4 * np.sin(phase1) + 0.4 * np.sin(phase2)
 
-        # Rumore crescente (energia)
-        noise = np.random.normal(0, 0.1, len(t))
-        noise_envelope = np.linspace(0.1, 0.05, len(t))  # Rumore che decresce
+        # Armoniche che crescono progressivamente
+        harmonic2 = 0.25 * np.sin(phase1 * 2)
+        harmonic3 = 0.15 * np.sin(phase1 * 3)
 
-        ignition = sweep + harmonic + (noise * noise_envelope)
+        # Noise burst iniziale (impatto energetico)
+        noise = np.random.normal(0, 0.15, len(t))
+        # Envelope esponenziale per noise
+        noise_envelope = np.exp(-t * 3)  # Decade rapidamente
+        noise_filtered = self.apply_lowpass(noise * noise_envelope, cutoff_freq=3000)
 
-        # Envelope: attack rapido, sustain, release
+        # Sub-bass layer per impatto
+        subbass = 0.2 * np.sin(2 * np.pi * 40 * t) * np.exp(-t * 4)
+
+        ignition = sweep + harmonic2 + harmonic3 + noise_filtered + subbass
+
+        # Envelope cinematico: attack rapido, crescendo, stabilizzazione
         ignition = self.apply_envelope(
             ignition,
-            attack=0.1,
-            decay=0.2,
-            sustain=0.7,
-            release=0.3
+            attack=0.08,
+            decay=0.15,
+            sustain=0.75,
+            release=0.25
         )
 
-        # Vibrato finale (quando si stabilizza)
-        ignition = self.apply_vibrato(ignition, vibrato_freq=5, vibrato_depth=0.02)
+        # Vibrato crescente (si stabilizza)
+        vibrato_depth = 0.03 * (1 - np.exp(-t * 2))  # Cresce gradualmente
+        ignition = ignition * (1 + vibrato_depth * np.sin(2 * np.pi * 5 * t))
 
-        return self.normalize(ignition, target_amplitude=0.9)
+        # Reverb per profondità
+        ignition = self.apply_reverb(ignition, delay_ms=100, decay=0.3, num_echoes=2)
+
+        # Filtri finali
+        ignition = self.apply_highpass(ignition, cutoff_freq=35)
+        ignition = self.apply_lowpass(ignition, cutoff_freq=7000)
+
+        return self.normalize(ignition, target_amplitude=0.92)
 
     def generate_retract(self, duration=1.2, base_freq=100, style='jedi'):
         """
@@ -268,68 +368,105 @@ class LightsaberSoundGenerator:
         """
         print(f"  Generando retract.wav ({style}, {duration}s)...")
 
-        # Sweep decrescente da alta a bassa frequenza
         t = np.linspace(0, duration, int(self.sample_rate * duration))
-        freq_sweep = np.linspace(base_freq * 1.2, base_freq * 0.2, len(t))
 
-        # Sintesi con sweep
-        phase = np.cumsum(2 * np.pi * freq_sweep / self.sample_rate)
-        sweep = 0.7 * np.sin(phase)
+        # Sweep decrescente con curva esponenziale inversa
+        freq_start = base_freq * 1.4
+        freq_end = base_freq * 0.15
+        freq_sweep = freq_start * (freq_end / freq_start) ** (t / duration)
 
-        # Armoniche che svaniscono
-        harmonic = 0.2 * np.sin(phase * 1.5)
+        # Multi-layer per spessore
+        phase1 = np.cumsum(2 * np.pi * freq_sweep / self.sample_rate)
+        phase2 = np.cumsum(2 * np.pi * freq_sweep * 0.995 / self.sample_rate)
+        sweep = 0.5 * np.sin(phase1) + 0.4 * np.sin(phase2)
 
-        # Rumore decrescente
-        noise = np.random.normal(0, 0.05, len(t))
-        noise_envelope = np.linspace(0.08, 0.01, len(t))
+        # Armoniche che svaniscono progressivamente
+        harmonic_envelope = np.exp(-t * 1.5)
+        harmonic2 = 0.2 * np.sin(phase1 * 1.5) * harmonic_envelope
+        harmonic3 = 0.1 * np.sin(phase1 * 2) * harmonic_envelope
 
-        retract = sweep + harmonic + (noise * noise_envelope)
+        # Rumore decrescente filtrato
+        noise = np.random.normal(0, 0.08, len(t))
+        noise_envelope = np.exp(-t * 2.5)
+        noise_filtered = self.apply_lowpass(noise * noise_envelope, cutoff_freq=2500)
 
-        # Envelope: attack corto, release lungo
+        # Tail reverberante (coda lunga)
+        tail = 0.15 * np.sin(2 * np.pi * base_freq * 0.5 * t) * np.exp(-t * 1.2)
+
+        retract = sweep + harmonic2 + harmonic3 + noise_filtered + tail
+
+        # Envelope: release molto lungo per fade naturale
         retract = self.apply_envelope(
             retract,
-            attack=0.05,
-            decay=0.1,
-            sustain=0.6,
-            release=0.5
+            attack=0.03,
+            decay=0.08,
+            sustain=0.55,
+            release=0.6
         )
 
-        return self.normalize(retract, target_amplitude=0.85)
+        # Reverb per coda atmosferica
+        retract = self.apply_reverb(retract, delay_ms=140, decay=0.45, num_echoes=3)
+
+        # Filtri
+        retract = self.apply_highpass(retract, cutoff_freq=30)
+        retract = self.apply_lowpass(retract, cutoff_freq=5500)
+
+        return self.normalize(retract, target_amplitude=0.88)
 
     def generate_clash(self, duration=0.4, base_freq=200, style='jedi'):
         """
         Genera suono di colpo/scontro
 
-        Simulazione: "KZZZT!" - impatto metallico
+        Simulazione: "KZZZT!" - impatto metallico cinematico
         """
         print(f"  Generando clash.wav ({style}, {duration}s)...")
 
         t = np.linspace(0, duration, int(self.sample_rate * duration))
 
-        # Componente metallica (frequenze alte)
-        metallic = 0.5 * self.generate_square(base_freq * 2, duration, amplitude=1.0)
+        # Impatto iniziale multi-layer
+        impact1 = 0.4 * self.generate_square(base_freq * 2.2, duration, amplitude=1.0)
+        impact2 = 0.3 * self.generate_sawtooth(base_freq * 3.1, duration, amplitude=1.0)
 
-        # Noise burst (impatto)
-        noise = np.random.normal(0, 0.4, len(t))
+        # Noise burst intenso (impatto energetico)
+        noise = np.random.normal(0, 0.5, len(t))
+        # Envelope esplosivo per noise
+        noise_envelope = np.exp(-t * 15)  # Decade molto velocemente
+        noise_filtered = self.apply_lowpass(noise * noise_envelope, cutoff_freq=9000)
 
-        # Risonanza (ring down)
-        resonance = 0.3 * np.sin(2 * np.pi * base_freq * 1.5 * t)
+        # Risonanze metalliche multiple (ring-out)
+        resonance1 = 0.25 * np.sin(2 * np.pi * base_freq * 1.8 * t) * np.exp(-t * 5)
+        resonance2 = 0.18 * np.sin(2 * np.pi * base_freq * 2.4 * t) * np.exp(-t * 7)
+        resonance3 = 0.12 * np.sin(2 * np.pi * base_freq * 3.2 * t) * np.exp(-t * 9)
 
-        clash = metallic + noise + resonance
+        # Sub-bass impact per punch cinematico
+        subbass = 0.3 * np.sin(2 * np.pi * 60 * t) * np.exp(-t * 12)
 
-        # Envelope percussivo: attack veloce, decay rapido
+        # Componente "spark" (scintille ad alta frequenza)
+        spark_freq = np.random.uniform(3000, 6000, 10)
+        spark = np.zeros_like(t)
+        for freq in spark_freq:
+            spark += 0.05 * np.sin(2 * np.pi * freq * t) * np.exp(-t * 20)
+
+        clash = (impact1 + impact2 + noise_filtered + resonance1 +
+                resonance2 + resonance3 + subbass + spark)
+
+        # Envelope percussivo molto rapido (stile trailer)
         clash = self.apply_envelope(
             clash,
-            attack=0.01,
-            decay=0.05,
-            sustain=0.3,
-            release=0.15
+            attack=0.005,  # Attack istantaneo
+            decay=0.03,
+            sustain=0.25,
+            release=0.12
         )
 
-        # Filtro passa-basso per non essere troppo stridente
-        clash = self.apply_lowpass(clash, cutoff_freq=8000)
+        # Reverb corto per spazio
+        clash = self.apply_reverb(clash, delay_ms=60, decay=0.35, num_echoes=2)
 
-        return self.normalize(clash, target_amplitude=0.95)
+        # Filtri per controllo
+        clash = self.apply_highpass(clash, cutoff_freq=40)
+        clash = self.apply_lowpass(clash, cutoff_freq=10000)
+
+        return self.normalize(clash, target_amplitude=0.98)
 
     # ═══════════════════════════════════════════════════════════════════
     # PACK GENERATORS
