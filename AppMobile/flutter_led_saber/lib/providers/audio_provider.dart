@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/foundation.dart';
 import '../services/audio_service.dart';
 import '../models/sound_pack.dart';
@@ -11,8 +12,15 @@ class AudioProvider extends ChangeNotifier {
   double _masterVolume = 0.8;
   String _currentSoundPackId = 'jedi';
 
-  // CRITICAL: Source of truth - stato desiderato dalla UI
-  String? _desiredBladeState;
+  // Animation timing - MUST match LightsaberWidget animation durations
+  static const _ignitionDuration = Duration(milliseconds: 1500);
+  static const _retractDuration = Duration(milliseconds: 1000);
+
+  // State tracking
+  String? _lastBladeState;
+  String? _targetBladeState; // Stato finale desiderato
+  Timer? _animationTimer; // Timer per seguire l'animazione UI
+  bool _isAnimating = false;
 
   // Getters
   bool get soundsEnabled => _soundsEnabled;
@@ -20,38 +28,14 @@ class AudioProvider extends ChangeNotifier {
   String get currentSoundPackId => _currentSoundPackId;
   List<SoundPack> get availableSoundPacks => SoundPackRegistry.availablePacks;
   SoundPack? get currentSoundPack => SoundPackRegistry.getPackById(_currentSoundPackId);
-
-  // Getter per verificare se la lama DOVREBBE essere spenta secondo UI
-  bool get _shouldBeOff => _desiredBladeState == 'off' || _desiredBladeState == null;
+  bool get isAnimating => _isAnimating;
 
   AudioProvider() {
     _initialize();
-    _startSyncWatchdog();
   }
 
   Future<void> _initialize() async {
     await _audioService.setSoundPack(_currentSoundPackId);
-  }
-
-  /// Watchdog che verifica periodicamente la sincronizzazione audio-UI
-  void _startSyncWatchdog() {
-    // Controlla ogni 500ms se c'è desincronizzazione
-    Stream.periodic(const Duration(milliseconds: 500)).listen((_) {
-      if (!_soundsEnabled) return;
-
-      // Se UI dice OFF ma audio sta suonando -> ERRORE CRITICO
-      if (_shouldBeOff && _audioService.isHumPlaying) {
-        print('[AudioProvider] 🚨 WATCHDOG: Desincronizzazione rilevata! UI=OFF ma Hum=ON');
-        print('[AudioProvider] 🔧 WATCHDOG: Correggo forzando stopHum()');
-        _audioService.stopHum();
-      }
-
-      // Se UI dice ON ma audio non suona -> Avviso (può essere normale se in pausa)
-      if (!_shouldBeOff && !_audioService.isHumPlaying) {
-        // Questo è normale durante ignition o se appena acceso, quindi solo log debug
-        // print('[AudioProvider] ℹ️ WATCHDOG: UI=ON ma Hum=OFF (normale durante transizioni)');
-      }
-    });
   }
 
   // ══════════════════════════════════════════════════════════
@@ -82,61 +66,155 @@ class AudioProvider extends ChangeNotifier {
   }
 
   // ══════════════════════════════════════════════════════════
-  // BLADE STATE SYNC - L'audio segue ESATTAMENTE lo stato della lama
+  // BLADE STATE SYNC - Sincronizzazione IDENTICA all'animazione del widget
   // ══════════════════════════════════════════════════════════
 
-  /// Sincronizza l'audio con lo stato della lama (chiamato dalla UI)
+  /// Sincronizza l'audio con lo stato della lama seguendo ESATTAMENTE il timing
+  /// dell'animazione del LightsaberWidget (1500ms ignition, 1000ms retract)
   void syncWithBladeState(String? bladeState) {
-    // CRITICAL: Salva SEMPRE lo stato desiderato dalla UI
-    _desiredBladeState = bladeState;
-
-    print('[AudioProvider] 🎯 UI richiede bladeState: $bladeState');
-
     if (!_soundsEnabled) {
       print('[AudioProvider] ⚠️ Suoni disabilitati, ignoro sync');
       return;
     }
 
     if (bladeState == null) {
-      print('[AudioProvider] ⚠️ bladeState null, assumo OFF');
-      _audioService.stopHum();
-      return;
+      bladeState = 'off';
     }
 
-    switch (bladeState) {
-      case 'igniting':
-        // Lama si accende -> suona ignition + avvia loop
-        print('[AudioProvider] 🔥 Igniting -> playIgnition + startHum');
-        _audioService.playIgnition();
-        Future.delayed(const Duration(milliseconds: 50), () {
-          // Controllo di sicurezza: verifica che la UI non abbia cambiato idea
-          if (_desiredBladeState == 'igniting' || _desiredBladeState == 'on') {
-            _audioService.startHum();
-          } else {
-            print('[AudioProvider] ⚠️ StartHum annullato: UI cambiata a $_desiredBladeState');
-          }
-        });
-        break;
+    final previousBladeState = _lastBladeState;
+    final isFirstSync = previousBladeState == null;
 
-      case 'on':
-        // Lama accesa -> assicura loop attivo
-        print('[AudioProvider] ✅ On -> startHum');
-        _audioService.startHum();
+    // Determina l'azione basandosi sulla transizione di stato
+    // Logica IDENTICA a LightsaberWidget._updateAnimationState()
+    _handleStateTransition(previousBladeState, bladeState, isFirstSync);
+
+    _lastBladeState = bladeState;
+  }
+
+  void _handleStateTransition(String? from, String to, bool isFirstSync) {
+    print('[AudioProvider] Transizione: $from -> $to ${_isAnimating ? "(animating)" : "(idle)"}');
+
+    switch (to) {
+      case 'igniting':
+        // Analogo a: if (!_ignitionController.isAnimating && !_ignitionController.isCompleted)
+        if (!_isAnimating && from != 'on') {
+          _startIgnitionAnimation();
+        } else {
+          print('[AudioProvider] 🕒 Ignition ignorato: già in corso o completato');
+        }
         break;
 
       case 'retracting':
-        // Lama si spegne -> ferma tutto + suona retract
-        print('[AudioProvider] 🔴 Retracting -> stopHum + playRetract');
-        // CRITICAL: stopHum DEVE essere chiamato SEMPRE quando UI dice retracting
-        _audioService.stopHum();
-        _audioService.playRetract();
+        // Analogo a: if (!_ignitionController.isAnimating && !_ignitionController.isDismissed)
+        if (!_isAnimating && from != 'off') {
+          _startRetractAnimation();
+        } else {
+          print('[AudioProvider] 🕒 Retract ignorato: già in corso o completato');
+        }
+        break;
+
+      case 'on':
+        // Stato stabile 'on'
+        if (from == 'igniting') {
+          // Firmware dice che ignition è completata
+          // Ma se stiamo ancora animando, ignoriamo (il timer gestirà)
+          if (_isAnimating && _targetBladeState == 'on') {
+            print('[AudioProvider] 🕒 On ricevuto ma ignition ancora in corso, continuo animazione');
+          } else if (!_isAnimating && !_audioService.isHumPlaying) {
+            // Animazione già finita ma hum non parte (edge case)
+            print('[AudioProvider] ✅ On stabile → startHum diretto');
+            _audioService.startHum();
+          }
+        } else if (from == 'off' || from == 'retracting' || from == null) {
+          // Transizione diretta off->on (prima sincronizzazione o caso speciale)
+          if (isFirstSync) {
+            print('[AudioProvider] 🔁 Primo sync con lama ON → avvio hum senza ignition');
+            _audioService.startHum();
+          } else {
+            // Avvia animazione ignition
+            _startIgnitionAnimation();
+          }
+        }
         break;
 
       case 'off':
-        // Lama spenta -> ferma tutto IMMEDIATAMENTE
-        print('[AudioProvider] ⭕ Off -> stopHum FORZATO');
-        _audioService.stopHum();
+        // Stato stabile 'off'
+        if (from == 'retracting') {
+          // Firmware dice che retract è completata
+          // Ma se stiamo ancora animando, ignoriamo (il timer gestirà)
+          if (_isAnimating && _targetBladeState == 'off') {
+            print('[AudioProvider] 🕒 Off ricevuto ma retract ancora in corso, continuo animazione');
+          } else if (!_isAnimating && _audioService.isHumPlaying) {
+            // Animazione già finita ma hum ancora attivo (edge case)
+            print('[AudioProvider] ⭕ Off stabile → stopHum diretto');
+            _audioService.stopHum();
+          }
+        } else if (from == 'on' || from == 'igniting') {
+          // Transizione diretta on->off
+          _startRetractAnimation();
+        } else {
+          // Già off
+          print('[AudioProvider] ⭕ Off confermato');
+          _ensureAudioStopped();
+        }
         break;
+    }
+  }
+
+  /// Avvia l'animazione di ignition con timing identico al widget (1500ms)
+  void _startIgnitionAnimation() {
+    print('[AudioProvider] 🔥 Ignition START (1500ms)');
+
+    _isAnimating = true;
+    _targetBladeState = 'on';
+    _animationTimer?.cancel();
+
+    // Audio: ignition sound + hum start immediato (come nel widget)
+    _audioService.playIgnition();
+    Future.delayed(const Duration(milliseconds: 50), () {
+      if (_targetBladeState == 'on') {
+        _audioService.startHum();
+      }
+    });
+
+    // Timer che simula la durata dell'animazione del widget
+    _animationTimer = Timer(_ignitionDuration, () {
+      print('[AudioProvider] 🔥 Ignition COMPLETE');
+      _isAnimating = false;
+      // Verifica che lo stato finale sia ancora 'on'
+      if (_targetBladeState == 'on' && !_audioService.isHumPlaying) {
+        print('[AudioProvider] ⚠️ Hum non attivo a fine ignition, lo avvio');
+        _audioService.startHum();
+      }
+    });
+  }
+
+  /// Avvia l'animazione di retract con timing identico al widget (1000ms)
+  void _startRetractAnimation() {
+    print('[AudioProvider] 🔴 Retract START (1000ms)');
+
+    _isAnimating = true;
+    _targetBladeState = 'off';
+    _animationTimer?.cancel();
+
+    // Audio: stop hum + retract sound (come nel widget)
+    _audioService.stopHum();
+    _audioService.playRetract();
+
+    // Timer che simula la durata dell'animazione del widget
+    _animationTimer = Timer(_retractDuration, () {
+      print('[AudioProvider] 🔴 Retract COMPLETE');
+      _isAnimating = false;
+      // Assicura che tutto sia spento
+      _ensureAudioStopped();
+    });
+  }
+
+  /// Assicura che tutti i suoni continui siano fermati
+  void _ensureAudioStopped() {
+    if (_audioService.isHumPlaying) {
+      print('[AudioProvider] 🛑 Force stop hum');
+      _audioService.stopHum();
     }
   }
 
@@ -159,14 +237,10 @@ class AudioProvider extends ChangeNotifier {
   Future<void> updateSwing(MotionState state) async {
     if (!_soundsEnabled) return;
 
-    // CRITICAL: Controllo di sicurezza PRIORITARIO basato su UI
-    // Se la UI dice che la lama è spenta, NON permettere swing
-    if (_shouldBeOff) {
-      // Se hum sta ancora suonando ma UI dice OFF, fermalo immediatamente
-      if (_audioService.isHumPlaying) {
-        print('[AudioProvider] 🚨 SICUREZZA: Hum attivo ma UI dice OFF! Fermo tutto.');
-        await _audioService.stopHum();
-      }
+    // CRITICAL: Swing solo se la lama DOVREBBE essere accesa
+    // Verifica sia stato target che stato corrente
+    final shouldBeOn = _targetBladeState == 'on' || _lastBladeState == 'on';
+    if (!shouldBeOn) {
       return;
     }
 
@@ -189,6 +263,7 @@ class AudioProvider extends ChangeNotifier {
 
   @override
   void dispose() {
+    _animationTimer?.cancel();
     _audioService.dispose();
     super.dispose();
   }
