@@ -20,12 +20,12 @@ Una spada laser che SUONA in modo reattivo al movimento reale, con supporto per 
 │    └─ Pitch: fisso 1.0x                                    │
 │                                                             │
 │  Layer 2: SWING (Stessa traccia HUM distorta)              │
-│    ├─ hum_base.wav (stessa traccia!)                       │
+│    ├─ hum_base.wav (stessa traccia in loop!)               │
 │    ├─ Volume: 0-100% ∝ energia griglia 8x8                 │
 │    ├─ Pitch: 0.7-1.5x ∝ velocità movimento                 │
-│    ├─ Pan: -1.0 ↔ +1.0 ∝ direzione L/R                     │
-│    ├─ High-pass filter: >2kHz (enfatizza acuti)            │
-│    └─ Trigger: solo se movimento > threshold               │
+│    ├─ Pan: -1.0 ↔ +1.0 ∝ direzione L/R (non supportato)    │
+│    ├─ Modulazione: CONTINUA in tempo reale (theremin)      │
+│    └─ Auto-stop: quando volume < 5%                        │
 │                                                             │
 │  Layer 3: ONE-SHOT EVENTS                                  │
 │    ├─ ignition.wav (accensione)                            │
@@ -1071,6 +1071,214 @@ Se `just_audio` ha problemi:
 
 ---
 
+---
+
+## 🐛 BUG FIX: DESINCRONIZZAZIONE AUDIO-ANIMAZIONE (30 Dic 2025)
+
+### 🔍 PROBLEMA RILEVATO
+
+L'audio (ignition/retract) era **completamente desincronizzato** dall'animazione della lama nell'UI:
+- **Sintomo:** Ignition iniziava e veniva subito interrotto da retract
+- **Causa root:** AudioProvider reagiva a **OGNI cambio di stato** dal firmware, anche quelli intermedi
+- **Workflow errato:**
+  ```
+  User tap → Firmware: off → igniting → on (in <100ms)
+              ↓          ↓          ↓
+            Audio:  START   STOP    START  ❌ CAOS!
+  ```
+
+### 🔬 ANALISI DELL'ARCHITETTURA
+
+**Il sistema ha 2 componenti che gestivano le animazioni indipendentemente:**
+
+1. **LightsaberWidget** ([lightsaber_widget.dart:86-176](../AppMobile/flutter_led_saber/lib/widgets/lightsaber_widget.dart#L86-L176))
+   - Usa `AnimationController` con timing precisi:
+     - **Ignition:** 1500ms (forward)
+     - **Retraction:** 1000ms (reverse)
+   - **Ignora stati intermedi** se l'animazione è già in corso
+   - Logica (`_updateAnimationState`):
+     ```dart
+     case 'igniting':
+       if (!_ignitionController.isAnimating && !_ignitionController.isCompleted) {
+         _ignitionController.forward();  // Solo se non già in corso
+       }
+     ```
+
+2. **AudioProvider** (VECCHIO - BUGGY)
+   - Reagiva a **tutti gli stati** ricevuti dal firmware
+   - **Nessun timer**, nessuna gestione animazioni
+   - Logica buggy:
+     ```dart
+     case 'igniting': playIgnition() + startHum()
+     case 'on': if (from == 'igniting') { skip } ❌ NON FUNZIONAVA!
+     case 'retracting': stopHum() + playRetract()
+     case 'off': stopHum()
+     ```
+
+**Risultato:** Il firmware mandava `off→igniting→on→retracting→off` in pochi millisecondi, e l'audio eseguiva TUTTE le azioni senza rispettare i 1500ms/1000ms dell'animazione visiva.
+
+### ✅ SOLUZIONE IMPLEMENTATA
+
+**Principio:** **L'audio deve seguire ESATTAMENTE il timing dell'animazione del widget**
+
+Refactor completo di `audio_provider.dart` per **simulare l'AnimationController** del widget:
+
+#### 1. Aggiunti Timer per Sincronizzazione
+
+```dart
+// Animation timing - MUST match LightsaberWidget animation durations
+static const _ignitionDuration = Duration(milliseconds: 1500);
+static const _retractDuration = Duration(milliseconds: 1000);
+
+// State tracking
+String? _lastBladeState;
+String? _targetBladeState;      // Stato finale desiderato
+Timer? _animationTimer;         // Timer che simula AnimationController
+bool _isAnimating = false;      // Flag animazione in corso
+```
+
+#### 2. Logica di Transizione Identica al Widget
+
+```dart
+void _handleStateTransition(String? from, String to, bool isFirstSync) {
+  switch (to) {
+    case 'igniting':
+      // Analogo a: if (!_ignitionController.isAnimating && !_ignitionController.isCompleted)
+      if (!_isAnimating && from != 'on') {
+        _startIgnitionAnimation();  // ✅ IGNORA se già in corso
+      }
+      break;
+
+    case 'on':
+      if (from == 'igniting' && _isAnimating && _targetBladeState == 'on') {
+        // Firmware dice "on" ma stiamo ancora animando → IGNORA
+        print('🕒 On ricevuto ma ignition ancora in corso, continuo animazione');
+      }
+      break;
+
+    // ... stesso pattern per retracting/off
+  }
+}
+```
+
+#### 3. Animazioni con Timer Precisi
+
+```dart
+void _startIgnitionAnimation() {
+  print('[AudioProvider] 🔥 Ignition START (1500ms)');
+
+  _isAnimating = true;
+  _targetBladeState = 'on';
+  _animationTimer?.cancel();
+
+  // Audio immediato (come nel widget)
+  _audioService.playIgnition();
+  Future.delayed(const Duration(milliseconds: 50), () {
+    if (_targetBladeState == 'on') {
+      _audioService.startHum();
+    }
+  });
+
+  // Timer che SIMULA la durata dell'AnimationController
+  _animationTimer = Timer(_ignitionDuration, () {
+    print('[AudioProvider] 🔥 Ignition COMPLETE');
+    _isAnimating = false;
+    // Verifica finale stato
+    if (_targetBladeState == 'on' && !_audioService.isHumPlaying) {
+      _audioService.startHum();  // Safety fallback
+    }
+  });
+}
+
+void _startRetractAnimation() {
+  print('[AudioProvider] 🔴 Retract START (1000ms)');
+
+  _isAnimating = true;
+  _targetBladeState = 'off';
+  _animationTimer?.cancel();
+
+  // Audio immediato
+  _audioService.stopHum();
+  _audioService.playRetract();
+
+  // Timer 1000ms (come AnimationController reverse)
+  _animationTimer = Timer(_retractDuration, () {
+    print('[AudioProvider] 🔴 Retract COMPLETE');
+    _isAnimating = false;
+    _ensureAudioStopped();  // Safety cleanup
+  });
+}
+```
+
+### 📊 RISULTATO FINALE
+
+**Workflow corretto ora:**
+```
+User tap → Firmware: off → igniting → on
+            ↓
+          Audio: START Ignition (1500ms timer)
+                 ↓ (50ms)
+                 START Hum
+                 ↓ (firmware dice "on" dopo 100ms)
+                 IGNORA (timer ancora attivo)
+                 ↓ (1500ms totali)
+                 COMPLETE ✅
+```
+
+**Stati ignorati correttamente:**
+- `igniting` ricevuto durante animazione → SKIP
+- `on` ricevuto durante ignition → SKIP (timer gestisce)
+- `retracting` ricevuto durante animazione → SKIP
+- `off` ricevuto durante retract → SKIP (timer gestisce)
+
+### 🎯 COMPORTAMENTO ATTESO
+
+1. **User accende lama:**
+   - Firmware: `off → igniting`
+   - Audio: Parte ignition.wav + hum (loop)
+   - Animazione widget: 0.0 → 1.0 in 1500ms
+   - Audio timer: 1500ms (sincronizzato)
+   - Firmware: `igniting → on` (dopo ~100ms)
+   - Audio: **IGNORA** (sta ancora animando)
+   - Timer scade: `_isAnimating = false` ✅
+
+2. **User spegne lama:**
+   - Firmware: `on → retracting`
+   - Audio: Stop hum + parte retract.wav
+   - Animazione widget: 1.0 → 0.0 in 1000ms
+   - Audio timer: 1000ms (sincronizzato)
+   - Firmware: `retracting → off` (dopo ~100ms)
+   - Audio: **IGNORA** (sta ancora animando)
+   - Timer scade: `_isAnimating = false` ✅
+
+### 📁 FILE MODIFICATI
+
+- [audio_provider.dart](../AppMobile/flutter_led_saber/lib/providers/audio_provider.dart)
+  - Aggiunti: `_ignitionDuration`, `_retractDuration`, `_animationTimer`, `_isAnimating`, `_targetBladeState`
+  - Riscritto: `syncWithBladeState()` → `_handleStateTransition()`
+  - Nuovi metodi: `_startIgnitionAnimation()`, `_startRetractAnimation()`, `_ensureAudioStopped()`
+  - Aggiunto cleanup: `dispose()` cancella timer
+
+### 🧪 TEST ESEGUITO
+
+- ✅ Build APK: `app-release-audio-widget-sync.apk`
+- ✅ Timing verificati: 1500ms ignition, 1000ms retract
+- ✅ Stati intermedi ignorati correttamente
+- ✅ Nessuna desincronizzazione rilevata
+
+### 💡 LESSON LEARNED
+
+**Mai fidarsi degli stati del firmware per gestire animazioni UI!**
+
+Il firmware può mandare stati intermedi molto rapidamente (es. `igniting → on` in 100ms) perché la sua logica è diversa dall'UI. L'audio e le animazioni visive devono essere **sincronizzate tra loro**, non con il firmware.
+
+**Pattern corretto:**
+1. Widget UI: `AnimationController` con timing precisi
+2. Audio: `Timer` con **STESSI timing** del widget
+3. Firmware: Source of truth per lo **stato logico**, non per il timing
+
+---
+
 ## ✅ FINE ROADMAP
 
 Quando tutti i task sono completati, avrai:
@@ -1079,5 +1287,6 @@ Quando tutti i task sono completati, avrai:
 - ✅ Gesture sounds (ignition, retract, clash)
 - ✅ Volume/pitch/pan reattivi alla griglia 8x8
 - ✅ UI completa per controllo audio
+- ✅ **Audio sincronizzato perfettamente con animazione lama** (fix 30 Dic 2025)
 
-**Prossimo step:** inizia con Fase 1 (asset audio + dependencies)
+**Prossimo step:** Test approfonditi e fine tuning parametri swing
