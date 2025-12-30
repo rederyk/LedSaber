@@ -26,6 +26,9 @@ class AudioService {
 
   // Ducking configuration
   static const double _duckingVolume = 0.15;  // Volume ridotto durante eventi
+  static const double _swingMinPitch = 0.6;
+  static const double _swingMaxPitch = 1.8;
+  static const double _pitchSensitivity = 1.35;
   static const Duration _duckingFadeMs = Duration(milliseconds: 150);
 
   bool get isHumPlaying => _humPlaying;
@@ -349,10 +352,8 @@ class AudioService {
   }
 
   double _calculatePitchFromSpeed(double speed) {
-    const double minPitch = 0.7;
-    const double maxPitch = 1.5;
-    double normalized = (speed / 20.0).clamp(0.0, 1.0);
-    return minPitch + (normalized * (maxPitch - minPitch));
+    double normalized = ((speed / 20.0) * _pitchSensitivity).clamp(0.0, 1.0);
+    return _swingMinPitch + (normalized * (_swingMaxPitch - _swingMinPitch));
   }
 
   void dispose() {
