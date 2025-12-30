@@ -20,6 +20,10 @@ class AudioService {
   bool _ignitionPlaying = false;
   bool _retractPlaying = false;
 
+  // Swing modulation tracking (per interpolazione smooth)
+  double _currentPitch = 1.0;
+  double _currentSwingVolume = 0.0;
+
   // Ducking configuration
   static const double _duckingVolume = 0.15;  // Volume ridotto durante eventi
   static const Duration _duckingFadeMs = Duration(milliseconds: 150);
@@ -148,6 +152,12 @@ class AudioService {
 
     try {
       await _humPlayer.setAsset(_currentPack!.humBasePath);
+
+      // Reset pitch a normale all'avvio
+      _currentPitch = 1.0;
+      _currentSwingVolume = 0.0;
+      await _humPlayer.setSpeed(1.0);
+
       await _humPlayer.setVolume(_masterVolume);
       await _humPlayer.play();
       _humPlaying = true;
@@ -170,6 +180,10 @@ class AudioService {
       // Pulisci anche gli stati degli eventi quando fermi tutto
       _ignitionPlaying = false;
       _retractPlaying = false;
+
+      // Reset interpolazione per il prossimo avvio
+      _currentPitch = 1.0;
+      _currentSwingVolume = 0.0;
     } catch (e) {
       print('[AudioService] Errore stopHum: $e');
     }
@@ -277,36 +291,48 @@ class AudioService {
     if (!_soundsEnabled || _currentPack == null) return;
 
     try {
-      final volume = _calculateVolumeFromGrid(perturbationGrid);
-      final pitch = _calculatePitchFromSpeed(speed);
+      final targetVolume = _calculateVolumeFromGrid(perturbationGrid);
+      final targetPitch = _calculatePitchFromSpeed(speed);
 
       // PRIORITÀ: Abbassa swing durante eventi importanti (ignition/retract)
       if (isEventPlaying) {
-        if (_swingPlaying) {
-          await _swingPlayer.setVolume(0.0);  // Silenzio completo durante eventi
-        }
-        return;
+        return; // Non modificare l'hum durante eventi, rimane stabile
       }
 
-      if (volume < 0.05) {
-        if (_swingPlaying) {
-          _swingPlaying = false;
-          await _swingPlayer.stop();
-        }
-        return;
+      // Modula solo l'HUM player esistente invece di usare un player separato
+      if (!_humPlaying) {
+        return; // Se l'hum non sta suonando, non fare nulla
       }
 
-      if (!_swingPlaying) {
-        await _swingPlayer.setAsset(_currentPack!.humBasePath);
-        await _swingPlayer.play();
-        _swingPlaying = true;
+      // Interpolazione smooth per evitare salti bruschi nel pitch
+      final speedDiff = (targetPitch - _currentPitch).abs();
+
+      // Se il cambio è molto piccolo, usa il valore target direttamente
+      // Se è grande, interpola gradualmente (25% del delta per smoothness)
+      if (speedDiff < 0.05) {
+        _currentPitch = targetPitch;
+      } else {
+        _currentPitch += (targetPitch - _currentPitch) * 0.25;
       }
 
-      await _swingPlayer.setVolume(volume * _masterVolume);
-      await _swingPlayer.setSpeed(pitch);
+      // Interpolazione smooth anche per il volume
+      final volumeDiff = (targetVolume - _currentSwingVolume).abs();
+      if (volumeDiff < 0.05) {
+        _currentSwingVolume = targetVolume;
+      } else {
+        _currentSwingVolume += (targetVolume - _currentSwingVolume) * 0.3;
+      }
+
+      // Applica modulazione all'HUM player
+      await _humPlayer.setSpeed(_currentPitch.clamp(0.7, 1.5));
+
+      // Volume basato su movimento (fade smooth)
+      final baseVolume = _masterVolume * 0.6; // Volume base hum
+      final swingBoost = _currentSwingVolume * _masterVolume * 0.4; // Boost da movimento
+      await _humPlayer.setVolume(baseVolume + swingBoost);
+
     } catch (e) {
       print('[AudioService] Errore playSwing: $e');
-      _swingPlaying = false;
     }
   }
 
