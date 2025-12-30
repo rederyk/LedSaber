@@ -17,6 +17,9 @@ class MotionState {
   final int totalFrames;
   final int fps;
 
+  // Perturbation Grid (8x8 = 64 values) per audio swing modulato
+  final List<int>? perturbationGrid;
+
   MotionState({
     required this.enabled,
     required this.motionDetected,
@@ -29,10 +32,20 @@ class MotionState {
     required this.lastGestureTime,
     required this.totalFrames,
     required this.fps,
+    this.perturbationGrid,
   });
 
   /// Crea un MotionState da JSON ricevuto via BLE
   factory MotionState.fromJson(Map<String, dynamic> json) {
+    // Parse perturbation grid se presente (array di 64 valori 0-255)
+    List<int>? grid;
+    if (json['perturbationGrid'] != null) {
+      final gridData = json['perturbationGrid'];
+      if (gridData is List) {
+        grid = gridData.map((v) => (v as num).toInt()).toList();
+      }
+    }
+
     return MotionState(
       enabled: json['enabled'] ?? false,
       motionDetected: json['motionDetected'] ?? false,
@@ -45,12 +58,13 @@ class MotionState {
       lastGestureTime: json['lastGestureTime'] ?? 0,
       totalFrames: json['totalFrames'] ?? 0,
       fps: json['fps'] ?? 0,
+      perturbationGrid: grid,
     );
   }
 
   /// Converte il MotionState in JSON
   Map<String, dynamic> toJson() {
-    return {
+    final Map<String, dynamic> json = {
       'enabled': enabled,
       'motionDetected': motionDetected,
       'intensity': intensity,
@@ -63,6 +77,12 @@ class MotionState {
       'totalFrames': totalFrames,
       'fps': fps,
     };
+
+    if (perturbationGrid != null) {
+      json['perturbationGrid'] = perturbationGrid!;
+    }
+
+    return json;
   }
 
   @override

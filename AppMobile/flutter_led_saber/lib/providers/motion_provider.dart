@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import '../models/motion_state.dart';
 import '../services/motion_service.dart';
+import 'audio_provider.dart';
 
 /// Provider per gestire lo stato del Motion Detection & Gesture System
 class MotionProvider extends ChangeNotifier {
@@ -14,6 +15,9 @@ class MotionProvider extends ChangeNotifier {
 
   StreamSubscription<MotionState>? _stateSubscription;
   StreamSubscription<MotionEvent>? _eventSubscription;
+
+  // Audio integration
+  AudioProvider? _audioProvider;
 
   // Getters
   MotionState? get currentState => _currentState;
@@ -48,6 +52,12 @@ class MotionProvider extends ChangeNotifier {
     return false;
   }
 
+  /// Collega AudioProvider per integrazione audio reattiva
+  void setAudioProvider(AudioProvider? audioProvider) {
+    _audioProvider = audioProvider;
+    debugPrint('[MotionProvider] AudioProvider collegato: ${audioProvider != null}');
+  }
+
   /// Imposta il Motion Service e inizia ad ascoltare lo stato
   void setMotionService(MotionService? service, {List<BluetoothService>? allServices}) {
     // Se è lo stesso servizio, non fare nulla
@@ -80,6 +90,11 @@ class MotionProvider extends ChangeNotifier {
             _currentState = state;
             _errorMessage = null;
             notifyListeners();
+
+            // AUDIO INTEGRATION: Aggiorna swing reattivo
+            if (_audioProvider != null) {
+              _audioProvider!.updateSwing(state);
+            }
           }
         },
         onError: (error) {
@@ -95,6 +110,14 @@ class MotionProvider extends ChangeNotifier {
           debugPrint('[MotionProvider] Nuovo evento motion: $event');
           _lastEvent = event;
           notifyListeners();
+
+          // AUDIO INTEGRATION: Gestisci gesture sounds
+          if (_audioProvider != null && event.gesture != null) {
+            final gesture = event.gesture!.toLowerCase();
+            if (gesture != 'none') {
+              _audioProvider!.handleGesture(gesture);
+            }
+          }
         },
         onError: (error) {
           debugPrint('[MotionProvider] Errore stream eventi: $error');
