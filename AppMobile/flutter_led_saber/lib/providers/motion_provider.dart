@@ -111,10 +111,11 @@ class MotionProvider extends ChangeNotifier {
           _lastEvent = event;
           notifyListeners();
 
-          // AUDIO INTEGRATION: Gestisci gesture sounds
-          if (_audioProvider != null && event.gesture != null) {
+          // GESTURE: Solo clash suona direttamente
+          // Ignition/Retract vengono già gestiti dal firmware → bladeState cambia → audio si sincronizza
+          if (event.gesture != null && _audioProvider != null) {
             final gesture = event.gesture!.toLowerCase();
-            if (gesture != 'none') {
+            if (gesture == 'clash') {
               _audioProvider!.handleGesture(gesture);
             }
           }

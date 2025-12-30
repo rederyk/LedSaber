@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../models/led_state.dart';
 import '../models/effect.dart';
 import '../services/led_service.dart';
+import 'audio_provider.dart';
 
 /// Modalità del color picker sulla lama
 enum BladeColorPickerMode {
@@ -20,6 +21,9 @@ class LedProvider extends ChangeNotifier {
   String? _errorMessage;
 
   StreamSubscription<LedState>? _stateSubscription;
+
+  // Audio integration
+  AudioProvider? _audioProvider;
 
   /// Timer per debounce delle notifiche durante animazioni
   Timer? _debounceTimer;
@@ -45,6 +49,12 @@ class LedProvider extends ChangeNotifier {
   // Getters per modalità preview color picker
   bool get isPreviewMode => _isPreviewMode;
   BladeColorPickerMode get pickerMode => _pickerMode;
+
+  /// Collega AudioProvider per sincronizzare audio con bladeState
+  void setAudioProvider(AudioProvider? audioProvider) {
+    _audioProvider = audioProvider;
+    debugPrint('[LedProvider] AudioProvider collegato: ${audioProvider != null}');
+  }
 
   /// Imposta il LED Service e inizia ad ascoltare lo stato
   void setLedService(LedService? service) {
@@ -97,6 +107,13 @@ class LedProvider extends ChangeNotifier {
       _lastStateSignature = stateSignature;
       _currentState = state;
       _debounceTimer?.cancel();
+
+      // SYNC AUDIO: Sincronizza audio quando bladeState cambia
+      if (_audioProvider != null) {
+        debugPrint('[LedProvider] Sincronizzazione audio con bladeState: $currentBladeState');
+        _audioProvider!.syncWithBladeState(currentBladeState);
+      }
+
       notifyListeners();
     } else if (isAnimating) {
       // Durante animazione - applica debounce (solo ogni 100ms)

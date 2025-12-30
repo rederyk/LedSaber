@@ -19,15 +19,13 @@ class MyApp extends StatelessWidget {
     return MultiProvider(
       providers: [
         ChangeNotifierProvider(create: (_) => BleProvider()),
-        ChangeNotifierProvider(create: (_) => LedProvider()),
         ChangeNotifierProvider(create: (_) => AudioProvider()),
-        // AudioProvider ascolta LedProvider per sincronizzare l'audio con bladeState
-        ChangeNotifierProxyProvider<LedProvider, AudioProvider>(
-          create: (_) => AudioProvider(),
-          update: (_, ledProvider, audioProvider) {
-            // Sincronizza l'audio ogni volta che bladeState cambia
-            audioProvider!.syncWithBladeState(ledProvider.currentState?.bladeState);
-            return audioProvider;
+        // LedProvider sincronizza audio quando bladeState cambia
+        ChangeNotifierProxyProvider<AudioProvider, LedProvider>(
+          create: (_) => LedProvider(),
+          update: (_, audioProvider, ledProvider) {
+            ledProvider!.setAudioProvider(audioProvider);
+            return ledProvider;
           },
         ),
         ChangeNotifierProxyProvider<AudioProvider, MotionProvider>(
