@@ -27,10 +27,39 @@ Questo progetto nasce dall'idea di creare una semplice lampada e si è evoluto i
 
 ## Installazione e Uso
 
+### Firmware ESP32
+
 1.  **Clona il repository:** `git clone [URL del tuo repository]`
 2.  **Apri con PlatformIO:** Il progetto è configurato per PlatformIO. Apri la cartella con VSCode e l'estensione PlatformIO.
 3.  **Compila e Carica:** Connetti il tuo ESP32-CAM e usa il comando "Upload" di PlatformIO.
-4.  **Connettiti via BLE:** Usa un'app come "nRF Connect for Mobile" per connetterti al device "LedSaber-BLE" ed esplorare i servizi e le caratteristiche, oppure installa l app flutter ancora in test.
+4.  **Connettiti via BLE:** Usa un'app come "nRF Connect for Mobile" per connetterti al device "LedSaber-BLE" ed esplorare i servizi e le caratteristiche, oppure installa l'app Flutter (in test).
+
+### Controller BLE (Opzionale)
+
+Per controllare la spada da terminale:
+
+```bash
+cd /path/to/ledSaber
+./start.sh  # Crea venv, installa dipendenze, avvia controller
+```
+
+### Generatore Suoni Audio (Nuovo!)
+
+Per generare suoni lightsaber procedurali:
+
+```bash
+# Opzione 1: Usa il venv del progetto (consigliato)
+./start.sh  # Prima volta: installa anche numpy e scipy
+./venv/bin/python tools/audio_generator.py --pack all
+
+# Opzione 2: Installa dipendenze manualmente
+pip install numpy scipy
+python tools/audio_generator.py --pack jedi
+
+# Output: AppMobile/flutter_led_saber/assets/sounds/
+```
+
+Documentazione completa: [`docs/SOUND_ROADMAP.md`](docs/SOUND_ROADMAP.md) e [`docs/AUDIO_RESOURCES.md`](docs/AUDIO_RESOURCES.md)
 
 ## Licenza
 

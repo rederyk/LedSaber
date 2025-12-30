@@ -611,6 +611,43 @@ dimmed = math.scale8(255, 128)  // 255 * 128 / 256 = 127
 
 ## 📋 Roadmap Implementazione
 
+### **PRE-FLIGHT: Allineamento Specifiche (obbligatorio)**
+Prima di iniziare i milestone, chiudere questi punti per evitare mismatch tra app e firmware:
+
+- [ ] **Gestures DSL vs Firmware**: in DSL esistono `GESTURE_SWING/STAB/SPIN`, ma in firmware ci sono solo `NONE/IGNITION/RETRACT/CLASH` (`src/MotionProcessor.h`). Decidere se estendere il FW o ridurre DSL.
+- [ ] **Time API 24h vs 12h**: DSL parla di 0-23, ma Chrono usa 12h (`src/LedEffectEngine.cpp`). Definire standard unico e applicarlo a VM e compiler.
+- [ ] **motion.speed range**: in DSL 0-255, in FW è `float` px/frame (`src/MotionProcessor.h`). Definire mapping e clamp.
+- [ ] **Formato LOAD_CONST/endianness**: gli opcode sono 1 byte, ma l'esempio mostra costanti >255. Specificare chiaramente dimensione (8/16 bit) e endianness per bytecode.
+- [ ] **Overflow deterministico**: int16_t in C++ fa wrap, Dart no. L’emulatore/compilatore deve simulare overflow 16-bit per risultati identici.
+- [ ] **Budget esecuzione**: timeout 50ms confligge con target frame 15-16ms. Definire max cicli/opcode per frame (es. 5-8ms) e fallback sicuro.
+- [ ] **Protocollo BLE upload**: inviare bytecode come JSON array rischia MTU/fragmentation. Definire chunking, CRC, ack, max size, retry.
+- [ ] **Effetti custom nell’elenco BLE**: aggiungere `custom_0..3` in EffectsList e routing (`src/BLELedController.cpp`, `src/LedEffectEngine.cpp`).
+- [ ] **Persistenza LittleFS**: in caso di format si perdono script. Definire strategy di backup/restore o avviso utente.
+- [ ] **Variabili di sistema**: `foldPoint` usato in DSL ma non dichiarato come costante/var runtime. Aggiungere binding ufficiale.
+
+### 🔍 Dettagli da consolidare prima dell’implementazione
+1. **Gestures disponibili**: la DSL fa riferimento a `GESTURE_SWING/STAB/SPIN`, mentre `src/MotionProcessor.h` espone soltanto `NONE/IGNITION/RETRACT/CLASH`. Serve decidere se estendere le gesture disponibili nel firmware o limitare il linguaggio a quelle già supportate e mantenere il mapping sincronizzato lato compiler.
+2. **Time API 24h vs Chrono 12h**: `docs/CUSTOM_SCRIPT_SYSTEM.md` descrive `time.hours()` come 0‑23, ma `src/LedEffectEngine.cpp`/ChronoHybrid restituiscono il formato 12h. Conviene normalizzare su un solo standard e farlo valere in VM, compilatore e sincronizzazione BLE.
+3. **`motion.speed` e range**: la DSL espone 0‑255 ma il firmware (vedi `src/MotionProcessor.h`) misura velocità come float px/frame. Occorre definire un mapping stabilizzato, eventuali clamp e documentare la conversione condivisa app↔device.
+4. **Bytecode incompleto**: l’esempio in `Bytecode Format` mostra costanti maggiori di 255, mentre gli opcode sono a 1 byte. È necessario specificare chiaramente lunghezza/endianness di `LOAD_CONST`, il segno dei valori, la dimensione dei campi e la convenzione usata dal compilatore.
+5. **Overflow deterministico**: il runtime ESP32 usa `int16_t` con wrap-around, mentre Dart non overflowa. L’emulatore e il compilatore devono forzare l’aritmetica su 16 bit (modulo 2¹⁶) per garantire risultati identici tra anteprima/app e device.
+6. **Budget CPU vs render**: `LedEffectEngine::renderCustomScript()` prevede timeout 50ms, ma il render a 66 FPS richiede cicli ~15ms. Serve definire un budget realistico (es. 5‑8ms/script/frame) e una strategia di degrado (HALT o fallback) per evitare blocchi a motion/camera quando si superano i limiti.
+7. **Protocollo BLE per upload**: usare JSON array >1KB su `src/BLELedController.cpp` rischia MTU/fragmentation. Progettare chunking con CRC/ack (eventualmente base64 + CRC), definire dimensioni max e ritrasmissioni per assicurare upload affidabile.
+8. **Effetti custom nel routing**: `src/LedEffectEngine.cpp` e `src/BLELedController.cpp` devono esporre `custom_0..3` nell’`EffectsList` e nella logica di render. Occorre aggiornare enum/mapping per selezionare gli slot BLE e passare il bytecode corretto.
+9. **Persistenza LittleFS robusta**: `ConfigManager.cpp` può formattare LittleFS durante il mount, cancellando script salvati. Considerare backup temporaneo prima del format, warning all’utente o retry più tollerante per evitare perdita di dati.
+10. **`foldPoint` come API**: il DSL usa `foldPoint` nei sample, ma la VM attuale non dichiara questa variabile di sistema. Introdurla come binding `int foldPoint` (fornita da `LedEffectEngine`) e documentarne provenienza e intervallo previsto.
+
+### 💡 Limiti attuali vs effetti firmware complessi
+Con le risorse previste (stack 32, vars 16, aritmetica `int16`, bytecode ~1KB, API limitate) lo script può generare pattern statici/dinamici semplici, ma non replica gli effetti particellari complessi del firmware (che usano buffer persistenti, random multi-pass, logiche temporali molto fini e stato motion diretto). Per avvicinarsi alla "parità totale" servirebbero:
+
+- Stato persistente per frame (array/buffer scriptabili)
+- API per rumore/random e blending avanzati
+- Controllo temporale fine (delta time, scheduling)
+- Primitive per spawn/aggiornamento particelle (struct/pool)
+- Budget CPU/RAM più alto e sandbox meno restrittivo
+
+Se si preferisce una versione semplificata, valorizzare il trade-off nella documentazione/app per evitare aspettative errate. In alternativa possiamo definire quali effetti particellari specifici replicare e valutare estensioni mirate alla DSL/VM.
+
 ### **MILESTONE 1: Foundation (3-4 giorni)**
 
 #### **Giorno 1: Design & Prototyping**
