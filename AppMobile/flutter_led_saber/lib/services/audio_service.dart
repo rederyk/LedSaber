@@ -16,7 +16,16 @@ class AudioService {
   bool _humPlaying = false;
   bool _swingPlaying = false;
 
+  // Event state tracking (per gestire precedenze e ducking)
+  bool _ignitionPlaying = false;
+  bool _retractPlaying = false;
+
+  // Ducking configuration
+  static const double _duckingVolume = 0.15;  // Volume ridotto durante eventi
+  static const Duration _duckingFadeMs = Duration(milliseconds: 150);
+
   bool get isHumPlaying => _humPlaying;
+  bool get isEventPlaying => _ignitionPlaying || _retractPlaying;
 
   AudioService() {
     _initializePlayers();
@@ -51,7 +60,44 @@ class AudioService {
 
   void setMasterVolume(double volume) {
     _masterVolume = volume.clamp(0.0, 1.0);
-    if (_humPlaying) _humPlayer.setVolume(_masterVolume);
+    if (_humPlaying) {
+      // Applica ducking se c'è un evento in corso
+      final targetVolume = isEventPlaying ? _masterVolume * _duckingVolume : _masterVolume;
+      _humPlayer.setVolume(targetVolume);
+    }
+  }
+
+  // ════════════════════════════════════════════════════════════
+  // DUCKING - Abbassa hum durante eventi importanti
+  // ════════════════════════════════════════════════════════════
+
+  Future<void> _applyDucking() async {
+    if (!_humPlaying) return;
+
+    try {
+      final duckVolume = _masterVolume * _duckingVolume;
+      await _humPlayer.setVolume(duckVolume);
+      print('[AudioService] 🔉 Ducking applicato: ${(duckVolume * 100).toInt()}%');
+    } catch (e) {
+      print('[AudioService] Errore ducking: $e');
+    }
+  }
+
+  Future<void> _restoreDucking() async {
+    if (!_humPlaying || isEventPlaying) return;
+
+    try {
+      await _humPlayer.setVolume(_masterVolume);
+      print('[AudioService] 🔊 Volume hum ripristinato: ${(_masterVolume * 100).toInt()}%');
+
+      // Ripristina anche swing se era attivo prima
+      if (_swingPlaying) {
+        // Il volume verrà impostato dalla prossima chiamata a playSwing
+        print('[AudioService] 🔊 Swing riabilitato');
+      }
+    } catch (e) {
+      print('[AudioService] Errore restore ducking: $e');
+    }
   }
 
   // ════════════════════════════════════════════════════════════
@@ -62,12 +108,38 @@ class AudioService {
     if (!_soundsEnabled || _currentPack == null) return;
 
     try {
+      // PRIORITÀ: Ferma retract se in corso (ignition ha precedenza su retract incompleto)
+      if (_retractPlaying) {
+        await _retractPlayer.stop();
+        _retractPlaying = false;
+        print('[AudioService] ⚠️ Retract interrotto da Ignition');
+      }
+
+      // Imposta stato PRIMA di suonare (evita race condition)
+      _ignitionPlaying = true;
+
+      // Abbassa hum se già in esecuzione (ducking)
+      await _applyDucking();
+
+      // Suona ignition
       await _eventPlayer.setAsset(_currentPack!.ignitionPath);
       await _eventPlayer.setVolume(_masterVolume);
       await _eventPlayer.seek(Duration.zero);
       await _eventPlayer.play();
+
+      // Calcola durata approssimativa dell'ignition (per ripristinare volume dopo)
+      final duration = _eventPlayer.duration ?? const Duration(milliseconds: 1500);
+
+      // Ripristina volume hum dopo la fine dell'ignition
+      Future.delayed(duration + _duckingFadeMs, () {
+        _ignitionPlaying = false;
+        _restoreDucking();
+      });
+
+      print('[AudioService] 🔥 Ignition avviato (${duration.inMilliseconds}ms)');
     } catch (e) {
       print('[AudioService] Errore playIgnition: $e');
+      _ignitionPlaying = false;
     }
   }
 
@@ -94,6 +166,10 @@ class AudioService {
     try {
       await _humPlayer.stop();
       await stopSwing();
+
+      // Pulisci anche gli stati degli eventi quando fermi tutto
+      _ignitionPlaying = false;
+      _retractPlaying = false;
     } catch (e) {
       print('[AudioService] Errore stopHum: $e');
     }
@@ -114,13 +190,48 @@ class AudioService {
     if (!_soundsEnabled || _currentPack == null) return;
 
     try {
+      // PRIORITÀ MASSIMA: Retract interrompe qualsiasi evento in corso
+      if (_ignitionPlaying) {
+        await _eventPlayer.stop();
+        _ignitionPlaying = false;
+        print('[AudioService] ⚠️ Ignition interrotto da Retract (priorità alta)');
+      }
+
+      // Imposta stato PRIMA di suonare
+      _retractPlaying = true;
+
+      // Abbassa hum se in esecuzione (ducking più aggressivo per retract)
+      if (_humPlaying) {
+        final retractDuckVolume = _masterVolume * (_duckingVolume * 0.5); // Ancora più basso
+        await _humPlayer.setVolume(retractDuckVolume);
+        print('[AudioService] 🔉 Ducking retract applicato: ${(retractDuckVolume * 100).toInt()}%');
+      }
+
+      // Abbassa anche swing se attivo
+      if (_swingPlaying) {
+        await _swingPlayer.setVolume(0.0);
+      }
+
+      // Suona retract
       await _retractPlayer.stop();
       await _retractPlayer.setAsset(_currentPack!.retractPath);
       await _retractPlayer.setVolume(_masterVolume);
       await _retractPlayer.seek(Duration.zero);
       await _retractPlayer.play();
+
+      // Calcola durata retract
+      final duration = _retractPlayer.duration ?? const Duration(milliseconds: 1500);
+
+      // Ripristina volumi dopo retract (ma solo se hum ancora attivo)
+      Future.delayed(duration + _duckingFadeMs, () {
+        _retractPlaying = false;
+        _restoreDucking();
+      });
+
+      print('[AudioService] 🔴 Retract avviato (${duration.inMilliseconds}ms)');
     } catch (e) {
       print('[AudioService] Errore playRetract: $e');
+      _retractPlaying = false;
     }
   }
 
@@ -128,10 +239,27 @@ class AudioService {
     if (!_soundsEnabled || _currentPack == null) return;
 
     try {
+      // PRIORITÀ: Clash NON interrompe ignition/retract (hanno priorità più alta)
+      // ma può suonare in parallelo se _eventPlayer è libero
+
+      // Se ignition è in corso, usa un approccio più delicato
+      if (_ignitionPlaying) {
+        print('[AudioService] ⚠️ Clash ritardato: ignition in corso');
+        return; // Ignora clash durante ignition
+      }
+
+      // Retract ha priorità assoluta, non interrompere
+      if (_retractPlaying) {
+        print('[AudioService] ⚠️ Clash ignorato: retract in corso');
+        return;
+      }
+
       await _eventPlayer.setAsset(_currentPack!.clashPath);
       await _eventPlayer.setVolume(_masterVolume);
       await _eventPlayer.seek(Duration.zero);
       await _eventPlayer.play();
+
+      print('[AudioService] ⚔️ Clash suonato');
     } catch (e) {
       print('[AudioService] Errore playClash: $e');
     }
@@ -151,6 +279,14 @@ class AudioService {
     try {
       final volume = _calculateVolumeFromGrid(perturbationGrid);
       final pitch = _calculatePitchFromSpeed(speed);
+
+      // PRIORITÀ: Abbassa swing durante eventi importanti (ignition/retract)
+      if (isEventPlaying) {
+        if (_swingPlaying) {
+          await _swingPlayer.setVolume(0.0);  // Silenzio completo durante eventi
+        }
+        return;
+      }
 
       if (volume < 0.05) {
         if (_swingPlaying) {

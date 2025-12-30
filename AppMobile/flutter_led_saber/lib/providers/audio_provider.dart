@@ -11,6 +11,9 @@ class AudioProvider extends ChangeNotifier {
   double _masterVolume = 0.8;
   String _currentSoundPackId = 'jedi';
 
+  // CRITICAL: Source of truth - stato desiderato dalla UI
+  String? _desiredBladeState;
+
   // Getters
   bool get soundsEnabled => _soundsEnabled;
   double get masterVolume => _masterVolume;
@@ -18,12 +21,37 @@ class AudioProvider extends ChangeNotifier {
   List<SoundPack> get availableSoundPacks => SoundPackRegistry.availablePacks;
   SoundPack? get currentSoundPack => SoundPackRegistry.getPackById(_currentSoundPackId);
 
+  // Getter per verificare se la lama DOVREBBE essere spenta secondo UI
+  bool get _shouldBeOff => _desiredBladeState == 'off' || _desiredBladeState == null;
+
   AudioProvider() {
     _initialize();
+    _startSyncWatchdog();
   }
 
   Future<void> _initialize() async {
     await _audioService.setSoundPack(_currentSoundPackId);
+  }
+
+  /// Watchdog che verifica periodicamente la sincronizzazione audio-UI
+  void _startSyncWatchdog() {
+    // Controlla ogni 500ms se c'è desincronizzazione
+    Stream.periodic(const Duration(milliseconds: 500)).listen((_) {
+      if (!_soundsEnabled) return;
+
+      // Se UI dice OFF ma audio sta suonando -> ERRORE CRITICO
+      if (_shouldBeOff && _audioService.isHumPlaying) {
+        print('[AudioProvider] 🚨 WATCHDOG: Desincronizzazione rilevata! UI=OFF ma Hum=ON');
+        print('[AudioProvider] 🔧 WATCHDOG: Correggo forzando stopHum()');
+        _audioService.stopHum();
+      }
+
+      // Se UI dice ON ma audio non suona -> Avviso (può essere normale se in pausa)
+      if (!_shouldBeOff && !_audioService.isHumPlaying) {
+        // Questo è normale durante ignition o se appena acceso, quindi solo log debug
+        // print('[AudioProvider] ℹ️ WATCHDOG: UI=ON ma Hum=OFF (normale durante transizioni)');
+      }
+    });
   }
 
   // ══════════════════════════════════════════════════════════
@@ -59,30 +87,54 @@ class AudioProvider extends ChangeNotifier {
 
   /// Sincronizza l'audio con lo stato della lama (chiamato dalla UI)
   void syncWithBladeState(String? bladeState) {
-    if (!_soundsEnabled || bladeState == null) return;
+    // CRITICAL: Salva SEMPRE lo stato desiderato dalla UI
+    _desiredBladeState = bladeState;
+
+    print('[AudioProvider] 🎯 UI richiede bladeState: $bladeState');
+
+    if (!_soundsEnabled) {
+      print('[AudioProvider] ⚠️ Suoni disabilitati, ignoro sync');
+      return;
+    }
+
+    if (bladeState == null) {
+      print('[AudioProvider] ⚠️ bladeState null, assumo OFF');
+      _audioService.stopHum();
+      return;
+    }
 
     switch (bladeState) {
       case 'igniting':
         // Lama si accende -> suona ignition + avvia loop
+        print('[AudioProvider] 🔥 Igniting -> playIgnition + startHum');
         _audioService.playIgnition();
         Future.delayed(const Duration(milliseconds: 50), () {
-          _audioService.startHum();
+          // Controllo di sicurezza: verifica che la UI non abbia cambiato idea
+          if (_desiredBladeState == 'igniting' || _desiredBladeState == 'on') {
+            _audioService.startHum();
+          } else {
+            print('[AudioProvider] ⚠️ StartHum annullato: UI cambiata a $_desiredBladeState');
+          }
         });
         break;
 
       case 'on':
         // Lama accesa -> assicura loop attivo
+        print('[AudioProvider] ✅ On -> startHum');
         _audioService.startHum();
         break;
 
       case 'retracting':
         // Lama si spegne -> ferma tutto + suona retract
+        print('[AudioProvider] 🔴 Retracting -> stopHum + playRetract');
+        // CRITICAL: stopHum DEVE essere chiamato SEMPRE quando UI dice retracting
         _audioService.stopHum();
         _audioService.playRetract();
         break;
 
       case 'off':
-        // Lama spenta -> ferma tutto
+        // Lama spenta -> ferma tutto IMMEDIATAMENTE
+        print('[AudioProvider] ⭕ Off -> stopHum FORZATO');
         _audioService.stopHum();
         break;
     }
@@ -105,7 +157,21 @@ class AudioProvider extends ChangeNotifier {
   // ══════════════════════════════════════════════════════════
 
   Future<void> updateSwing(MotionState state) async {
-    if (!_soundsEnabled || !_audioService.isHumPlaying) return;
+    if (!_soundsEnabled) return;
+
+    // CRITICAL: Controllo di sicurezza PRIORITARIO basato su UI
+    // Se la UI dice che la lama è spenta, NON permettere swing
+    if (_shouldBeOff) {
+      // Se hum sta ancora suonando ma UI dice OFF, fermalo immediatamente
+      if (_audioService.isHumPlaying) {
+        print('[AudioProvider] 🚨 SICUREZZA: Hum attivo ma UI dice OFF! Fermo tutto.');
+        await _audioService.stopHum();
+      }
+      return;
+    }
+
+    // Controllo secondario: verifica che hum sia effettivamente attivo
+    if (!_audioService.isHumPlaying) return;
 
     final grid = state.perturbationGrid ?? _generateGridFromIntensity(state.intensity);
 
