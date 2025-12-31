@@ -149,7 +149,8 @@ private:
         PLASMA = 2,         // Blend arcobaleno fluido
         DIGITAL_GLITCH = 3, // Scan lines RGB
         INFERNO = 4,        // Magma/Embers (match for Fire Clock)
-        STORM = 5           // Dark clouds/Electric (match for Lightning)
+        STORM = 5,          // Dark clouds/Electric (match for Lightning)
+        CIRCADIAN_RHYTHM = 6 // Wellness: Color temperature 2700K-6500K cycle
     };
 
     enum class ChronoSecondTheme : uint8_t {
@@ -210,6 +211,7 @@ private:
     void renderChronoHours_Digital(uint16_t foldPoint, CRGB baseColor, uint8_t seconds);
     void renderChronoHours_Inferno(uint16_t foldPoint, CRGB baseColor, uint8_t hours);
     void renderChronoHours_Storm(uint16_t foldPoint, CRGB baseColor, uint8_t hours);
+    void renderChronoHours_CircadianRhythm(uint16_t foldPoint, uint8_t hours, uint8_t minutes, bool wellnessMode);
 
     // Second/minute cursor themes
     void renderChronoSeconds_Classic(uint16_t foldPoint, uint8_t minutes, uint8_t seconds, float visualOffset, CRGB baseColor);
@@ -218,6 +220,11 @@ private:
     void renderChronoSeconds_Lightning(uint16_t foldPoint, uint8_t minutes, uint8_t seconds, float visualOffset, CRGB baseColor);
     void renderChronoSeconds_Particle(uint16_t foldPoint, uint8_t minutes, uint8_t seconds, float visualOffset, CRGB baseColor);
     void renderChronoSeconds_Quantum(uint16_t foldPoint, uint8_t minutes, uint8_t seconds, float visualOffset, CRGB baseColor);
+    void renderChronoMinutes_CircadianBreathing(uint16_t foldPoint, uint8_t bpm);
+
+    // Helper functions for wellness mode
+    CRGB getCircadianColorTemp(float hourFloat);
+    CRGB kelvinToRGB(uint16_t kelvin);
 
     // ═══════════════════════════════════════════════════════════
     // GESTURE-TRIGGERED EFFECTS

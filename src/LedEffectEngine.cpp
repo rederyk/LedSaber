@@ -3024,38 +3024,48 @@ void LedEffectEngine::renderChronoHybrid(const LedState& state, const uint8_t pe
         case 5:  // Storm
             renderChronoHours_Storm(state.foldPoint, baseColor, hours);
             break;
+        case 6:  // Circadian Rhythm
+            renderChronoHours_CircadianRhythm(state.foldPoint, hours, minutes, state.chronoWellnessMode);
+            break;
         default:
             renderChronoHours_Classic(state.foldPoint, baseColor);
             break;
     }
 
     // B. CURSORI SECONDI/MINUTI (tema selezionabile)
-    switch (state.chronoSecondTheme) {
-        case 0:  // Classic
-            renderChronoSeconds_Classic(state.foldPoint, minutes, seconds, _visualOffset, baseColor);
-            break;
-        case 1:  // Time Spiral
-            renderChronoSeconds_TimeSpiral(state.foldPoint, minutes, seconds, _visualOffset, baseColor);
-            break;
-        case 2:  // Fire Clock
-            renderChronoSeconds_FireClock(state.foldPoint, minutes, seconds, _visualOffset, baseColor);
-            break;
-        case 3:  // Lightning
-            renderChronoSeconds_Lightning(state.foldPoint, minutes, seconds, _visualOffset, baseColor);
-            break;
-        case 4:  // Particle Flow
-            renderChronoSeconds_Particle(state.foldPoint, minutes, seconds, _visualOffset, baseColor);
-            break;
-        case 5:  // Quantum Wave
-            renderChronoSeconds_Quantum(state.foldPoint, minutes, seconds, _visualOffset, baseColor);
-            break;
-        default:
-            renderChronoSeconds_Classic(state.foldPoint, minutes, seconds, _visualOffset, baseColor);
-            break;
+    // In wellness mode, salta i cursori discreti
+    if (!state.chronoWellnessMode) {
+        switch (state.chronoSecondTheme) {
+            case 0:  // Classic
+                renderChronoSeconds_Classic(state.foldPoint, minutes, seconds, _visualOffset, baseColor);
+                break;
+            case 1:  // Time Spiral
+                renderChronoSeconds_TimeSpiral(state.foldPoint, minutes, seconds, _visualOffset, baseColor);
+                break;
+            case 2:  // Fire Clock
+                renderChronoSeconds_FireClock(state.foldPoint, minutes, seconds, _visualOffset, baseColor);
+                break;
+            case 3:  // Lightning
+                renderChronoSeconds_Lightning(state.foldPoint, minutes, seconds, _visualOffset, baseColor);
+                break;
+            case 4:  // Particle Flow
+                renderChronoSeconds_Particle(state.foldPoint, minutes, seconds, _visualOffset, baseColor);
+                break;
+            case 5:  // Quantum Wave
+                renderChronoSeconds_Quantum(state.foldPoint, minutes, seconds, _visualOffset, baseColor);
+                break;
+            default:
+                renderChronoSeconds_Classic(state.foldPoint, minutes, seconds, _visualOffset, baseColor);
+                break;
+        }
     }
 
-    // C. BATTITO GLOBALE (opzionale, solo per temi classic)
-    if (state.chronoSecondTheme == 0) {
+    // C. BATTITO GLOBALE / BREATHING
+    if (state.chronoWellnessMode) {
+        // Wellness mode: breathing lento e rilassante
+        renderChronoMinutes_CircadianBreathing(state.foldPoint, state.breathingRate);
+    } else if (state.chronoSecondTheme == 0) {
+        // Standard mode classic: battito sincronizzato con secondi
         uint16_t millisInSecond = (now % 1000);
         uint8_t pulseBrightness;
 
@@ -3290,6 +3300,69 @@ void LedEffectEngine::renderChronoHours_Storm(uint16_t foldPoint, CRGB baseColor
             markerColor = CHSV(160, 255, 50); // Blu scuro
         }
         setLedPair(pos, foldPoint, markerColor);
+    }
+}
+
+void LedEffectEngine::renderChronoHours_CircadianRhythm(uint16_t foldPoint, uint8_t hours, uint8_t minutes, bool wellnessMode) {
+    // TEMA CIRCADIAN RHYTHM: Transizione temperatura colore naturale nel ciclo 24h
+    // Simula il passaggio del giorno con temperature colore scientificamente calibrate
+
+    // Calcola ora come float (0.0-24.0) per transizioni smooth
+    float hourFloat = hours + (minutes / 60.0f);
+
+    // Ottieni colore temperatura corrispondente all'ora
+    CRGB circadianColor = getCircadianColorTemp(hourFloat);
+
+    if (wellnessMode) {
+        // WELLNESS MODE: Riempi tutta la lama con gradiente temporale smooth
+        // No marker discreti, solo transizione graduale
+
+        for (uint16_t i = 0; i < foldPoint; i++) {
+            // Leggero gradiente spaziale per profondità visiva
+            // Più luminoso al centro, leggermente più scuro agli estremi
+            float positionFactor = 1.0f - (abs((int)i - (int)(foldPoint / 2)) / (float)(foldPoint / 2)) * 0.15f;
+
+            CRGB pixelColor = circadianColor;
+            pixelColor.nscale8((uint8_t)(positionFactor * 255));
+
+            setLedPair(i, foldPoint, pixelColor);
+        }
+    } else {
+        // STANDARD MODE: Background + marker ore
+
+        // Background: Colore circadiano attenuato
+        CRGB bgColor = circadianColor;
+        bgColor.nscale8(30);  // 12% brightness per background
+        fill_solid(_leds, _numLeds, bgColor);
+
+        // Marker delle 12 ore con colore circadiano corrente
+        for (uint8_t h = 0; h < 12; h++) {
+            uint16_t pos = map(h, 0, 12, 0, foldPoint);
+            bool isCurrent = (h == hours);
+
+            CRGB markerColor = circadianColor;
+            if (isCurrent) {
+                // Ora corrente: più brillante
+                markerColor.nscale8(200);  // 78% brightness
+            } else {
+                // Altre ore: più dim
+                markerColor.nscale8(60);   // 23% brightness
+            }
+
+            // Glow esteso per ora corrente (3 LED)
+            if (isCurrent) {
+                for (int8_t j = -1; j <= 1; j++) {
+                    int16_t glowPos = pos + j;
+                    if (glowPos >= 0 && glowPos < foldPoint) {
+                        CRGB glow = markerColor;
+                        glow.nscale8(abs(j) == 1 ? 128 : 255);  // Fade sui lati
+                        setLedPair(glowPos, foldPoint, glow);
+                    }
+                }
+            } else {
+                setLedPair(pos, foldPoint, markerColor);
+            }
+        }
     }
 }
 
@@ -3554,4 +3627,93 @@ void LedEffectEngine::renderChronoSeconds_Quantum(uint16_t foldPoint, uint8_t mi
 
         setLedPair(i, foldPoint, quantumColor);
     }
+}
+
+void LedEffectEngine::renderChronoMinutes_CircadianBreathing(uint16_t foldPoint, uint8_t bpm) {
+    // BREATHING EFFECT: Pulsazione lenta globale per wellness mode
+    // Simula respirazione meditativa (default 5 BPM = 12 secondi per ciclo)
+
+    // Calcola breathing curve con beatsin8
+    // BPM range: 2-8 (slow meditation to relaxed)
+    uint8_t breathPhase = beatsin8(bpm, 150, 255);  // Min 58%, Max 100%
+
+    // Applica modulazione globale a tutti i LED
+    for (uint16_t i = 0; i < _numLeds; i++) {
+        _leds[i].nscale8(breathPhase);
+    }
+}
+
+// ═══════════════════════════════════════════════════════════
+// WELLNESS MODE HELPER FUNCTIONS
+// ═══════════════════════════════════════════════════════════
+
+CRGB LedEffectEngine::getCircadianColorTemp(float hourFloat) {
+    // Mappa ora (0.0-24.0) su temperatura colore Kelvin (2200K-6500K)
+    // Basato su ciclo circadiano naturale
+
+    uint16_t kelvin;
+
+    if (hourFloat >= 0.0f && hourFloat < 5.0f) {
+        // 00:00-05:00: Notte profonda - Blu scuro warm (2700K)
+        kelvin = 2700;
+    } else if (hourFloat >= 5.0f && hourFloat < 7.0f) {
+        // 05:00-07:00: Alba - Arancio/Rosa crescente (3000K-4500K)
+        kelvin = map((int)(hourFloat * 100), 500, 700, 3000, 4500);
+    } else if (hourFloat >= 7.0f && hourFloat < 12.0f) {
+        // 07:00-12:00: Mattina - Bianco freddo energizzante (4500K-6500K)
+        kelvin = map((int)(hourFloat * 100), 700, 1200, 4500, 6500);
+    } else if (hourFloat >= 12.0f && hourFloat < 17.0f) {
+        // 12:00-17:00: Pomeriggio - Bianco neutro stabile (5500K)
+        kelvin = 5500;
+    } else if (hourFloat >= 17.0f && hourFloat < 20.0f) {
+        // 17:00-20:00: Tramonto - Ambra calda (5500K-3200K)
+        kelvin = map((int)(hourFloat * 100), 1700, 2000, 5500, 3200);
+    } else {
+        // 20:00-24:00: Sera - Rosso/Viola/Blu notte (3200K-2200K)
+        kelvin = map((int)(hourFloat * 100), 2000, 2400, 3200, 2200);
+    }
+
+    return kelvinToRGB(kelvin);
+}
+
+CRGB LedEffectEngine::kelvinToRGB(uint16_t kelvin) {
+    // Algoritmo di conversione temperatura Kelvin → RGB
+    // Range: 2200K (candela) → 6500K (cielo coperto)
+    // Fonte: Tanner Helland algorithm (semplificato)
+
+    float temp = kelvin / 100.0f;
+    float red, green, blue;
+
+    // RED calculation
+    if (temp <= 66) {
+        red = 255;
+    } else {
+        red = temp - 60;
+        red = 329.698727446f * pow(red, -0.1332047592f);
+        red = constrain(red, 0, 255);
+    }
+
+    // GREEN calculation
+    if (temp <= 66) {
+        green = temp;
+        green = 99.4708025861f * log(green) - 161.1195681661f;
+        green = constrain(green, 0, 255);
+    } else {
+        green = temp - 60;
+        green = 288.1221695283f * pow(green, -0.0755148492f);
+        green = constrain(green, 0, 255);
+    }
+
+    // BLUE calculation
+    if (temp >= 66) {
+        blue = 255;
+    } else if (temp <= 19) {
+        blue = 0;
+    } else {
+        blue = temp - 10;
+        blue = 138.5177312231f * log(blue) - 305.0447927307f;
+        blue = constrain(blue, 0, 255);
+    }
+
+    return CRGB((uint8_t)red, (uint8_t)green, (uint8_t)blue);
 }

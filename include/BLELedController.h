@@ -46,8 +46,13 @@ struct LedState {
     uint32_t millisAtSync = 0;   // millis() al momento del sync
 
     // Chrono themes (modulare: marker ore + cursori secondi/minuti)
-    uint8_t chronoHourTheme = 0;   // 0=Classic, 1=Neon, 2=Plasma, 3=Digital
+    uint8_t chronoHourTheme = 0;   // 0=Classic, 1=Neon, 2=Plasma, 3=Digital, 4=Inferno, 5=Storm, 6=CircadianRhythm
     uint8_t chronoSecondTheme = 0; // 0=Classic, 1=TimeSpiral, 2=FireClock, 3=Lightning, 4=Particle, 5=Quantum
+
+    // Wellness Circadian Mode
+    bool chronoWellnessMode = false;  // true = wellness (slow transitions, breathing)
+    uint8_t breathingRate = 5;        // BPM for breathing effect (2-8, default 5)
+    uint16_t chronoCycleDuration = 1440; // Minutes for full cycle (default 1440 = 24h)
 
     // Gesture effect override (per CLASH gesture)
     String gestureClashEffect = "clash";
