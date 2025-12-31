@@ -144,13 +144,18 @@ private:
 
     // Chrono theme enums
     enum class ChronoHourTheme : uint8_t {
-        CLASSIC = 0,        // Marker statici uniformi
-        NEON_CYBERPUNK = 1, // Colori vibranti con glow
-        PLASMA = 2,         // Blend arcobaleno fluido
-        DIGITAL_GLITCH = 3, // Scan lines RGB
-        INFERNO = 4,        // Magma/Embers (match for Fire Clock)
-        STORM = 5,          // Dark clouds/Electric (match for Lightning)
-        CIRCADIAN_RHYTHM = 6 // Wellness: Color temperature 2700K-6500K cycle
+        CLASSIC = 0,         // Marker statici uniformi
+        NEON_CYBERPUNK = 1,  // Colori vibranti con glow
+        PLASMA = 2,          // Blend arcobaleno fluido
+        DIGITAL_GLITCH = 3,  // Scan lines RGB
+        INFERNO = 4,         // Magma/Embers (match for Fire Clock)
+        STORM = 5,           // Dark clouds/Electric (match for Lightning)
+        CIRCADIAN_RHYTHM = 6,// Wellness: Color temperature 2700K-6500K cycle
+        FOREST_CANOPY = 7,   // Wellness: Verde filtrato, brezza, fireflies
+        OCEAN_DEPTH = 8,     // Wellness: Zone marine, onde, plankton
+        EMBER_BED = 9,       // Wellness: Braci lente, respiro fuoco, scintille
+        MOON_PHASES = 10,    // Wellness: Ciclo lunare, glow, starfield
+        AURORA = 11          // Wellness: Aurora boreale, curtain waves
     };
 
     enum class ChronoSecondTheme : uint8_t {
@@ -212,6 +217,11 @@ private:
     void renderChronoHours_Inferno(uint16_t foldPoint, CRGB baseColor, uint8_t hours);
     void renderChronoHours_Storm(uint16_t foldPoint, CRGB baseColor, uint8_t hours);
     void renderChronoHours_CircadianRhythm(uint16_t foldPoint, uint8_t hours, uint8_t minutes, bool wellnessMode);
+    void renderChronoHours_ForestCanopy(uint16_t foldPoint, uint8_t hours, uint8_t minutes, bool wellnessMode);
+    void renderChronoHours_OceanDepth(uint16_t foldPoint, uint8_t hours, uint8_t minutes, bool wellnessMode);
+    void renderChronoHours_EmberBed(uint16_t foldPoint, uint8_t hours, uint8_t minutes, bool wellnessMode);
+    void renderChronoHours_MoonPhases(uint16_t foldPoint, uint8_t hours, uint8_t minutes, bool wellnessMode);
+    void renderChronoHours_Aurora(uint16_t foldPoint, uint8_t hours, uint8_t minutes, bool wellnessMode);
 
     // Second/minute cursor themes
     void renderChronoSeconds_Classic(uint16_t foldPoint, uint8_t minutes, uint8_t seconds, float visualOffset, CRGB baseColor);
@@ -220,11 +230,24 @@ private:
     void renderChronoSeconds_Lightning(uint16_t foldPoint, uint8_t minutes, uint8_t seconds, float visualOffset, CRGB baseColor);
     void renderChronoSeconds_Particle(uint16_t foldPoint, uint8_t minutes, uint8_t seconds, float visualOffset, CRGB baseColor);
     void renderChronoSeconds_Quantum(uint16_t foldPoint, uint8_t minutes, uint8_t seconds, float visualOffset, CRGB baseColor);
+
+    // Wellness mode minute/second renderers
     void renderChronoMinutes_CircadianBreathing(uint16_t foldPoint, uint8_t bpm);
+    void renderChronoMinutes_Breeze(uint16_t foldPoint, uint8_t minutes);
+    void renderChronoMinutes_TideWave(uint16_t foldPoint, uint8_t minutes);
+    void renderChronoMinutes_EmberBreath(uint16_t foldPoint, uint8_t minutes);
+    void renderChronoMinutes_LunarGlow(uint16_t foldPoint, uint8_t minutes, float moonPhase);
+    void renderChronoMinutes_AuroraCurtains(uint16_t foldPoint, uint8_t minutes);
+
+    void renderWellnessFireflies(uint16_t foldPoint);
+    void renderWellnessPlankton(uint16_t foldPoint);
+    void renderWellnessEmberSparks(uint16_t foldPoint);
+    void renderWellnessStarfield(uint16_t foldPoint);
 
     // Helper functions for wellness mode
     CRGB getCircadianColorTemp(float hourFloat);
     CRGB kelvinToRGB(uint16_t kelvin);
+    float calculateMoonPhase(float hourFloat);
 
     // ═══════════════════════════════════════════════════════════
     // GESTURE-TRIGGERED EFFECTS

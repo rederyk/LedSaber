@@ -16,6 +16,10 @@ class LedState {
   final int chronoHourTheme;
   final int chronoSecondTheme;
 
+  // Wellness mode
+  final bool chronoWellnessMode;
+  final int breathingRate;
+
   LedState({
     required this.r,
     required this.g,
@@ -29,6 +33,8 @@ class LedState {
     required this.statusLedBrightness,
     required this.chronoHourTheme,
     required this.chronoSecondTheme,
+    required this.chronoWellnessMode,
+    required this.breathingRate,
   });
 
   /// Crea un LedState da JSON ricevuto via BLE
@@ -46,6 +52,8 @@ class LedState {
       statusLedBrightness: json['statusLedBrightness'] ?? 32,
       chronoHourTheme: json['chronoHourTheme'] ?? 0,
       chronoSecondTheme: json['chronoSecondTheme'] ?? 0,
+      chronoWellnessMode: json['chronoWellnessMode'] ?? false,
+      breathingRate: json['breathingRate'] ?? 5,
     );
   }
 
@@ -64,6 +72,8 @@ class LedState {
       'statusLedBrightness': statusLedBrightness,
       'chronoHourTheme': chronoHourTheme,
       'chronoSecondTheme': chronoSecondTheme,
+      'chronoWellnessMode': chronoWellnessMode,
+      'breathingRate': breathingRate,
     };
   }
 
@@ -81,6 +91,8 @@ class LedState {
     int? statusLedBrightness,
     int? chronoHourTheme,
     int? chronoSecondTheme,
+    bool? chronoWellnessMode,
+    int? breathingRate,
   }) {
     return LedState(
       r: r ?? this.r,
@@ -95,6 +107,8 @@ class LedState {
       statusLedBrightness: statusLedBrightness ?? this.statusLedBrightness,
       chronoHourTheme: chronoHourTheme ?? this.chronoHourTheme,
       chronoSecondTheme: chronoSecondTheme ?? this.chronoSecondTheme,
+      chronoWellnessMode: chronoWellnessMode ?? this.chronoWellnessMode,
+      breathingRate: breathingRate ?? this.breathingRate,
     );
   }
 

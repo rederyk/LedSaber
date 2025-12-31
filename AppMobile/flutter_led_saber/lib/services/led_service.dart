@@ -233,6 +233,8 @@ class LedService {
     int? speed,
     int? chronoHourTheme,
     int? chronoSecondTheme,
+    bool? chronoWellnessMode,
+    int? breathingRate,
   }) async {
     if (_effectChar == null) {
       throw Exception('LED Effect characteristic non trovata');
@@ -244,6 +246,8 @@ class LedService {
       if (speed != null) payload['speed'] = speed;
       if (chronoHourTheme != null) payload['chronoHourTheme'] = chronoHourTheme;
       if (chronoSecondTheme != null) payload['chronoSecondTheme'] = chronoSecondTheme;
+      if (chronoWellnessMode != null) payload['chronoWellnessMode'] = chronoWellnessMode;
+      if (breathingRate != null) payload['breathingRate'] = breathingRate;
 
       final json = jsonEncode(payload);
       await _effectChar!.write(

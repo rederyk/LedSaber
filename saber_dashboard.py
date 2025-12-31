@@ -696,9 +696,11 @@ class ChronoThemesCard(Static):
 
     chrono_hour_theme: reactive[int] = reactive(0)
     chrono_second_theme: reactive[int] = reactive(0)
+    wellness_mode: reactive[bool] = reactive(False)
+    breathing_rate: reactive[int] = reactive(5)
     connected: reactive[bool] = reactive(False)
 
-    HOUR_THEMES = ["Classic", "Neon", "Plasma", "Digital", "Inferno", "Storm"]
+    HOUR_THEMES = ["Classic", "Neon", "Plasma", "Digital", "Inferno", "Storm", "Circadian", "Forest", "Ocean", "Ember", "Moon", "Aurora"]
     SECOND_THEMES = ["Classic", "Spiral", "Fire", "Lightning", "Particle", "Quantum"]
 
     def render(self):
@@ -710,7 +712,7 @@ class ChronoThemesCard(Static):
             second_name = self.SECOND_THEMES[self.chrono_second_theme % len(self.SECOND_THEMES)]
 
             # Icone tematiche
-            hour_icons = ["◎", "◉", "◈", "◆", "🔥", "⚡"]
+            hour_icons = ["◎", "◉", "◈", "◆", "🔥", "⚡", "🌅", "🌲", "🌊", "🔥", "🌙", "🌌"]
             second_icons = ["○", "◐", "🔥", "⚡", "●", "◯"]
 
             hour_icon = hour_icons[self.chrono_hour_theme % len(hour_icons)]
@@ -735,8 +737,16 @@ class ChronoThemesCard(Static):
             seconds_text.append(" ▶", style="dim magenta")
             table.add_row(seconds_text)
 
+            # Wellness mode indicator
+            if self.wellness_mode:
+                wellness_text = Text()
+                wellness_text.append("🧘 ", style="green")
+                wellness_text.append(f"Wellness ({self.breathing_rate} BPM)", style="green bold")
+                table.add_row(wellness_text)
+
             # Hint
-            table.add_row(Text("F6/F7 to cycle", style="dim", justify="center"))
+            hint = "F6/F7 cycle | F11 wellness" if self.chrono_hour_theme >= 6 else "F6/F7 to cycle"
+            table.add_row(Text(hint, style="dim", justify="center"))
 
             content = table
 
@@ -1321,6 +1331,18 @@ class SaberDashboard(App):
                 # Invia comando al dispositivo
                 await self._send_chrono_themes(hour_theme, second_theme)
 
+            elif cmd == "wellness":
+                # wellness <on|off> [bpm]
+                if not args:
+                    self._log("Usage: wellness <on|off> [bpm]", "red")
+                    self._log("BPM range: 2-8 (default 5)", "cyan")
+                    return
+
+                enable = args[0].lower() == "on"
+                bpm = int(args[1]) if len(args) > 1 else 5
+
+                await self._send_wellness_config(enable, bpm)
+
             elif cmd == "brightness":
                 if not args:
                     self._log("Usage: brightness <0-255>", "red")
@@ -1551,11 +1573,12 @@ class SaberDashboard(App):
             # === HELP ===
             elif cmd == "help":
                 self._log("Commands: scan, connect, disconnect, color, effect, brightness, on, off", "cyan")
-                self._log("          chrono <hour_theme> <second_theme> - Set chrono themes (0-3 for hours, 0-5 for seconds)", "cyan")
+                self._log("          chrono <hour_theme> <second_theme> - Set chrono themes (0-11 for hours, 0-5 for seconds)", "cyan")
+                self._log("          wellness <on|off> [bpm] - Toggle wellness mode (BPM: 2-8)", "cyan")
                 self._log("          cam <init|start|stop|status>, motion <enable|disable|status|config|quality N|motionmin N|speedmin N|ignitionmin N|retractmin N|clashmin N|isup G|isdown G|isleft G|isright G|clashfx FX [ms]>", "cyan")
                 self._log("          ignition, retract, reboot, sleep, effects, motion onboot <on|off>", "cyan")
                 self._log("Shortcuts: Ctrl+S=scan, Ctrl+D=disconnect, F2=cam init, F3=start, F4=stop, F5=motion toggle", "cyan")
-                self._log("           F6=cycle hour theme, F7=cycle second theme, F8=ignition, F9=retract, F10=toggle motion boot", "cyan")
+                self._log("           F6=cycle hour theme, F7=cycle second theme, F8=ignition, F9=retract, F10=toggle motion boot, F11=wellness toggle", "cyan")
 
             else:
                 self._log(f"Unknown command: {cmd}. Type 'help' for list.", "red")
@@ -1587,6 +1610,32 @@ class SaberDashboard(App):
             self._log(f"Chrono themes: {hour_name} + {second_name}", "yellow")
         except Exception as e:
             self._log(f"Failed to set chrono themes: {e}", "red")
+
+    async def _send_wellness_config(self, enable: bool, bpm: int = 5):
+        """Configura wellness mode"""
+        try:
+            # Aggiorna widget
+            if self.chrono_themes_card:
+                self.chrono_themes_card.wellness_mode = enable
+                self.chrono_themes_card.breathing_rate = bpm
+
+            # Comando JSON
+            command = {
+                "mode": "chrono_hybrid",
+                "chronoWellnessMode": enable,
+                "breathingRate": bpm
+            }
+
+            # Se wellness è ON, forza un tema wellness (Circadian di default)
+            if enable and self.chrono_themes_card and self.chrono_themes_card.chrono_hour_theme < 6:
+                command["chronoHourTheme"] = 6  # Circadian
+
+            await self.client.set_effect_raw(command)
+
+            mode_str = "ON" if enable else "OFF"
+            self._log(f"Wellness mode: {mode_str} (breathing {bpm} BPM)", "green")
+        except Exception as e:
+            self._log(f"Failed to set wellness mode: {e}", "red")
 
     async def _connect_device(self, address: str, name: str, rssi: Optional[int] = None):
         """Connette a dispositivo"""
@@ -1885,6 +1934,18 @@ class SaberDashboard(App):
         next_theme = (current + 1) % len(ChronoThemesCard.SECOND_THEMES)
 
         self.run_worker(self._send_chrono_themes(hour_theme, next_theme))
+
+    def action_wellness_toggle(self) -> None:
+        """F11: Toggle wellness mode"""
+        if not self.chrono_themes_card or not self.chrono_themes_card.connected:
+            self._log("Connect device first", "yellow")
+            return
+
+        current = self.chrono_themes_card.wellness_mode
+        new_state = not current
+        bpm = self.chrono_themes_card.breathing_rate
+
+        self.run_worker(self._send_wellness_config(new_state, bpm))
 
     def action_device_ignition(self) -> None:
         """F8: Trigger ignition animation"""

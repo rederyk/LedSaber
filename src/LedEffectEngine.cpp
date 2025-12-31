@@ -3027,6 +3027,21 @@ void LedEffectEngine::renderChronoHybrid(const LedState& state, const uint8_t pe
         case 6:  // Circadian Rhythm
             renderChronoHours_CircadianRhythm(state.foldPoint, hours, minutes, state.chronoWellnessMode);
             break;
+        case 7:  // Forest Canopy
+            renderChronoHours_ForestCanopy(state.foldPoint, hours, minutes, state.chronoWellnessMode);
+            break;
+        case 8:  // Ocean Depth
+            renderChronoHours_OceanDepth(state.foldPoint, hours, minutes, state.chronoWellnessMode);
+            break;
+        case 9:  // Ember Bed
+            renderChronoHours_EmberBed(state.foldPoint, hours, minutes, state.chronoWellnessMode);
+            break;
+        case 10:  // Moon Phases
+            renderChronoHours_MoonPhases(state.foldPoint, hours, minutes, state.chronoWellnessMode);
+            break;
+        case 11:  // Aurora
+            renderChronoHours_Aurora(state.foldPoint, hours, minutes, state.chronoWellnessMode);
+            break;
         default:
             renderChronoHours_Classic(state.foldPoint, baseColor);
             break;
@@ -3060,10 +3075,41 @@ void LedEffectEngine::renderChronoHybrid(const LedState& state, const uint8_t pe
         }
     }
 
-    // C. BATTITO GLOBALE / BREATHING
+    // C. BATTITO GLOBALE / BREATHING / EFFETTI WELLNESS
     if (state.chronoWellnessMode) {
-        // Wellness mode: breathing lento e rilassante
-        renderChronoMinutes_CircadianBreathing(state.foldPoint, state.breathingRate);
+        // Wellness mode: effetti specifici per tema + breathing/particles
+        switch (state.chronoHourTheme) {
+            case 6:  // Circadian: breathing globale
+                renderChronoMinutes_CircadianBreathing(state.foldPoint, state.breathingRate);
+                break;
+            case 7:  // Forest Canopy: brezza + fireflies
+                renderChronoMinutes_Breeze(state.foldPoint, minutes);
+                renderWellnessFireflies(state.foldPoint);
+                break;
+            case 8:  // Ocean Depth: onde + plankton
+                renderChronoMinutes_TideWave(state.foldPoint, minutes);
+                renderWellnessPlankton(state.foldPoint);
+                break;
+            case 9:  // Ember Bed: respiro fuoco + scintille
+                renderChronoMinutes_EmberBreath(state.foldPoint, minutes);
+                renderWellnessEmberSparks(state.foldPoint);
+                break;
+            case 10:  // Moon Phases: glow + starfield
+                {
+                    float hourFloat = hours + (minutes / 60.0f);
+                    float moonPhase = calculateMoonPhase(hourFloat);
+                    renderChronoMinutes_LunarGlow(state.foldPoint, minutes, moonPhase);
+                    renderWellnessStarfield(state.foldPoint);
+                }
+                break;
+            case 11:  // Aurora: curtain waves
+                renderChronoMinutes_AuroraCurtains(state.foldPoint, minutes);
+                break;
+            default:
+                // Altri temi: breathing di default
+                renderChronoMinutes_CircadianBreathing(state.foldPoint, state.breathingRate);
+                break;
+        }
     } else if (state.chronoSecondTheme == 0) {
         // Standard mode classic: battito sincronizzato con secondi
         uint16_t millisInSecond = (now % 1000);
@@ -3716,4 +3762,496 @@ CRGB LedEffectEngine::kelvinToRGB(uint16_t kelvin) {
     }
 
     return CRGB((uint8_t)red, (uint8_t)green, (uint8_t)blue);
+}
+// ═══════════════════════════════════════════════════════════
+// WELLNESS THEME RENDERERS - HOUR BACKGROUNDS
+// ═══════════════════════════════════════════════════════════
+
+void LedEffectEngine::renderChronoHours_ForestCanopy(uint16_t foldPoint, uint8_t hours, uint8_t minutes, bool wellnessMode) {
+    // TEMA FOREST CANOPY: Verde filtrato che varia con luce diurna
+    // Simula luce attraverso la canopy forestale durante il giorno
+
+    float hourFloat = hours + (minutes / 60.0f);
+    CRGB forestColor;
+
+    // Determina colore verde basato su ora
+    if (hourFloat >= 6.0f && hourFloat < 9.0f) {
+        // 06:00-09:00: Alba - Verde lime + raggi dorati
+        uint8_t progress = map((int)(hourFloat * 100), 600, 900, 0, 255);
+        forestColor = blend(CRGB(100, 180, 50), CRGB(150, 220, 60), progress);
+    } else if (hourFloat >= 9.0f && hourFloat < 16.0f) {
+        // 09:00-16:00: Giorno - Verde smeraldo saturo
+        forestColor = CRGB(30, 200, 80);
+    } else if (hourFloat >= 16.0f && hourFloat < 19.0f) {
+        // 16:00-19:00: Tramonto - Verde muschio + ombre viola
+        uint8_t progress = map((int)(hourFloat * 100), 1600, 1900, 0, 255);
+        forestColor = blend(CRGB(30, 200, 80), CRGB(60, 120, 100), progress);
+    } else {
+        // 19:00-06:00: Notte - Verde bioluminescente fioco
+        forestColor = CRGB(10, 80, 40);
+    }
+
+    if (wellnessMode) {
+        // WELLNESS: Riempi con gradiente spaziale (foglie più dense al centro)
+        for (uint16_t i = 0; i < foldPoint; i++) {
+            // Leggero noise per simulare foglie
+            uint8_t noiseVal = inoise8(i * 20, millis() / 200);
+            float noiseFactor = 0.85f + (noiseVal / 255.0f) * 0.3f;
+            
+            CRGB pixelColor = forestColor;
+            pixelColor.nscale8((uint8_t)(noiseFactor * 255));
+            
+            setLedPair(i, foldPoint, pixelColor);
+        }
+    } else {
+        // STANDARD: Background + marker
+        CRGB bgColor = forestColor;
+        bgColor.nscale8(25);
+        fill_solid(_leds, _numLeds, bgColor);
+
+        for (uint8_t h = 0; h < 12; h++) {
+            uint16_t pos = map(h, 0, 12, 0, foldPoint);
+            CRGB markerColor = forestColor;
+            markerColor.nscale8((h == hours) ? 180 : 50);
+            setLedPair(pos, foldPoint, markerColor);
+        }
+    }
+}
+
+void LedEffectEngine::renderChronoHours_OceanDepth(uint16_t foldPoint, uint8_t hours, uint8_t minutes, bool wellnessMode) {
+    // TEMA OCEAN DEPTH: Discesa attraverso zone marine
+    // Simula profondità oceanica che varia nel giorno
+
+    float hourFloat = hours + (minutes / 60.0f);
+    CRGB oceanColor;
+
+    if (hourFloat >= 0.0f && hourFloat < 6.0f) {
+        // 00:00-06:00: Abisso - Nero-blu, bioluminescenza
+        oceanColor = CRGB(0, 5, 20);
+    } else if (hourFloat >= 6.0f && hourFloat < 10.0f) {
+        // 06:00-10:00: Zona crepuscolare (200-1000m)
+        uint8_t progress = map((int)(hourFloat * 100), 600, 1000, 0, 255);
+        oceanColor = blend(CRGB(0, 5, 20), CRGB(10, 40, 80), progress);
+    } else if (hourFloat >= 10.0f && hourFloat < 16.0f) {
+        // 10:00-16:00: Zona fotica - Azzurro-turchese superficie
+        oceanColor = CRGB(20, 100, 180);
+    } else if (hourFloat >= 16.0f && hourFloat < 20.0f) {
+        // 16:00-20:00: Ritorno crepuscolo
+        uint8_t progress = map((int)(hourFloat * 100), 1600, 2000, 0, 255);
+        oceanColor = blend(CRGB(20, 100, 180), CRGB(10, 40, 80), progress);
+    } else {
+        // 20:00-24:00: Discesa abisso
+        uint8_t progress = map((int)(hourFloat * 100), 2000, 2400, 0, 255);
+        oceanColor = blend(CRGB(10, 40, 80), CRGB(0, 5, 20), progress);
+    }
+
+    if (wellnessMode) {
+        // WELLNESS: Gradiente profondità (più scuro in basso)
+        for (uint16_t i = 0; i < foldPoint; i++) {
+            float depthFactor = 1.0f - (i / (float)foldPoint) * 0.4f;
+            CRGB pixelColor = oceanColor;
+            pixelColor.nscale8((uint8_t)(depthFactor * 255));
+            
+            setLedPair(i, foldPoint, pixelColor);
+        }
+    } else {
+        // STANDARD: Background + marker
+        CRGB bgColor = oceanColor;
+        bgColor.nscale8(30);
+        fill_solid(_leds, _numLeds, bgColor);
+
+        for (uint8_t h = 0; h < 12; h++) {
+            uint16_t pos = map(h, 0, 12, 0, foldPoint);
+            CRGB markerColor = oceanColor;
+            markerColor.nscale8((h == hours) ? 200 : 60);
+            setLedPair(pos, foldPoint, markerColor);
+        }
+    }
+}
+
+void LedEffectEngine::renderChronoHours_EmberBed(uint16_t foldPoint, uint8_t hours, uint8_t minutes, bool wellnessMode) {
+    // TEMA EMBER BED: Letto di braci pulsanti (versione lenta di Inferno)
+    // Intensità varia nel ciclo 12h
+
+    float hourFloat = hours + (minutes / 60.0f);
+    
+    // Ciclo 12h: Freddo → Caldo → Freddo
+    float cycle12h = fmod(hourFloat, 12.0f);
+    uint8_t heat;
+    
+    if (cycle12h < 6.0f) {
+        // Prima metà: Ash grey → Orange-red
+        heat = map((int)(cycle12h * 100), 0, 600, 80, 255);
+    } else {
+        // Seconda metà: Orange-red → Ash grey
+        heat = map((int)(cycle12h * 100), 600, 1200, 255, 80);
+    }
+
+    // Heat map organico con noise
+    for (uint16_t i = 0; i < foldPoint; i++) {
+        uint8_t noise = inoise8(i * 30, millis() / 100);
+        uint8_t localHeat = qadd8(heat, (noise / 4) - 32);
+        
+        CRGB emberColor;
+        if (localHeat > 200) {
+            // Braci molto calde: arancione brillante
+            emberColor = CRGB(255, (localHeat - 100), 0);
+        } else if (localHeat > 120) {
+            // Braci medie: rosso-arancio
+            emberColor = CRGB(localHeat * 2, localHeat / 2, 0);
+        } else {
+            // Braci fredde: grigio cenere
+            emberColor = CRGB(localHeat / 2, localHeat / 4, localHeat / 8);
+        }
+        
+        if (!wellnessMode) {
+            emberColor.nscale8(180);  // Attenuato in standard mode
+        }
+        
+        setLedPair(i, foldPoint, emberColor);
+    }
+    
+    // In standard mode, aggiungi marker ore
+    if (!wellnessMode) {
+        for (uint8_t h = 0; h < 12; h++) {
+            uint16_t pos = map(h, 0, 12, 0, foldPoint);
+            if (h == hours) {
+                CRGB marker = CRGB(255, 150, 0);  // Arancio brillante
+                setLedPair(pos, foldPoint, marker);
+            }
+        }
+    }
+}
+
+void LedEffectEngine::renderChronoHours_MoonPhases(uint16_t foldPoint, uint8_t hours, uint8_t minutes, bool wellnessMode) {
+    // TEMA MOON PHASES: Ciclo lunare metaforico (24h = ciclo completo)
+    // Simula fase lunare con illuminazione argentea
+
+    float hourFloat = hours + (minutes / 60.0f);
+    float moonPhase = calculateMoonPhase(hourFloat);
+    
+    // Determina quanta parte della "luna" è illuminata
+    uint16_t litEnd = (uint16_t)(foldPoint * moonPhase);
+    
+    // Colore luna: grigio argento
+    CRGB moonColor = CRGB(200, 200, 230);  // Cool white
+    CRGB darkColor = CRGB(5, 5, 10);       // Quasi nero
+    
+    for (uint16_t i = 0; i < foldPoint; i++) {
+        CRGB pixelColor;
+        
+        if (moonPhase < 0.5f) {
+            // Luna crescente: da base verso punta
+            pixelColor = (i < litEnd) ? moonColor : darkColor;
+        } else {
+            // Luna calante: da punta verso base
+            pixelColor = (i > (foldPoint - litEnd)) ? moonColor : darkColor;
+        }
+        
+        // Smooth edge con blend
+        if (abs((int)i - (int)litEnd) < 3) {
+            uint8_t blendAmt = map(abs((int)i - (int)litEnd), 0, 3, 255, 0);
+            pixelColor = blend(darkColor, moonColor, blendAmt);
+        }
+        
+        if (!wellnessMode) {
+            pixelColor.nscale8(150);  // Attenuato
+        }
+        
+        setLedPair(i, foldPoint, pixelColor);
+    }
+    
+    // In standard mode, marker ore
+    if (!wellnessMode) {
+        for (uint8_t h = 0; h < 12; h++) {
+            uint16_t pos = map(h, 0, 12, 0, foldPoint);
+            if (h == hours) {
+                setLedPair(pos, foldPoint, CRGB(255, 255, 255));
+            }
+        }
+    }
+}
+
+void LedEffectEngine::renderChronoHours_Aurora(uint16_t foldPoint, uint8_t hours, uint8_t minutes, bool wellnessMode) {
+    // TEMA AURORA BOREALIS: Aurora lenta con onde verticali
+    // Intensità varia: notte polare = aurora forte, giorno = debole
+
+    float hourFloat = hours + (minutes / 60.0f);
+    
+    // Intensità aurora basata su ora
+    uint8_t intensity;
+    if (hourFloat >= 0.0f && hourFloat < 6.0f) {
+        // 00:00-06:00: Aurora vivida
+        intensity = 200;
+    } else if (hourFloat >= 6.0f && hourFloat < 18.0f) {
+        // 06:00-18:00: Aurora pallida/invisibile (giorno artico)
+        intensity = 30;
+    } else {
+        // 18:00-24:00: Aurora crescente
+        uint8_t progress = map((int)(hourFloat * 100), 1800, 2400, 30, 200);
+        intensity = progress;
+    }
+    
+    // Pattern multi-hue con noise
+    for (uint16_t i = 0; i < foldPoint; i++) {
+        // 3 colori primari: Verde, Viola, Rosa
+        uint8_t noiseVal = inoise8(i * 15, millis() / 150);
+        uint8_t hue;
+        
+        if (noiseVal < 85) {
+            hue = 96;   // Verde aurora
+        } else if (noiseVal < 170) {
+            hue = 192;  // Viola
+        } else {
+            hue = 224;  // Rosa
+        }
+        
+        uint8_t brightness = qadd8(intensity, (noiseVal / 3) - 42);
+        CRGB auroraColor = CHSV(hue, 255, brightness);
+        
+        if (!wellnessMode) {
+            auroraColor.nscale8(120);
+        }
+        
+        setLedPair(i, foldPoint, auroraColor);
+    }
+}
+
+// ═══════════════════════════════════════════════════════════
+// WELLNESS MINUTE/SECOND RENDERERS
+// ═══════════════════════════════════════════════════════════
+
+void LedEffectEngine::renderChronoMinutes_Breeze(uint16_t foldPoint, uint8_t minutes) {
+    // BREZZA: Onde sinusoidali lente che salgono (periodo 15-20s)
+    
+    unsigned long now = millis();
+    uint8_t timePhase = (now / 100) % 256;  // Fase lenta
+    
+    for (uint16_t i = 0; i < foldPoint; i++) {
+        // Onda sinusoidale che sale
+        uint8_t wave = sin8(i * 8 + timePhase);
+        uint8_t modulation = map(wave, 0, 255, 220, 255);
+        
+        _leds[i].nscale8(modulation);
+        if (i + foldPoint < _numLeds) {
+            _leds[i + foldPoint].nscale8(modulation);
+        }
+    }
+}
+
+void LedEffectEngine::renderChronoMinutes_TideWave(uint16_t foldPoint, uint8_t minutes) {
+    // TIDE WAVE: Onda marea verticale (periodo 45-60s)
+    
+    unsigned long now = millis();
+    uint8_t timePhase = (now / 200) % 256;  // Molto lento
+    
+    for (uint16_t i = 0; i < foldPoint; i++) {
+        // Onda verticale che simula luce penetrante
+        uint8_t wave = sin8(i * 4 + timePhase);
+        uint8_t brightness = map(wave, 0, 255, 180, 255);
+        
+        _leds[i].nscale8(brightness);
+        if (i + foldPoint < _numLeds) {
+            _leds[i + foldPoint].nscale8(brightness);
+        }
+    }
+}
+
+void LedEffectEngine::renderChronoMinutes_EmberBreath(uint16_t foldPoint, uint8_t minutes) {
+    // RESPIRO DEL FUOCO: Pulsazione organica lenta (beatsin)
+    
+    uint8_t breathPhase = beatsin8(3, 150, 255);  // 3 BPM, molto lento
+    
+    for (uint16_t i = 0; i < _numLeds; i++) {
+        _leds[i].nscale8(breathPhase);
+    }
+}
+
+void LedEffectEngine::renderChronoMinutes_LunarGlow(uint16_t foldPoint, uint8_t minutes, float moonPhase) {
+    // LUNAR GLOW: Pulsazione sottile solo sul lato illuminato
+    
+    uint8_t glowPhase = beatsin8(2, 150, 220);  // 2 BPM, molto sottile
+    
+    uint16_t litEnd = (uint16_t)(foldPoint * moonPhase);
+    
+    for (uint16_t i = 0; i < foldPoint; i++) {
+        bool isLit = (moonPhase < 0.5f) ? (i < litEnd) : (i > (foldPoint - litEnd));
+        
+        if (isLit) {
+            _leds[i].nscale8(glowPhase);
+            if (i + foldPoint < _numLeds) {
+                _leds[i + foldPoint].nscale8(glowPhase);
+            }
+        }
+    }
+}
+
+void LedEffectEngine::renderChronoMinutes_AuroraCurtains(uint16_t foldPoint, uint8_t minutes) {
+    // AURORA CURTAINS: Onde multiple sovrapposte (periodo 20-40s)
+    
+    unsigned long now = millis();
+    uint8_t phase1 = (now / 120) % 256;
+    uint8_t phase2 = (now / 180) % 256;
+    
+    for (uint16_t i = 0; i < foldPoint; i++) {
+        uint8_t wave1 = sin8(i * 6 + phase1);
+        uint8_t wave2 = sin8(i * 10 - phase2);
+        uint8_t combined = (wave1 + wave2) / 2;
+        uint8_t brightness = map(combined, 0, 255, 200, 255);
+        
+        _leds[i].nscale8(brightness);
+        if (i + foldPoint < _numLeds) {
+            _leds[i + foldPoint].nscale8(brightness);
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════
+// WELLNESS PARTICLE EFFECTS
+// ═══════════════════════════════════════════════════════════
+
+void LedEffectEngine::renderWellnessFireflies(uint16_t foldPoint) {
+    // FIREFLIES: Sparkle casuali giallo-verde (1 ogni 5-10s)
+    
+    unsigned long now = millis();
+    static unsigned long lastSparkle = 0;
+    static uint16_t sparklePos = 0;
+    static uint16_t sparkleDuration = 0;
+    
+    // Spawn nuovo firefly?
+    if (now - lastSparkle > random16(5000, 10000)) {
+        lastSparkle = now;
+        sparklePos = random16(foldPoint);
+        sparkleDuration = random16(200, 500);
+    }
+    
+    // Disegna firefly attivo
+    if (now - lastSparkle < sparkleDuration) {
+        uint8_t brightness = sin8(map(now - lastSparkle, 0, sparkleDuration, 0, 255));
+        CRGB firefly = CHSV(random8(64, 96), 255, brightness);  // Giallo-verde
+        
+        uint16_t physIdx = sparklePos < foldPoint ? sparklePos : (2 * foldPoint - sparklePos - 1);
+        if (physIdx < _numLeds) {
+            _leds[physIdx] += firefly;
+        }
+    }
+}
+
+void LedEffectEngine::renderWellnessPlankton(uint16_t foldPoint) {
+    // PLANKTON: Particelle che driftano lentamente con trail
+    
+    unsigned long now = millis();
+    uint8_t timePhase = (now / 80) % 256;
+    
+    // 2-3 particelle plankton
+    for (uint8_t p = 0; p < 2; p++) {
+        uint16_t pos = ((timePhase + p * 128) % 256);
+        pos = map(pos, 0, 256, 0, foldPoint);
+        
+        CRGB planktonColor = CHSV(160 + p * 20, 255, 150);  // Cyan-blu
+        
+        // Trail corto
+        for (int8_t trail = 0; trail < 3; trail++) {
+            int16_t tPos = pos - trail;
+            if (tPos < 0) tPos += foldPoint;
+            
+            CRGB trailColor = planktonColor;
+            trailColor.nscale8(255 - trail * 80);
+            
+            uint16_t physIdx = tPos < foldPoint ? tPos : (2 * foldPoint - tPos - 1);
+            if (physIdx < _numLeds) {
+                _leds[physIdx] += trailColor;
+            }
+        }
+    }
+}
+
+void LedEffectEngine::renderWellnessEmberSparks(uint16_t foldPoint) {
+    // EMBER SPARKS: Scintille ascendenti rare (1 ogni 8-12s)
+    
+    unsigned long now = millis();
+    static unsigned long lastSpark = 0;
+    static uint16_t sparkPos = 0;
+    static unsigned long sparkStart = 0;
+    
+    const uint16_t SPARK_DURATION = 800;  // ms
+    
+    // Spawn nuova scintilla?
+    if (now - lastSpark > random16(8000, 12000)) {
+        lastSpark = now;
+        sparkStart = now;
+        sparkPos = 0;  // Parte dalla base
+    }
+    
+    // Anima scintilla ascendente
+    if (now - sparkStart < SPARK_DURATION) {
+        float progress = (now - sparkStart) / (float)SPARK_DURATION;
+        sparkPos = (uint16_t)(progress * foldPoint);
+        
+        if (sparkPos < foldPoint) {
+            uint8_t brightness = sin8(progress * 255);
+            CRGB spark = CHSV(random8(16, 32), 255, brightness);  // Arancio
+            
+            uint16_t physIdx = sparkPos < foldPoint ? sparkPos : (2 * foldPoint - sparkPos - 1);
+            if (physIdx < _numLeds) {
+                _leds[physIdx] += spark;
+            }
+        }
+    }
+}
+
+void LedEffectEngine::renderWellnessStarfield(uint16_t foldPoint) {
+    // STARFIELD: Stelle fisse con twinkle rari
+    
+    unsigned long now = millis();
+    static unsigned long lastTwinkle = 0;
+    static uint8_t twinkleStarIdx = 0;
+    
+    // 5-8 stelle fisse (posizioni deterministiche)
+    const uint8_t NUM_STARS = 6;
+    static uint16_t starPositions[NUM_STARS] = {0};
+    static bool starsInitialized = false;
+    
+    if (!starsInitialized) {
+        for (uint8_t i = 0; i < NUM_STARS; i++) {
+            starPositions[i] = (foldPoint / NUM_STARS) * i + random8(5);
+        }
+        starsInitialized = true;
+    }
+    
+    // Disegna stelle
+    for (uint8_t i = 0; i < NUM_STARS; i++) {
+        uint8_t brightness = 80;  // Dim di default
+        
+        // Twinkle?
+        if (i == twinkleStarIdx && (now - lastTwinkle < 1000)) {
+            brightness = sin8(map(now - lastTwinkle, 0, 1000, 0, 255)) * 0.6 + 80;
+        }
+        
+        CRGB star = CRGB(brightness, brightness, brightness + 20);  // Cool white
+        
+        uint16_t physIdx = starPositions[i] < foldPoint ? starPositions[i] : (2 * foldPoint - starPositions[i] - 1);
+        if (physIdx < _numLeds) {
+            _leds[physIdx] += star;
+        }
+    }
+    
+    // Spawn nuovo twinkle?
+    if (now - lastTwinkle > random16(10000, 15000)) {
+        lastTwinkle = now;
+        twinkleStarIdx = random8(NUM_STARS);
+    }
+}
+
+// ═══════════════════════════════════════════════════════════
+// WELLNESS HELPER FUNCTIONS
+// ═══════════════════════════════════════════════════════════
+
+float LedEffectEngine::calculateMoonPhase(float hourFloat) {
+    // Mappa 24h su ciclo lunare (0.0 = nuova, 0.5 = piena, 1.0 = nuova)
+    
+    float phase = fmod(hourFloat / 24.0f, 1.0f);  // 0.0 - 1.0
+    
+    // Ritorna fase: 0.0 (nuova) → 0.5 (piena) → 1.0 (nuova)
+    return phase;
 }

@@ -16,6 +16,8 @@ class _ClockTabState extends State<ClockTab> {
   int _secondTheme = 0;
   String _lastSyncLabel = 'Not synced';
   bool _isSyncing = false;
+  bool _wellnessMode = false;
+  double _breathingRate = 5.0;
 
   static const List<String> _defaultHourThemes = [
     'Classic',
@@ -24,6 +26,12 @@ class _ClockTabState extends State<ClockTab> {
     'Digital',
     'Inferno',
     'Storm',
+    'Circadian',
+    'Forest',
+    'Ocean',
+    'Ember',
+    'Moon',
+    'Aurora',
   ];
 
   static const List<String> _defaultSecondThemes = [
@@ -86,6 +94,8 @@ class _ClockTabState extends State<ClockTab> {
       'chrono_hybrid',
       chronoHourTheme: _hourTheme,
       chronoSecondTheme: _secondTheme,
+      chronoWellnessMode: _wellnessMode,
+      breathingRate: _breathingRate.toInt(),
     );
   }
 
@@ -178,6 +188,61 @@ class _ClockTabState extends State<ClockTab> {
               _applyChronoThemes();
             },
           ),
+          const SizedBox(height: 16),
+          const Divider(),
+          const SizedBox(height: 8),
+          Text(
+            'Wellness Mode',
+            style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                  fontWeight: FontWeight.bold,
+                ),
+          ),
+          const SizedBox(height: 8),
+          SwitchListTile(
+            title: const Text('Enable Wellness Mode'),
+            subtitle: const Text('Slow transitions, breathing effect'),
+            value: _wellnessMode,
+            onChanged: (value) {
+              setState(() {
+                _wellnessMode = value;
+                if (value && _hourTheme < 6) {
+                  // Force Circadian theme quando wellness attivo
+                  _hourTheme = 6;
+                }
+              });
+              _applyChronoThemes();
+            },
+          ),
+          if (_wellnessMode) ...[
+            const SizedBox(height: 8),
+            Text(
+              'Breathing Rate: ${_breathingRate.toInt()} BPM',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            Slider(
+              value: _breathingRate,
+              min: 2,
+              max: 8,
+              divisions: 6,
+              label: '${_breathingRate.toInt()} BPM',
+              onChanged: (value) {
+                setState(() {
+                  _breathingRate = value;
+                });
+              },
+              onChangeEnd: (value) {
+                _applyChronoThemes();
+              },
+            ),
+            Text(
+              _breathingRate <= 4
+                  ? 'Deep meditation'
+                  : (_breathingRate <= 6 ? 'Relaxation' : 'Normal'),
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: Colors.grey,
+                  ),
+            ),
+          ],
           const SizedBox(height: 16),
           OutlinedButton.icon(
             onPressed: _applyChronoThemes,

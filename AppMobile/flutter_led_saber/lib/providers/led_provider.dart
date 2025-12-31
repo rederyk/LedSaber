@@ -202,6 +202,8 @@ class LedProvider extends ChangeNotifier {
     int? speed,
     int? chronoHourTheme,
     int? chronoSecondTheme,
+    bool? chronoWellnessMode,
+    int? breathingRate,
   }) async {
     try {
       await _ledService?.setEffect(
@@ -209,6 +211,8 @@ class LedProvider extends ChangeNotifier {
         speed: speed,
         chronoHourTheme: chronoHourTheme,
         chronoSecondTheme: chronoSecondTheme,
+        chronoWellnessMode: chronoWellnessMode,
+        breathingRate: breathingRate,
       );
       _errorMessage = null;
     } catch (e) {

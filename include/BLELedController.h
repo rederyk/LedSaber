@@ -46,7 +46,7 @@ struct LedState {
     uint32_t millisAtSync = 0;   // millis() al momento del sync
 
     // Chrono themes (modulare: marker ore + cursori secondi/minuti)
-    uint8_t chronoHourTheme = 0;   // 0=Classic, 1=Neon, 2=Plasma, 3=Digital, 4=Inferno, 5=Storm, 6=CircadianRhythm
+    uint8_t chronoHourTheme = 0;   // 0-10: Classic, Neon, Plasma, Digital, Inferno, Storm, Circadian, ForestCanopy, OceanDepth, EmberBed, MoonPhases, Aurora
     uint8_t chronoSecondTheme = 0; // 0=Classic, 1=TimeSpiral, 2=FireClock, 3=Lightning, 4=Particle, 5=Quantum
 
     // Wellness Circadian Mode
