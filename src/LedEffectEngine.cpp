@@ -3048,8 +3048,11 @@ void LedEffectEngine::renderChronoHybrid(const LedState& state, const uint8_t pe
     }
 
     // B. CURSORI SECONDI/MINUTI (tema selezionabile)
+    // Auto-determina wellness mode: temi 6-11 sono SEMPRE wellness
+    bool isWellnessTheme = (state.chronoHourTheme >= 6);
+
     // In wellness mode, salta i cursori discreti
-    if (!state.chronoWellnessMode) {
+    if (!isWellnessTheme) {
         switch (state.chronoSecondTheme) {
             case 0:  // Classic
                 renderChronoSeconds_Classic(state.foldPoint, minutes, seconds, _visualOffset, baseColor);
@@ -3076,7 +3079,7 @@ void LedEffectEngine::renderChronoHybrid(const LedState& state, const uint8_t pe
     }
 
     // C. BATTITO GLOBALE / BREATHING / EFFETTI WELLNESS
-    if (state.chronoWellnessMode) {
+    if (isWellnessTheme) {
         // Wellness mode: effetti specifici per tema + breathing/particles
         switch (state.chronoHourTheme) {
             case 6:  // Circadian: breathing globale

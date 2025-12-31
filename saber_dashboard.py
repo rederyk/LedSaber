@@ -729,23 +729,28 @@ class ChronoThemesCard(Static):
             hours_text.append(" ▶", style="dim cyan")
             table.add_row(hours_text)
 
-            # Seconds row con frecce
-            seconds_text = Text()
-            seconds_text.append("⏱  ", style="magenta")
-            seconds_text.append("◀ ", style="dim magenta")
-            seconds_text.append(f"{second_icon} {second_name}", style="magenta bold")
-            seconds_text.append(" ▶", style="dim magenta")
-            table.add_row(seconds_text)
+            # Auto-determina wellness mode: temi 6-11 sono SEMPRE wellness
+            is_wellness_theme = (self.chrono_hour_theme >= 6)
 
-            # Wellness mode indicator
-            if self.wellness_mode:
-                wellness_text = Text()
-                wellness_text.append("🧘 ", style="green")
-                wellness_text.append(f"Wellness ({self.breathing_rate} BPM)", style="green bold")
-                table.add_row(wellness_text)
+            if is_wellness_theme:
+                # Temi wellness (6-11): mostra breathing rate invece di second theme
+                breathing_text = Text()
+                breathing_text.append("🧘 ", style="green")
+                breathing_text.append("◀ ", style="dim green")
+                breathing_text.append(f"Breathing {self.breathing_rate} BPM", style="green bold")
+                breathing_text.append(" ▶", style="dim green")
+                table.add_row(breathing_text)
+            else:
+                # Temi classici (0-5): mostra second theme
+                seconds_text = Text()
+                seconds_text.append("⏱  ", style="magenta")
+                seconds_text.append("◀ ", style="dim magenta")
+                seconds_text.append(f"{second_icon} {second_name}", style="magenta bold")
+                seconds_text.append(" ▶", style="dim magenta")
+                table.add_row(seconds_text)
 
             # Hint
-            hint = "F6/F7 cycle | F11 wellness" if self.chrono_hour_theme >= 6 else "F6/F7 to cycle"
+            hint = "F6/F7 hour | F8/F9 breath" if is_wellness_theme else "F6/F7 hour | F8/F9 second"
             table.add_row(Text(hint, style="dim", justify="center"))
 
             content = table
@@ -1578,7 +1583,7 @@ class SaberDashboard(App):
                 self._log("          cam <init|start|stop|status>, motion <enable|disable|status|config|quality N|motionmin N|speedmin N|ignitionmin N|retractmin N|clashmin N|isup G|isdown G|isleft G|isright G|clashfx FX [ms]>", "cyan")
                 self._log("          ignition, retract, reboot, sleep, effects, motion onboot <on|off>", "cyan")
                 self._log("Shortcuts: Ctrl+S=scan, Ctrl+D=disconnect, F2=cam init, F3=start, F4=stop, F5=motion toggle", "cyan")
-                self._log("           F6=cycle hour theme, F7=cycle second theme, F8=ignition, F9=retract, F10=toggle motion boot, F11=wellness toggle", "cyan")
+                self._log("           F6=cycle hour theme, F7=cycle second/breathing, F8=ignition, F9=retract, F10=toggle motion boot", "cyan")
 
             else:
                 self._log(f"Unknown command: {cmd}. Type 'help' for list.", "red")
@@ -1594,20 +1599,27 @@ class SaberDashboard(App):
                 self.chrono_themes_card.chrono_hour_theme = hour_theme
                 self.chrono_themes_card.chrono_second_theme = second_theme
 
+            # Auto-determina wellness mode: temi 6-11 sono SEMPRE wellness
+            is_wellness_theme = (hour_theme >= 6)
+
             # Prepara comando JSON
             command = {
                 "mode": "chrono_hybrid",
                 "chronoHourTheme": hour_theme,
-                "chronoSecondTheme": second_theme
+                "chronoSecondTheme": second_theme if not is_wellness_theme else 0,
+                "breathingRate": self.chrono_themes_card.breathing_rate if is_wellness_theme else 5
             }
 
             # Invia via BLE
             await self.client.set_effect_raw(command)
 
             hour_name = ChronoThemesCard.HOUR_THEMES[hour_theme % len(ChronoThemesCard.HOUR_THEMES)]
-            second_name = ChronoThemesCard.SECOND_THEMES[second_theme % len(ChronoThemesCard.SECOND_THEMES)]
 
-            self._log(f"Chrono themes: {hour_name} + {second_name}", "yellow")
+            if is_wellness_theme:
+                self._log(f"Chrono wellness: {hour_name} ({self.chrono_themes_card.breathing_rate} BPM)", "yellow")
+            else:
+                second_name = ChronoThemesCard.SECOND_THEMES[second_theme % len(ChronoThemesCard.SECOND_THEMES)]
+                self._log(f"Chrono themes: {hour_name} + {second_name}", "yellow")
         except Exception as e:
             self._log(f"Failed to set chrono themes: {e}", "red")
 
@@ -1923,17 +1935,26 @@ class SaberDashboard(App):
         self.run_worker(self._send_chrono_themes(next_theme, second_theme))
 
     def action_chrono_cycle_seconds(self) -> None:
-        """F7: Cycle chrono second themes"""
+        """F7: Cycle second themes (temi 0-5) o breathing rate (temi 6-11)"""
         if not self.chrono_themes_card or not self.chrono_themes_card.connected:
             self._log("Connect device first to change chrono themes", "yellow")
             return
 
-        # Cycle to next theme
         hour_theme = self.chrono_themes_card.chrono_hour_theme
-        current = self.chrono_themes_card.chrono_second_theme
-        next_theme = (current + 1) % len(ChronoThemesCard.SECOND_THEMES)
+        is_wellness_theme = (hour_theme >= 6)
 
-        self.run_worker(self._send_chrono_themes(hour_theme, next_theme))
+        if is_wellness_theme:
+            # Temi wellness: cicla breathing rate (3-10 BPM)
+            current_bpm = self.chrono_themes_card.breathing_rate
+            next_bpm = current_bpm + 1 if current_bpm < 10 else 3
+            self.chrono_themes_card.breathing_rate = next_bpm
+            second_theme = self.chrono_themes_card.chrono_second_theme
+            self.run_worker(self._send_chrono_themes(hour_theme, second_theme))
+        else:
+            # Temi classici: cicla second theme
+            current = self.chrono_themes_card.chrono_second_theme
+            next_theme = (current + 1) % len(ChronoThemesCard.SECOND_THEMES)
+            self.run_worker(self._send_chrono_themes(hour_theme, next_theme))
 
     def action_wellness_toggle(self) -> None:
         """F11: Toggle wellness mode"""

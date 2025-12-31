@@ -16,7 +16,6 @@ class _ClockTabState extends State<ClockTab> {
   int _secondTheme = 0;
   String _lastSyncLabel = 'Not synced';
   bool _isSyncing = false;
-  bool _wellnessMode = false;
   double _breathingRate = 5.0;
 
   static const List<String> _defaultHourThemes = [
@@ -90,12 +89,14 @@ class _ClockTabState extends State<ClockTab> {
 
   void _applyChronoThemes() {
     final ledProvider = Provider.of<LedProvider>(context, listen: false);
+    // Auto-determina wellness mode: temi 6-11 sono SEMPRE wellness
+    final isWellnessTheme = _hourTheme >= 6;
+
     ledProvider.setEffect(
       'chrono_hybrid',
       chronoHourTheme: _hourTheme,
-      chronoSecondTheme: _secondTheme,
-      chronoWellnessMode: _wellnessMode,
-      breathingRate: _breathingRate.toInt(),
+      chronoSecondTheme: isWellnessTheme ? 0 : _secondTheme,
+      breathingRate: isWellnessTheme ? _breathingRate.toInt() : 5,
     );
   }
 
@@ -163,57 +164,47 @@ class _ClockTabState extends State<ClockTab> {
               _applyChronoThemes();
             },
           ),
-          const SizedBox(height: 12),
-          Text(
-            'Second theme',
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  fontWeight: FontWeight.bold,
-                ),
-          ),
-          const SizedBox(height: 6),
-          DropdownButton<int>(
-            value: _secondTheme.clamp(0, secondThemes.length - 1),
-            isExpanded: true,
-            items: List.generate(secondThemes.length, (index) {
-              return DropdownMenuItem(
-                value: index,
-                child: Text(secondThemes[index]),
-              );
-            }),
-            onChanged: (value) {
-              if (value == null) return;
-              setState(() {
-                _secondTheme = value;
-              });
-              _applyChronoThemes();
-            },
-          ),
-          const SizedBox(height: 16),
-          const Divider(),
-          const SizedBox(height: 8),
-          Text(
-            'Wellness Mode',
-            style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                  fontWeight: FontWeight.bold,
-                ),
-          ),
-          const SizedBox(height: 8),
-          SwitchListTile(
-            title: const Text('Enable Wellness Mode'),
-            subtitle: const Text('Slow transitions, breathing effect'),
-            value: _wellnessMode,
-            onChanged: (value) {
-              setState(() {
-                _wellnessMode = value;
-                if (value && _hourTheme < 6) {
-                  // Force Circadian theme quando wellness attivo
-                  _hourTheme = 6;
-                }
-              });
-              _applyChronoThemes();
-            },
-          ),
-          if (_wellnessMode) ...[
+          // Auto-determina wellness mode: temi 6-11 sono SEMPRE wellness
+          // Mostra second theme SOLO per temi classici (0-5)
+          if (_hourTheme < 6) ...[
+            const SizedBox(height: 12),
+            Text(
+              'Second theme',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+            ),
+            const SizedBox(height: 6),
+            DropdownButton<int>(
+              value: _secondTheme.clamp(0, secondThemes.length - 1),
+              isExpanded: true,
+              items: List.generate(secondThemes.length, (index) {
+                return DropdownMenuItem(
+                  value: index,
+                  child: Text(secondThemes[index]),
+                );
+              }),
+              onChanged: (value) {
+                if (value == null) return;
+                setState(() {
+                  _secondTheme = value;
+                });
+                _applyChronoThemes();
+              },
+            ),
+          ],
+
+          // Mostra breathing rate SOLO per temi wellness (6-11)
+          if (_hourTheme >= 6) ...[
+            const SizedBox(height: 16),
+            const Divider(),
+            const SizedBox(height: 8),
+            Text(
+              'Wellness Breathing',
+              style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+            ),
             const SizedBox(height: 8),
             Text(
               'Breathing Rate: ${_breathingRate.toInt()} BPM',
