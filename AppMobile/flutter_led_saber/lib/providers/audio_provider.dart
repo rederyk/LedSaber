@@ -8,7 +8,7 @@ class AudioProvider extends ChangeNotifier {
   final AudioService _audioService = AudioService();
 
   // Settings
-  bool _soundsEnabled = true;
+  bool _soundsEnabled = false; // Disabilitato all'avvio
   double _masterVolume = 0.8;
   String _currentSoundPackId = 'jedi';
 

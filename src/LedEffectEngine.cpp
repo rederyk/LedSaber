@@ -3823,50 +3823,83 @@ void LedEffectEngine::renderChronoHours_ForestCanopy(uint16_t foldPoint, uint8_t
 
 void LedEffectEngine::renderChronoHours_OceanDepth(uint16_t foldPoint, uint8_t hours, uint8_t minutes, bool wellnessMode) {
     // TEMA OCEAN DEPTH: Discesa attraverso zone marine
-    // Simula profondità oceanica che varia nel giorno
+    // Simula profondità oceanica che varia nel giorno con transizioni smooth
 
     float hourFloat = hours + (minutes / 60.0f);
     CRGB oceanColor;
 
+    // Colori base per le varie zone oceaniche
+    CRGB abyssal = CRGB(0, 5, 20);           // Abisso
+    CRGB twilight = CRGB(10, 40, 80);        // Crepuscolo
+    CRGB photic = CRGB(20, 100, 180);        // Zona fotica
+
+    // Transizioni completamente smooth tra tutte le zone
     if (hourFloat >= 0.0f && hourFloat < 6.0f) {
-        // 00:00-06:00: Abisso - Nero-blu, bioluminescenza
-        oceanColor = CRGB(0, 5, 20);
+        // 00:00-06:00: Abisso con leggera variazione
+        uint8_t progress = map((int)(hourFloat * 100), 0, 600, 0, 255);
+        oceanColor = blend(abyssal, CRGB(0, 8, 25), progress);
     } else if (hourFloat >= 6.0f && hourFloat < 10.0f) {
-        // 06:00-10:00: Zona crepuscolare (200-1000m)
+        // 06:00-10:00: Zona crepuscolare (200-1000m) - transizione smooth
         uint8_t progress = map((int)(hourFloat * 100), 600, 1000, 0, 255);
-        oceanColor = blend(CRGB(0, 5, 20), CRGB(10, 40, 80), progress);
+        oceanColor = blend(abyssal, twilight, progress);
     } else if (hourFloat >= 10.0f && hourFloat < 16.0f) {
-        // 10:00-16:00: Zona fotica - Azzurro-turchese superficie
-        oceanColor = CRGB(20, 100, 180);
+        // 10:00-16:00: Zona fotica - transizione smooth verso superficie
+        uint8_t progress = map((int)(hourFloat * 100), 1000, 1600, 0, 255);
+        oceanColor = blend(twilight, photic, progress);
     } else if (hourFloat >= 16.0f && hourFloat < 20.0f) {
-        // 16:00-20:00: Ritorno crepuscolo
+        // 16:00-20:00: Ritorno crepuscolo - transizione smooth
         uint8_t progress = map((int)(hourFloat * 100), 1600, 2000, 0, 255);
-        oceanColor = blend(CRGB(20, 100, 180), CRGB(10, 40, 80), progress);
+        oceanColor = blend(photic, twilight, progress);
     } else {
-        // 20:00-24:00: Discesa abisso
+        // 20:00-24:00: Discesa abisso - transizione smooth
         uint8_t progress = map((int)(hourFloat * 100), 2000, 2400, 0, 255);
-        oceanColor = blend(CRGB(10, 40, 80), CRGB(0, 5, 20), progress);
+        oceanColor = blend(twilight, abyssal, progress);
     }
 
+    // Aggiungi movimento ondulatorio lento per simulare correnti marine
+    unsigned long slowWave = millis() / 1200;  // Molto lento, circa 1.2 secondi per ciclo
+
     if (wellnessMode) {
-        // WELLNESS: Gradiente profondità (più scuro in basso)
+        // WELLNESS: Gradiente profondità con onde sottili
         for (uint16_t i = 0; i < foldPoint; i++) {
             float depthFactor = 1.0f - (i / (float)foldPoint) * 0.4f;
+
+            // Aggiungi oscillazione sottile basata su noise per simulare correnti
+            uint8_t wave = inoise8(i * 20, slowWave);
+            uint8_t waveModulation = map(wave, 0, 255, 240, 255);
+
             CRGB pixelColor = oceanColor;
             pixelColor.nscale8((uint8_t)(depthFactor * 255));
-            
+            pixelColor.nscale8(waveModulation);
+
             setLedPair(i, foldPoint, pixelColor);
         }
     } else {
-        // STANDARD: Background + marker
-        CRGB bgColor = oceanColor;
-        bgColor.nscale8(30);
-        fill_solid(_leds, _numLeds, bgColor);
+        // STANDARD: Background + marker con transizioni smooth
+        for (uint16_t i = 0; i < foldPoint; i++) {
+            // Onde sottili sull'intero background
+            uint8_t wave = inoise8(i * 20, slowWave);
+            uint8_t bgBrightness = map(wave, 0, 255, 25, 40);
 
+            CRGB pixelColor = oceanColor;
+            pixelColor.nscale8(bgBrightness);
+
+            setLedPair(i, foldPoint, pixelColor);
+        }
+
+        // Marker ore con transizioni smooth
         for (uint8_t h = 0; h < 12; h++) {
             uint16_t pos = map(h, 0, 12, 0, foldPoint);
             CRGB markerColor = oceanColor;
-            markerColor.nscale8((h == hours) ? 200 : 60);
+
+            // Marker corrente con pulsazione smooth
+            if (h == hours) {
+                uint8_t pulse = beatsin8(4, 180, 220);  // Pulsazione lenta
+                markerColor.nscale8(pulse);
+            } else {
+                markerColor.nscale8(60);
+            }
+
             setLedPair(pos, foldPoint, markerColor);
         }
     }
@@ -3980,42 +4013,54 @@ void LedEffectEngine::renderChronoHours_Aurora(uint16_t foldPoint, uint8_t hours
     // Intensità varia: notte polare = aurora forte, giorno = debole
 
     float hourFloat = hours + (minutes / 60.0f);
-    
-    // Intensità aurora basata su ora
+
+    // Intensità aurora basata su ora con transizioni smooth
     uint8_t intensity;
     if (hourFloat >= 0.0f && hourFloat < 6.0f) {
-        // 00:00-06:00: Aurora vivida
-        intensity = 200;
+        // 00:00-06:00: Aurora vivida con variazione graduale
+        uint8_t progress = map((int)(hourFloat * 100), 0, 600, 200, 220);
+        intensity = progress;
     } else if (hourFloat >= 6.0f && hourFloat < 18.0f) {
         // 06:00-18:00: Aurora pallida/invisibile (giorno artico)
         intensity = 30;
     } else {
-        // 18:00-24:00: Aurora crescente
+        // 18:00-24:00: Aurora crescente smooth
         uint8_t progress = map((int)(hourFloat * 100), 1800, 2400, 30, 200);
         intensity = progress;
     }
-    
-    // Pattern multi-hue con noise
+
+    // Pattern multi-hue con noise molto più lento per smoothness
+    unsigned long slowTime = millis() / 800;  // 5x più lento per transizioni graduali
+
     for (uint16_t i = 0; i < foldPoint; i++) {
-        // 3 colori primari: Verde, Viola, Rosa
-        uint8_t noiseVal = inoise8(i * 15, millis() / 150);
+        // Noise a due ottave per movimento più organico e smooth
+        uint8_t noiseVal = inoise8(i * 15, slowTime);
+        uint8_t noiseVal2 = inoise8(i * 8, slowTime * 2);
+        uint8_t combinedNoise = (noiseVal + noiseVal2) / 2;
+
+        // Transizione smooth tra colori invece di switch bruschi
         uint8_t hue;
-        
-        if (noiseVal < 85) {
-            hue = 96;   // Verde aurora
-        } else if (noiseVal < 170) {
-            hue = 192;  // Viola
+        if (combinedNoise < 85) {
+            // Verde aurora
+            hue = 96;
+        } else if (combinedNoise < 170) {
+            // Transizione smooth verde->viola
+            uint8_t blend = map(combinedNoise, 85, 170, 0, 255);
+            hue = lerp8by8(96, 192, blend);
         } else {
-            hue = 224;  // Rosa
+            // Transizione smooth viola->rosa
+            uint8_t blend = map(combinedNoise, 170, 255, 0, 255);
+            hue = lerp8by8(192, 224, blend);
         }
-        
-        uint8_t brightness = qadd8(intensity, (noiseVal / 3) - 42);
-        CRGB auroraColor = CHSV(hue, 255, brightness);
-        
+
+        // Brightness smooth con variazione sottile
+        uint8_t brightness = qadd8(intensity, (combinedNoise / 4) - 32);
+        CRGB auroraColor = CHSV(hue, 240, brightness);  // Saturazione leggermente ridotta per smoothness
+
         if (!wellnessMode) {
             auroraColor.nscale8(120);
         }
-        
+
         setLedPair(i, foldPoint, auroraColor);
     }
 }
@@ -4090,18 +4135,26 @@ void LedEffectEngine::renderChronoMinutes_LunarGlow(uint16_t foldPoint, uint8_t 
 }
 
 void LedEffectEngine::renderChronoMinutes_AuroraCurtains(uint16_t foldPoint, uint8_t minutes) {
-    // AURORA CURTAINS: Onde multiple sovrapposte (periodo 20-40s)
-    
+    // AURORA CURTAINS: Onde multiple sovrapposte con movimento molto smooth
+
     unsigned long now = millis();
-    uint8_t phase1 = (now / 120) % 256;
-    uint8_t phase2 = (now / 180) % 256;
-    
+    // Rallentato significativamente per movimento fluido e contemplativo
+    uint8_t phase1 = (now / 600) % 256;   // ~10 secondi per ciclo completo
+    uint8_t phase2 = (now / 900) % 256;   // ~15 secondi per ciclo completo
+    uint8_t phase3 = (now / 450) % 256;   // ~7.5 secondi - terza onda per ricchezza
+
     for (uint16_t i = 0; i < foldPoint; i++) {
-        uint8_t wave1 = sin8(i * 6 + phase1);
-        uint8_t wave2 = sin8(i * 10 - phase2);
-        uint8_t combined = (wave1 + wave2) / 2;
-        uint8_t brightness = map(combined, 0, 255, 200, 255);
-        
+        // Tre onde sovrapposte con frequenze diverse per effetto aurora naturale
+        uint8_t wave1 = sin8(i * 4 + phase1);     // Onda lenta ampia
+        uint8_t wave2 = sin8(i * 8 - phase2);     // Onda media
+        uint8_t wave3 = sin8(i * 6 + phase3);     // Onda terza layer
+
+        // Combina le onde con peso diverso per movimento organico
+        uint16_t combined = (wave1 * 2 + wave2 + wave3) / 4;
+
+        // Range brightness più stretto per transizioni più dolci
+        uint8_t brightness = map(combined, 0, 255, 210, 255);
+
         _leds[i].nscale8(brightness);
         if (i + foldPoint < _numLeds) {
             _leds[i + foldPoint].nscale8(brightness);

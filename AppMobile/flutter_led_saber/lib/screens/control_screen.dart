@@ -9,6 +9,7 @@ import 'tabs/colors_tab.dart';
 import 'tabs/effects_tab.dart';
 import 'tabs/motion_tab.dart';
 import 'tabs/clock_tab.dart';
+import 'tabs/sounds_tab.dart';
 
 /// Schermata principale di controllo LED
 class ControlScreen extends StatefulWidget {
@@ -24,7 +25,7 @@ class _ControlScreenState extends State<ControlScreen> with SingleTickerProvider
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 4, vsync: this);
+    _tabController = TabController(length: 5, vsync: this);
   }
 
   @override
@@ -129,10 +130,12 @@ class _ControlScreenState extends State<ControlScreen> with SingleTickerProvider
                 TabBar(
                   controller: _tabController,
                   labelStyle: const TextStyle(fontSize: 11),
+                  isScrollable: true,
                   tabs: const [
                     Tab(icon: Icon(Icons.palette, size: 18), text: 'Colors'),
                     Tab(icon: Icon(Icons.auto_awesome, size: 18), text: 'Effects'),
                     Tab(icon: Icon(Icons.access_time, size: 18), text: 'Clock'),
+                    Tab(icon: Icon(Icons.volume_up, size: 18), text: 'Sounds'),
                     Tab(icon: Icon(Icons.motion_photos_on, size: 18), text: 'Motion'),
                   ],
                 ),
@@ -144,6 +147,7 @@ class _ControlScreenState extends State<ControlScreen> with SingleTickerProvider
                       ColorsTab(),
                       EffectsTab(),
                       ClockTab(),
+                      SoundsTab(),
                       MotionTab(),
                     ],
                   ),
@@ -193,10 +197,12 @@ class _ControlScreenState extends State<ControlScreen> with SingleTickerProvider
                 // TabBar
                 TabBar(
                   controller: _tabController,
+                  isScrollable: true,
                   tabs: const [
                     Tab(icon: Icon(Icons.palette), text: 'Colors'),
                     Tab(icon: Icon(Icons.auto_awesome), text: 'Effects'),
                     Tab(icon: Icon(Icons.access_time), text: 'Clock'),
+                    Tab(icon: Icon(Icons.volume_up), text: 'Sounds'),
                     Tab(icon: Icon(Icons.motion_photos_on), text: 'Motion'),
                   ],
                 ),
@@ -208,6 +214,7 @@ class _ControlScreenState extends State<ControlScreen> with SingleTickerProvider
                       ColorsTab(),
                       EffectsTab(),
                       ClockTab(),
+                      SoundsTab(),
                       MotionTab(),
                     ],
                   ),
