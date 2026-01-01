@@ -125,3 +125,12 @@ Successfully created esp32 image.
 👋 Completato!
 
 ```
+## qol
+- nell app , unire motion e motion on boot 
+
+- aggiungiere luminosita flash fisso durante motion capture regolabile tramite app  , rimuovere tutti i auto brightrness 
+
+- nell app rivedere la pagoina clock unendo gli effetti ore e secondi in modo coerente e piu user friendly, attualemente ci sno 10 effetti ora e i primi 5 sono separati in ore e minuti ma, nella realta quelle lancette  sono strettamente legate tra loro ,percio e meglio semplificare la ui  piuttosto.
+ 
+- rimuovere motion dagli effetti clock
+

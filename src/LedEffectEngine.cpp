@@ -3856,8 +3856,14 @@ void LedEffectEngine::renderChronoHours_OceanDepth(uint16_t foldPoint, uint8_t h
         oceanColor = blend(twilight, abyssal, progress);
     }
 
-    // Aggiungi movimento ondulatorio lento per simulare correnti marine
-    unsigned long slowWave = millis() / 1200;  // Molto lento, circa 1.2 secondi per ciclo
+    // Aggiungi movimento ondulatorio lento per simulare correnti marine.
+    // Nota: evitare `millis()/1200` diretto perché aggiorna la noise coordinate a "scatti" (1 step ogni 1.2s).
+    // Interpoliamo tra due campioni successivi per avere transizioni fluide mantenendo la stessa lentezza.
+    const uint32_t now = millis();
+    static constexpr uint16_t WAVE_STEP_MS = 1200;  // ~1.2s per step "logico"
+    const uint16_t waveT0 = (uint16_t)(now / WAVE_STEP_MS);
+    const uint16_t waveT1 = (uint16_t)(waveT0 + 1);
+    const uint8_t waveBlend = (uint8_t)(((now % WAVE_STEP_MS) * 255UL) / WAVE_STEP_MS);
 
     if (wellnessMode) {
         // WELLNESS: Gradiente profondità con onde sottili
@@ -3865,7 +3871,10 @@ void LedEffectEngine::renderChronoHours_OceanDepth(uint16_t foldPoint, uint8_t h
             float depthFactor = 1.0f - (i / (float)foldPoint) * 0.4f;
 
             // Aggiungi oscillazione sottile basata su noise per simulare correnti
-            uint8_t wave = inoise8(i * 20, slowWave);
+            uint16_t x = i * 20;
+            uint8_t wave0 = inoise8(x, waveT0);
+            uint8_t wave1 = inoise8(x, waveT1);
+            uint8_t wave = lerp8by8(wave0, wave1, waveBlend);
             uint8_t waveModulation = map(wave, 0, 255, 240, 255);
 
             CRGB pixelColor = oceanColor;
@@ -3878,7 +3887,10 @@ void LedEffectEngine::renderChronoHours_OceanDepth(uint16_t foldPoint, uint8_t h
         // STANDARD: Background + marker con transizioni smooth
         for (uint16_t i = 0; i < foldPoint; i++) {
             // Onde sottili sull'intero background
-            uint8_t wave = inoise8(i * 20, slowWave);
+            uint16_t x = i * 20;
+            uint8_t wave0 = inoise8(x, waveT0);
+            uint8_t wave1 = inoise8(x, waveT1);
+            uint8_t wave = lerp8by8(wave0, wave1, waveBlend);
             uint8_t bgBrightness = map(wave, 0, 255, 25, 40);
 
             CRGB pixelColor = oceanColor;
@@ -4090,12 +4102,14 @@ void LedEffectEngine::renderChronoMinutes_Breeze(uint16_t foldPoint, uint8_t min
 void LedEffectEngine::renderChronoMinutes_TideWave(uint16_t foldPoint, uint8_t minutes) {
     // TIDE WAVE: Onda marea verticale (periodo 45-60s)
     
-    unsigned long now = millis();
-    uint8_t timePhase = (now / 200) % 256;  // Molto lento
+    // Usa beat16/sin16 per avere fase continua (evita step ogni 200ms).
+    // ~1 BPM => ~60s per ciclo, coerente con il tema.
+    const uint16_t phase16 = beat16(1);
     
     for (uint16_t i = 0; i < foldPoint; i++) {
         // Onda verticale che simula luce penetrante
-        uint8_t wave = sin8(i * 4 + timePhase);
+        uint16_t angle = (uint16_t)(phase16 + (uint16_t)(i * 1024));  // 4 * 256
+        uint8_t wave = (uint16_t)(sin16(angle) + 32768) >> 8;
         uint8_t brightness = map(wave, 0, 255, 180, 255);
         
         _leds[i].nscale8(brightness);
@@ -4196,28 +4210,55 @@ void LedEffectEngine::renderWellnessFireflies(uint16_t foldPoint) {
 void LedEffectEngine::renderWellnessPlankton(uint16_t foldPoint) {
     // PLANKTON: Particelle che driftano lentamente con trail
     
-    unsigned long now = millis();
-    uint8_t timePhase = (now / 80) % 256;
-    
-    // 2-3 particelle plankton
+    const uint32_t now = millis();
+
+    if (foldPoint == 0 || _numLeds == 0) {
+        return;
+    }
+
+    // Un giro completo ~20.48s (256 * 80ms come la versione precedente), ma con posizione sub-pixel (Q8).
+    static constexpr uint32_t PERIOD_MS = 20480;
+    const uint32_t foldPointQ8 = ((uint32_t)foldPoint) << 8;
+
+    auto addSubpixelPair = [&](uint32_t posQ8, CRGB color) {
+        posQ8 %= foldPointQ8;
+        uint16_t pos = (uint16_t)(posQ8 >> 8);
+        uint8_t frac = (uint8_t)(posQ8 & 0xFF);
+
+        uint16_t posNext = (uint16_t)(pos + 1);
+        if (posNext >= foldPoint) {
+            posNext = 0;
+        }
+
+        CRGB c0 = color;
+        CRGB c1 = color;
+        c0.nscale8(255 - frac);
+        c1.nscale8(frac);
+
+        uint16_t ledA0 = pos;
+        uint16_t ledB0 = (_numLeds - 1) - pos;
+        _leds[ledA0] += c0;
+        _leds[ledB0] += c0;
+
+        uint16_t ledA1 = posNext;
+        uint16_t ledB1 = (_numLeds - 1) - posNext;
+        _leds[ledA1] += c1;
+        _leds[ledB1] += c1;
+    };
+
+    // 2 particelle plankton, sfalsate di mezzo periodo
     for (uint8_t p = 0; p < 2; p++) {
-        uint16_t pos = ((timePhase + p * 128) % 256);
-        pos = map(pos, 0, 256, 0, foldPoint);
-        
-        CRGB planktonColor = CHSV(160 + p * 20, 255, 150);  // Cyan-blu
-        
-        // Trail corto
-        for (int8_t trail = 0; trail < 3; trail++) {
-            int16_t tPos = pos - trail;
-            if (tPos < 0) tPos += foldPoint;
-            
+        uint32_t t = (now + (p * (PERIOD_MS / 2))) % PERIOD_MS;
+        uint32_t posQ8 = (t * foldPointQ8) / PERIOD_MS;
+
+        CRGB planktonColor = CHSV((uint8_t)(160 + p * 20), 255, 150);  // Cyan-blu
+
+        // Trail più morbido: più campioni, distanza 1 LED, con subpixel blending
+        for (uint8_t trail = 0; trail < 6; trail++) {
+            uint32_t sampleQ8 = (posQ8 + foldPointQ8 - ((uint32_t)trail << 8)) % foldPointQ8;
             CRGB trailColor = planktonColor;
-            trailColor.nscale8(255 - trail * 80);
-            
-            uint16_t physIdx = tPos < foldPoint ? tPos : (2 * foldPoint - tPos - 1);
-            if (physIdx < _numLeds) {
-                _leds[physIdx] += trailColor;
-            }
+            trailColor.nscale8(255 - trail * 35);
+            addSubpixelPair(sampleQ8, trailColor);
         }
     }
 }
